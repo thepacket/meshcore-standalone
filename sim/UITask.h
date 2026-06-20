@@ -8,6 +8,7 @@
 #include <helpers/ui/UIScreen.h>
 #include "SettingsModel.h"
 #include "SettingsScreen.h"
+#include "PacketMonitorScreen.h"
 #include "SimDisplay.h"
 #include <string.h>
 #include <SDL.h>
@@ -16,6 +17,7 @@ class UITask {
   DisplayDriver* _disp;
   SettingsListScreen* _list;
   SettingEditScreen* _edit;
+  PacketMonitorScreen* _pkt;
   UIScreen* _curr;
   char _alert[80];
   Uint32 _alert_expiry;
@@ -25,6 +27,7 @@ public:
     _alert[0] = 0;
     _list = new SettingsListScreen(this);
     _edit = new SettingEditScreen(this);
+    _pkt = new PacketMonitorScreen(this);
     _list->showRoot();
     _curr = _list;
   }
@@ -32,8 +35,15 @@ public:
   DisplayDriver* getDisplay() { return _disp; }
   void gotoHomeScreen() { _list->showRoot(); _curr = _list; }
   void gotoSettings() { _list->showRoot(); _curr = _list; }
+  void gotoPacketMonitor() { _pkt->reset(); _curr = _pkt; }
   void editSetting(const Setting* s) { _edit->begin(s, /*use_osk=*/true); _curr = _edit; }
   void closeSettingEdit() { _curr = _list; }
+
+  // sim helpers to preview the packet monitor with fake traffic
+  void simAddRaw(uint32_t now, float snr, float rssi, const uint8_t* raw, int len) {
+    _pkt->addRaw(now, snr, rssi, raw, len);
+  }
+  void simSetPacketNow(uint32_t now) { _pkt->setNow(now); }
   void showAlert(const char* t, int ms) {
     strncpy(_alert, t, sizeof(_alert) - 1);
     _alert[sizeof(_alert) - 1] = 0;

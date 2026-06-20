@@ -97,6 +97,7 @@ class HomeScreen : public UIScreen {
     SENSORS,
 #endif
     SETTINGS,
+    PACKETS,
     SHUTDOWN,
     Count    // keep as last
   };
@@ -407,6 +408,12 @@ public:
       display.drawTextCentered(display.width() / 2, 24, "Settings");
       display.setTextSize(1);
       display.drawTextCentered(display.width() / 2, 64 - 11, "open: " PRESS_LABEL);
+    } else if (_page == HomePage::PACKETS) {
+      display.setColor(DisplayDriver::GREEN);
+      display.setTextSize(2);
+      display.drawTextCentered(display.width() / 2, 24, "Packets");
+      display.setTextSize(1);
+      display.drawTextCentered(display.width() / 2, 64 - 11, "monitor: " PRESS_LABEL);
     } else if (_page == HomePage::SHUTDOWN) {
       display.setColor(DisplayDriver::GREEN);
       display.setTextSize(1);
@@ -464,6 +471,10 @@ public:
 #endif
     if (c == KEY_ENTER && _page == HomePage::SETTINGS) {
       _task->gotoSettings();
+      return true;
+    }
+    if (c == KEY_ENTER && _page == HomePage::PACKETS) {
+      _task->gotoPacketMonitor();
       return true;
     }
     if (c == KEY_ENTER && _page == HomePage::SHUTDOWN) {
@@ -610,6 +621,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   msg_preview = new MsgPreviewScreen(this, &rtc_clock);
   settings_list = new SettingsListScreen(this);
   setting_edit = new SettingEditScreen(this);
+  packet_monitor = new PacketMonitorScreen(this);
   setCurrScreen(splash);
 }
 
@@ -701,6 +713,15 @@ void UITask::setCurrScreen(UIScreen* c) {
 void UITask::gotoSettings() {
   settings_list->showRoot();
   setCurrScreen(settings_list);
+}
+
+void UITask::gotoPacketMonitor() {
+  packet_monitor->reset();
+  setCurrScreen(packet_monitor);
+}
+
+void UITask::onRawRx(float snr, float rssi, const uint8_t* raw, int len) {
+  packet_monitor->addRaw(rtc_clock.getCurrentTime(), snr, rssi, raw, len);
 }
 
 void UITask::editSetting(const Setting* s) {
@@ -889,6 +910,7 @@ void UITask::loop() {
 #endif
 
   if (curr) curr->poll();
+  packet_monitor->setNow(rtc_clock.getCurrentTime());
 
   if (_display != NULL && _display->isOn()) {
     if (millis() >= _next_refresh && curr) {

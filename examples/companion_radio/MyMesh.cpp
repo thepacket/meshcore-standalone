@@ -291,6 +291,9 @@ void MyMesh::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
 
     _serial->writeFrame(out_frame, i);
   }
+#ifdef DISPLAY_CLASS
+  if (_ui) _ui->onRawRx(snr, rssi, raw, len);   // feed the on-device packet monitor
+#endif
 }
 
 bool MyMesh::isAutoAddEnabled() const {

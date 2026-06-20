@@ -58,6 +58,22 @@ static int run_shots(TTF_Font* f1, TTF_Font* f2) {
   ui.onKey(KEY_DOWN); ui.onKey(KEY_ENTER);          // "Frequency (MHz)" -> keyboard entry (with '.')
   ui.render(); save_ppm(ren, "sim/shots/04_keyboard.ppm");
 
+  // packet monitor: seed some fake received packets (oldest first so newest is on top)
+  const uint32_t NOW = 1000;
+  uint8_t adv[]  = {0x11, 0x00, /*payload*/ 1,2,3,4,5,6,7,8,9,10};                 // ADVERT FLOOD, 0 hops
+  uint8_t trc[]  = {0x25, 0x04, 9,9,9,9, /*payload*/ 1,2,3,4,5};                   // TRACE FLOOD, 4 hops
+  uint8_t ack[]  = {0x0E, 0x03, 0xA1,0xB2,0xC3, /*payload*/ 1,2};                  // ACK DIRECT, 3 hops
+  uint8_t grp[]  = {0x14, 0x05,0x00,0x00,0x00, 0x01, 0x77, /*payload*/ 1,2,3,4,5,6,7,8}; // GRP_TXT T-FLOOD, tc, 1 hop
+  uint8_t txt[]  = {0x09, 0x02, 0x11,0x22, /*payload*/ 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}; // TXT FLOOD, 2 hops
+  ui.simAddRaw(NOW - 400, 4.75f, -99, adv, sizeof(adv));
+  ui.simAddRaw(NOW - 140, 11.0f, -70, trc, sizeof(trc));
+  ui.simAddRaw(NOW - 65,  2.5f, -105, ack, sizeof(ack));
+  ui.simAddRaw(NOW - 17,  9.25f, -78, grp, sizeof(grp));
+  ui.simAddRaw(NOW - 3,   6.0f,  -92, txt, sizeof(txt));
+  ui.simSetPacketNow(NOW);
+  ui.gotoPacketMonitor();
+  ui.render(); save_ppm(ren, "sim/shots/05_packets.ppm");
+
   SDL_DestroyRenderer(ren);
   SDL_FreeSurface(surf);
   return 0;

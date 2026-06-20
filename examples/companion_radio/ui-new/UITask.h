@@ -22,6 +22,7 @@
 #include "../AbstractUITask.h"
 #include "../NodePrefs.h"
 #include "SettingsScreen.h"
+#include "PacketMonitorScreen.h"
 
 class UITask : public AbstractUITask {
   DisplayDriver* _display;
@@ -55,6 +56,7 @@ class UITask : public AbstractUITask {
   UIScreen* curr;
   SettingsListScreen* settings_list;
   SettingEditScreen*  setting_edit;
+  PacketMonitorScreen* packet_monitor;
 
   // touch + keyboard polling state
   unsigned long next_touch_check = 0;
@@ -85,6 +87,7 @@ public:
 
   void gotoHomeScreen() { setCurrScreen(home); }
   void gotoSettings();
+  void gotoPacketMonitor();
   void editSetting(const Setting* s);
   void closeSettingEdit();
   DisplayDriver* getDisplay() { return _display; }
@@ -110,6 +113,7 @@ public:
   void msgRead(int msgcount) override;
   void newMsg(uint8_t path_len, const char* from_name, const char* text, int msgcount) override;
   void notify(UIEventType t = UIEventType::none) override;
+  void onRawRx(float snr, float rssi, const uint8_t* raw, int len) override;
   void loop() override;
 
   void shutdown(bool restart = false);
