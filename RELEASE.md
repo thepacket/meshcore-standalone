@@ -1,15 +1,17 @@
-# Releasing Firmware
+# Releasing
 
-GitHub Actions is set up to automatically build and release firmware.
+> ⚠️ **Early development.** There are no releases yet, and there is no automated
+> release pipeline. (The upstream MeshCore firmware-build/release GitHub Actions
+> were removed from this fork.)
 
-It will automatically build firmware when one of the following tag formats are pushed.
+For now, builds are produced manually with PlatformIO, e.g.:
 
-- `companion-v1.0.0`
-- `repeater-v1.0.0`
-- `room-server-v1.0.0`
+```sh
+pio run -e LilyGo_TDeck_companion_radio_usb
+pio run -e LilyGo_TDeck_companion_radio_ble
+```
 
-> NOTE: replace `v1.0.0` with the version you want to release as.
+The desktop UI simulator is built separately — see [`sim/README.md`](sim/README.md).
 
-- You can push one, or more tags on the same commit, and they will all build separately.
-- Once the firmware has been built, a new (draft) GitHub Release will be created.
-- You will need to update the release notes, and publish it.
+A tagged-release process may be added later once the project stabilizes and has
+been validated on hardware.

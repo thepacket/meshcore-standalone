@@ -1,8 +1,13 @@
 # Contributing
 
+> ⚠️ **Early development.** This project is at a very early stage and changes
+> frequently.
+
 **meshcore-standalone** is an independent, personal derivative of
 [MeshCore](https://github.com/meshcore-dev/MeshCore), maintained by
-[@thepacket](https://github.com/thepacket).
+[@thepacket](https://github.com/thepacket). It adds **only a standalone on-device
+UI**; all credit for the underlying MeshCore mesh stack and firmware belongs to the
+upstream project.
 
 ## Pull requests are not accepted
 

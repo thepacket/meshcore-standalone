@@ -1,14 +1,22 @@
 # Security Policy
 
+> ⚠️ **Early development.** This is an independent, early-stage derivative of
+> [MeshCore](https://github.com/meshcore-dev/MeshCore). It has no releases yet and
+> is not validated on hardware. There are no security guarantees at this stage.
+
 ## Supported Versions
 
-Security fixes are applied to the latest release only. We do not backport
-fixes to older versions.
+No releases yet — only the latest `main` is "supported", on a best-effort basis.
 
-| Version | Supported |
-|---------|-----------|
-| 1.15+ | ✅ |
-| <1.15 | ❌ |
+## Where to report
+
+This project adds **only a standalone on-device UI** on top of MeshCore. Please
+route reports accordingly:
+
+- **Mesh stack / protocol / routing / crypto / companion firmware** (i.e. upstream
+  MeshCore code): report to the **upstream MeshCore project**, not here.
+- **The standalone UI layer added by this fork** (the settings UI, input handling,
+  the desktop simulator): report here.
 
 ## Reporting a Vulnerability
 
@@ -42,16 +50,21 @@ discretion.
 
 ## Scope
 
-In scope:
+In scope (this fork's additions):
+- Memory corruption or crashes in the standalone UI code (settings screens, input
+  handling, the on-screen keyboard, the desktop simulator)
+- A UI flow that applies an unsafe/unintended configuration to the device
+
+Out of scope (report to upstream MeshCore instead):
 - Remote code execution, memory corruption, or denial-of-service via crafted
   radio packets
 - Authentication or encryption bypasses
 - Vulnerabilities in the packet routing or path handling logic
 
-Out of scope:
+Also out of scope:
 - Physical access attacks (e.g., JTAG, UART extraction of keys)
 - Regulatory compliance (duty cycle, frequency restrictions)
 - Jamming or other physical-layer radio interference
-- Issues in third-party libraries (RadioLib, Crypto, etc.) — report those
-  upstream
+- Issues in third-party libraries (RadioLib, Crypto, LovyanGFX, etc.) — report
+  those upstream
 - "Best practice" suggestions without a demonstrated attack path

@@ -1,4 +1,68 @@
-## About MeshCore
+# meshcore-standalone
+
+> ⚠️ **Early development.** This project is at a very early stage. Expect rough
+> edges, breaking changes, and incomplete features, and note that it has **not yet
+> been validated on physical hardware**. Use at your own risk.
+
+A standalone, **on-device UI** for [MeshCore](https://github.com/meshcore-dev/MeshCore)
+companion devices — starting with the **LilyGo T-Deck Plus** — so the radio can be
+operated directly on the device, **without a phone or web app**.
+
+## Mission
+
+MeshCore's companion firmware is normally a near-stateless radio that you drive
+from a phone/web app. The mission of **meshcore-standalone** is to make a MeshCore
+device **self-sufficient**: a **touch-first** on-device interface to configure and
+(in time) use the radio with no external app — while staying **portable** across
+companion devices and faithful to MeshCore's underlying protocol.
+
+- **Standalone** — full control of the device from its own screen.
+- **Touch-first** — designed for the T-Deck Plus touchscreen, with keyboard and
+  trackball as alternatives; degrades to other input methods on other boards.
+- **Portable** — built on MeshCore's `DisplayDriver`/`UIScreen` abstraction so the
+  UI is not tied to one device.
+- **Open** — MIT licensed.
+
+## Status
+
+- ✅ **Settings UI** — full on-device configuration (radio, contacts, message,
+  position, telemetry, device, etc.). Compiles for the T-Deck (USB/BLE) and other boards.
+- 🧪 **Desktop simulator** — exercise the real UI on your computer without hardware
+  (see [`sim/`](sim/README.md)).
+- ⏳ **On-device messaging** (channels + direct messages) — planned next milestone.
+- ⏳ **Hardware validation** on the T-Deck Plus — pending the device.
+
+## Try it without hardware
+
+```sh
+brew install sdl2 sdl2_ttf   # macOS
+./sim/build.sh
+./sim/uisim                  # mouse = touch, arrows/Enter/Esc/typing = device input
+```
+
+## Credits & relationship to MeshCore
+
+This is an **independent derivative** of [MeshCore](https://github.com/meshcore-dev/MeshCore)
+by meshcore-dev (Scott Powell / rippleradios.com and contributors). **All credit for
+the mesh stack, the companion firmware, and the protocol belongs to them** — this
+project claims authorship of **only the standalone on-device UI layer and the desktop
+simulator** added on top.
+
+It is **not affiliated with or endorsed by** the MeshCore project, does **not** submit
+changes upstream, and does **not** accept pull requests (see [CONTRIBUTING.md](CONTRIBUTING.md)).
+The upstream repository is tracked read-only so this fork can pull in future MeshCore updates.
+
+## License
+
+MIT — see [`license.txt`](license.txt). MeshCore's original copyright is retained;
+this project's copyright covers only the UI additions described above.
+
+---
+
+## About MeshCore (upstream project)
+
+> The section below is from the upstream MeshCore project, included here for context.
+> It describes MeshCore itself, not the additions made by meshcore-standalone.
 
 MeshCore is a lightweight, portable C++ library that enables multi-hop packet routing for embedded projects using LoRa and other packet radios. It is designed for developers who want to create resilient, decentralized communication networks that work without the internet.
 
