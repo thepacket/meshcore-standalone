@@ -12,10 +12,10 @@
 struct SimState {
   char  node_name[32] = "MyNode";
   int   advert_loc = 0;          // 0 hidden / 1 shared
-  float freq = 915.0f;           // MHz
-  float bw = 250.0f;             // kHz
-  int   sf = 10, cr = 5;
-  int   tx = 20;
+  float freq = 910.525f;         // MHz  (USA/Canada preset default)
+  float bw = 62.5f;              // kHz
+  int   sf = 7, cr = 5;
+  int   tx = 22;
   int   client_repeat = 0;
   int   manual_add = 0;
   int   autoadd = 0x1E;          // chat|repeater|room|sensor
