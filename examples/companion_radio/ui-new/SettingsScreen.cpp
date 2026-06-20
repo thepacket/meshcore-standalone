@@ -65,12 +65,19 @@ int SettingsListScreen::render(DisplayDriver& d) {
   if (_scroll_top > n - vr) _scroll_top = (n > vr) ? n - vr : 0;
   if (_scroll_top < 0) _scroll_top = 0;
 
-  // header
+  // header: title, with a back chevron when inside a category (built as one
+  // string -- some drivers' print() emits a newline, so don't chain prints)
+  char hdr[44];
+  if (_group) snprintf(hdr, sizeof(hdr), "< %s", _group->title);
+  else        snprintf(hdr, sizeof(hdr), "Settings");
   d.setColor(DisplayDriver::GREEN);
   d.setCursor(2, 2);
-  d.print(_group ? _group->title : "Settings");
+  d.print(hdr);
   d.setColor(DisplayDriver::LIGHT);
   d.drawRect(0, HEADER_H - 2, d.width(), 1);
+
+  bool overflow = n > vr;
+  int right = d.width() - (overflow ? 8 : 3);  // leave room for the scrollbar
 
   char namef[48], val[40], valf[44];
   for (int row = 0; row < vr; row++) {
@@ -86,22 +93,30 @@ int SettingsListScreen::render(DisplayDriver& d) {
     d.setColor(selected ? DisplayDriver::DARK : DisplayDriver::LIGHT);
     if (_group) {
       const Setting& s = _group->items[idx];
-      d.translateUTF8ToBlocks(namef, s.label, sizeof(namef));
-      d.setCursor(3, ty);
-      d.print(namef);
-      if (s.type == ST_ACTION) {
-        strcpy(val, ">");
-      } else {
-        formatValue(s, val, sizeof(val));
-      }
+      if (s.type == ST_ACTION) strcpy(val, ">");
+      else formatValue(s, val, sizeof(val));
       d.translateUTF8ToBlocks(valf, val, sizeof(valf));
-      d.drawTextRightAlign(d.width() - 3, ty, valf);
+      int vw = d.getTextWidth(valf);
+      d.drawTextRightAlign(right, ty, valf);
+      d.translateUTF8ToBlocks(namef, s.label, sizeof(namef));
+      d.drawTextEllipsized(3, ty, right - vw - 6, namef);
     } else {
       d.translateUTF8ToBlocks(namef, SETTINGS_ROOT[idx].title, sizeof(namef));
-      d.setCursor(3, ty);
-      d.print(namef);
-      d.drawTextRightAlign(d.width() - 3, ty, ">");
+      d.drawTextEllipsized(3, ty, right - 14, namef);
+      d.drawTextRightAlign(right, ty, ">");
     }
+  }
+
+  // scrollbar when the list is taller than the viewport
+  if (overflow) {
+    int trackX = d.width() - 4, trackY = HEADER_H, trackH = vr * rh;
+    d.setColor(DisplayDriver::LIGHT);
+    d.drawRect(trackX, trackY, 2, trackH);
+    int thumbH = trackH * vr / n;
+    if (thumbH < 6) thumbH = 6;
+    int denom = (n - vr) > 0 ? (n - vr) : 1;
+    int thumbY = trackY + (trackH - thumbH) * _scroll_top / denom;
+    d.fillRect(trackX, thumbY, 2, thumbH);
   }
   return 3000;
 }
@@ -332,6 +347,34 @@ int SettingEditScreen::render(DisplayDriver& d) {
   d.setTextSize(2);
   d.drawTextCentered(W / 2, (int)(H * 0.24f), val);
   d.setTextSize(1);
+
+  // value/range bar for numeric settings (only where there's vertical room)
+  if ((_s->type == ST_INT || _s->type == ST_FLOAT) && H >= 160) {
+    float frac;
+    if (_s->type == ST_INT) {
+      float span = (float)(_s->imax - _s->imin);
+      frac = span > 0 ? (float)(_ival - _s->imin) / span : 0;
+    } else {
+      float span = _s->fmax - _s->fmin;
+      frac = span > 0 ? (_fval - _s->fmin) / span : 0;
+    }
+    if (frac < 0) frac = 0;
+    if (frac > 1) frac = 1;
+    int barW = (int)(W * 0.7f), barX = (W - barW) / 2, barY = (int)(H * 0.34f), barH = 5;
+    d.setColor(DisplayDriver::LIGHT);
+    d.drawRect(barX, barY, barW, barH);
+    d.fillRect(barX, barY, (int)(barW * frac), barH);
+    char lo[14], hi[14];
+    if (_s->type == ST_INT) {
+      snprintf(lo, sizeof(lo), "%ld", (long)_s->imin);
+      snprintf(hi, sizeof(hi), "%ld", (long)_s->imax);
+    } else {
+      snprintf(lo, sizeof(lo), "%g", (double)_s->fmin);
+      snprintf(hi, sizeof(hi), "%g", (double)_s->fmax);
+    }
+    d.drawTextLeftAlign(barX, barY + barH + 3, lo);
+    d.drawTextRightAlign(barX + barW, barY + barH + 3, hi);
+  }
 
   d.setColor(DisplayDriver::LIGHT);
   d.drawRect(8, by, bw, bh);
