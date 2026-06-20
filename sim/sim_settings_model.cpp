@@ -69,8 +69,9 @@ static bool set_preset(int32_t idx) {
 }
 
 // ---- Radio ----
+static bool freqAllowed(float m) { return (m >= 902.0f && m <= 928.0f) || (m >= 869.40f && m <= 869.65f); }
 static const char* get_freq() { static char b[12]; snprintf(b, sizeof(b), "%g", S.freq); return b; }
-static bool set_freq(const char* s) { float v = atof(s); if (v < 150 || v > 960) return false; S.freq = v; return true; }
+static bool set_freq(const char* s) { float v = atof(s); if (!freqAllowed(v)) return false; S.freq = v; return true; }
 static const EnumOpt OPT_BW[] = {
   {"7.8", 7800}, {"10.4", 10400}, {"15.6", 15600}, {"20.8", 20800}, {"31.25", 31250},
   {"41.7", 41700}, {"62.5", 62500}, {"125", 125000}, {"250", 250000}, {"500", 500000},

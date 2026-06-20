@@ -63,14 +63,20 @@ static bool set_preset(int32_t idx) {
 
 // ---------------- Radio ----------------
 // Frequency is typed on the keyboard (it needs decimals), not stepped with +/-.
+// Allowed frequency bands (MHz). Extend as more regions are supported.
+static bool freqAllowed(float mhz) {
+  return (mhz >= 902.0f && mhz <= 928.0f) ||      // 915 MHz ISM band
+         (mhz >= 869.40f && mhz <= 869.65f);      // EU 869 MHz band
+}
 static const char* get_freq() {
   static char b[12];
   snprintf(b, sizeof(b), "%g", P()->freq);
   return b;
 }
 static bool set_freq(const char* s) {
-  NodePrefs* p = P();
   float mhz = atof(s);
+  if (!freqAllowed(mhz)) return false;
+  NodePrefs* p = P();
   return the_mesh.setRadioParams((uint32_t)lroundf(mhz * 1000.0f), (uint32_t)lroundf(p->bw * 1000.0f),
                                  p->sf, p->cr, p->client_repeat);
 }
