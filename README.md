@@ -32,6 +32,8 @@ companion devices and faithful to MeshCore's underlying protocol.
 - ⏳ **On-device messaging** (channels + direct messages) — planned next milestone.
 - ⏳ **Hardware validation** on the T-Deck Plus — pending the device.
 
+See [ROADMAP.md](ROADMAP.md) for what's planned (messaging → persistence → maps).
+
 ## Try it without hardware
 
 ```sh
