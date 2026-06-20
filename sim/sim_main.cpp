@@ -53,7 +53,7 @@ static int run_shots(TTF_Font* f1, TTF_Font* f2) {
   ui.render(); save_ppm(ren, "sim/shots/01_root.ppm");
   ui.onKey(KEY_DOWN); ui.onKey(KEY_ENTER);          // open "Radio"
   ui.render(); save_ppm(ren, "sim/shots/02_radio.ppm");
-  ui.onKey(KEY_DOWN); ui.onKey(KEY_DOWN); ui.onKey(KEY_ENTER);  // edit "Spread factor"
+  ui.onKey(KEY_ENTER);                               // edit "Preset" (first row)
   ui.render(); save_ppm(ren, "sim/shots/03_edit.ppm");
   ui.onKey(KEY_CANCEL); ui.onKey(KEY_CANCEL);       // back to root
   ui.onKey(KEY_ENTER);                               // open "Public info"

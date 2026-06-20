@@ -32,6 +32,34 @@ static const Setting GRP_PUBLIC[] = {
   SET_ACTION("Send advert (flood)", act_advert_flood),
 };
 
+// ---------------- Radio presets ----------------
+// Region frequency plans. Add a row + a matching OPT_PRESET entry to extend.
+const RadioPreset RADIO_PRESETS[] = {
+  {"USA/Canada", 910.525f, 62.5f, 7, 5},
+  {"EU/UK",      869.618f, 62.5f, 8, 8},
+};
+const uint8_t RADIO_PRESETS_COUNT = sizeof(RADIO_PRESETS) / sizeof(RADIO_PRESETS[0]);
+
+// ENUM options: "Custom" (-1) plus one per preset (value = index). Keep in sync.
+static const EnumOpt OPT_PRESET[] = {
+  {"Custom", -1}, {"USA/Canada", 0}, {"EU/UK", 1},
+};
+static int32_t get_preset() {
+  NodePrefs* p = P();
+  for (uint8_t i = 0; i < RADIO_PRESETS_COUNT; i++) {
+    const RadioPreset& r = RADIO_PRESETS[i];
+    if (fabsf(p->freq - r.freq) < 0.01f && fabsf(p->bw - r.bw) < 0.01f && p->sf == r.sf && p->cr == r.cr)
+      return i;
+  }
+  return -1;  // no match -> Custom
+}
+static bool set_preset(int32_t idx) {
+  if (idx < 0 || idx >= RADIO_PRESETS_COUNT) return true;  // "Custom" -> no-op
+  const RadioPreset& r = RADIO_PRESETS[idx];
+  return the_mesh.setRadioParams((uint32_t)lroundf(r.freq * 1000.0f), (uint32_t)lroundf(r.bw * 1000.0f),
+                                 r.sf, r.cr, P()->client_repeat);
+}
+
 // ---------------- Radio ----------------
 static float get_freq() { return P()->freq; }
 static bool set_freq(float mhz) {
@@ -73,6 +101,7 @@ static bool set_repeat(int32_t v) {
 }
 
 static const Setting GRP_RADIO[] = {
+  SET_ENUM("Preset", get_preset, set_preset, OPT_PRESET, 3),
   SET_FLOAT("Frequency", get_freq, set_freq, 150.0f, 960.0f, 0.125f, "MHz"),
   SET_ENUM ("Bandwidth", get_bw, set_bw, OPT_BW, 10),
   SET_INT  ("Spread factor", get_sf, set_sf, 5, 12, 1, ""),

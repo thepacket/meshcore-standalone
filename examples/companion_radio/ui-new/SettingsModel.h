@@ -67,6 +67,18 @@ struct SettingsGroup {
 #define SET_INFO(label, get) \
   { label, ST_INFO, nullptr,nullptr, nullptr,nullptr, get,nullptr, nullptr, nullptr,0, 0,0,0, 0,0,0, nullptr }
 
+// Radio frequency-plan presets (region settings). Selecting one applies
+// freq/bw/sf/cr together. Values are regulatory — extend with care.
+struct RadioPreset {
+  const char* name;
+  float   freq;  // MHz
+  float   bw;    // kHz
+  uint8_t sf;
+  uint8_t cr;
+};
+extern const RadioPreset RADIO_PRESETS[];
+extern const uint8_t RADIO_PRESETS_COUNT;
+
 // The root list of categories. Defined in SettingsModel.cpp.
 extern const SettingsGroup SETTINGS_ROOT[];
 extern const uint8_t SETTINGS_ROOT_COUNT;

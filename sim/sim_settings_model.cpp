@@ -46,6 +46,28 @@ static const Setting GRP_PUBLIC[] = {
   SET_ACTION("Send advert (flood)", act_advert_flood),
 };
 
+// ---- Radio presets ----
+const RadioPreset RADIO_PRESETS[] = {
+  {"USA/Canada", 910.525f, 62.5f, 7, 5},
+  {"EU/UK",      869.618f, 62.5f, 8, 8},
+};
+const uint8_t RADIO_PRESETS_COUNT = sizeof(RADIO_PRESETS) / sizeof(RADIO_PRESETS[0]);
+static const EnumOpt OPT_PRESET[] = { {"Custom", -1}, {"USA/Canada", 0}, {"EU/UK", 1} };
+static int32_t get_preset() {
+  for (uint8_t i = 0; i < RADIO_PRESETS_COUNT; i++) {
+    const RadioPreset& r = RADIO_PRESETS[i];
+    if (fabsf(S.freq - r.freq) < 0.01f && fabsf(S.bw - r.bw) < 0.01f && S.sf == r.sf && S.cr == r.cr)
+      return i;
+  }
+  return -1;
+}
+static bool set_preset(int32_t idx) {
+  if (idx < 0 || idx >= RADIO_PRESETS_COUNT) return true;
+  const RadioPreset& r = RADIO_PRESETS[idx];
+  S.freq = r.freq; S.bw = r.bw; S.sf = r.sf; S.cr = r.cr;
+  return true;
+}
+
 // ---- Radio ----
 static float get_freq() { return S.freq; }
 static bool set_freq(float v) { if (v < 150 || v > 960) return false; S.freq = v; return true; }
@@ -64,6 +86,7 @@ static bool set_tx(int32_t v) { S.tx = v; return true; }
 static int32_t get_rep() { return S.client_repeat; }
 static bool set_rep(int32_t v) { S.client_repeat = v ? 1 : 0; return true; }
 static const Setting GRP_RADIO[] = {
+  SET_ENUM("Preset", get_preset, set_preset, OPT_PRESET, 3),
   SET_FLOAT("Frequency", get_freq, set_freq, 150.0f, 960.0f, 0.125f, "MHz"),
   SET_ENUM("Bandwidth", get_bw, set_bw, OPT_BW, 10),
   SET_INT("Spread factor", get_sf, set_sf, 5, 12, 1, ""),
