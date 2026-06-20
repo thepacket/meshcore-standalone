@@ -210,8 +210,20 @@ void SettingsListScreen::activate(int idx) {
     if (s->setInt) s->setInt(s->getInt() ? 0 : 1);
     return;
   }
+  if (s->type == ST_ENUM && s->num_opts > 0) {
+    // cycle to the next option in place (no editor popup); options with a
+    // negative value (e.g. a "Custom" sentinel) are skipped while cycling.
+    int cur = 0;
+    int32_t v = s->getInt ? s->getInt() : 0;
+    for (int i = 0; i < s->num_opts; i++)
+      if (s->opts[i].value == v) { cur = i; break; }
+    int nxt = cur, guard = 0;
+    do { nxt = (nxt + 1) % s->num_opts; guard++; } while (s->opts[nxt].value < 0 && guard <= s->num_opts);
+    if (s->setInt) s->setInt(s->opts[nxt].value);
+    return;
+  }
   if (s->type == ST_INFO) return;
-  _task->editSetting(s);
+  _task->editSetting(s);  // INT / FLOAT / STRING / ACTION
 }
 
 bool SettingsListScreen::handleInput(char c) {
