@@ -18,8 +18,19 @@ MicroNMEALocationProvider gps(Serial1, &rtc_clock);
 EnvironmentSensorManager sensors(gps);
 
 #ifdef DISPLAY_CLASS
-  DISPLAY_CLASS display;
+  DISPLAY_IMPL display;
   MomentaryButton user_btn(PIN_USER_BTN, 1000, true);
+  #if defined(UI_HAS_TRACKBALL)
+    // trackball directions: active-low momentary pulses with internal pull-up.
+    // GPIO numbers vary by board revision -- confirm/swap on hardware.
+    MomentaryButton trackball_up(PIN_TRACKBALL_UP, 1000, true, true);
+    MomentaryButton trackball_down(PIN_TRACKBALL_DOWN, 1000, true, true);
+    MomentaryButton trackball_left(PIN_TRACKBALL_LEFT, 1000, true, true);
+    MomentaryButton trackball_right(PIN_TRACKBALL_RIGHT, 1000, true, true);
+  #endif
+  #if defined(UI_HAS_KEYBOARD)
+    TDeckKeyboard tdeck_keyboard;
+  #endif
 #endif
 
 bool radio_init() {

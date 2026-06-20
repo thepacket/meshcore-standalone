@@ -21,6 +21,7 @@
 
 #include "../AbstractUITask.h"
 #include "../NodePrefs.h"
+#include "SettingsScreen.h"
 
 class UITask : public AbstractUITask {
   DisplayDriver* _display;
@@ -52,8 +53,18 @@ class UITask : public AbstractUITask {
   UIScreen* home;
   UIScreen* msg_preview;
   UIScreen* curr;
+  SettingsListScreen* settings_list;
+  SettingEditScreen*  setting_edit;
+
+  // touch + keyboard polling state
+  unsigned long next_touch_check = 0;
+  unsigned long next_kb_check = 0;
+  bool _touching = false;
+  int _touch_x = 0, _touch_y = 0;
 
   void userLedHandler();
+  void pollTouch();
+  void pollKeyboard(char& c);
 
   // Button action handlers
   char checkDisplayOn(char c);
@@ -73,6 +84,10 @@ public:
   void begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* node_prefs);
 
   void gotoHomeScreen() { setCurrScreen(home); }
+  void gotoSettings();
+  void editSetting(const Setting* s);
+  void closeSettingEdit();
+  DisplayDriver* getDisplay() { return _display; }
   void showAlert(const char* text, int duration_millis);
   int  getMsgCount() const { return _msgcount; }
   bool hasDisplay() const { return _display != NULL; }

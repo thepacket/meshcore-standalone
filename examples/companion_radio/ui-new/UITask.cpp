@@ -96,6 +96,7 @@ class HomeScreen : public UIScreen {
 #if UI_SENSORS_PAGE == 1
     SENSORS,
 #endif
+    SETTINGS,
     SHUTDOWN,
     Count    // keep as last
   };
@@ -400,6 +401,12 @@ public:
       if (sensors_scroll) sensors_scroll_offset = (sensors_scroll_offset+1)%sensors_nb;
       else sensors_scroll_offset = 0;
 #endif
+    } else if (_page == HomePage::SETTINGS) {
+      display.setColor(DisplayDriver::GREEN);
+      display.setTextSize(2);
+      display.drawTextCentered(display.width() / 2, 24, "Settings");
+      display.setTextSize(1);
+      display.drawTextCentered(display.width() / 2, 64 - 11, "open: " PRESS_LABEL);
     } else if (_page == HomePage::SHUTDOWN) {
       display.setColor(DisplayDriver::GREEN);
       display.setTextSize(1);
@@ -455,6 +462,10 @@ public:
       return true;
     }
 #endif
+    if (c == KEY_ENTER && _page == HomePage::SETTINGS) {
+      _task->gotoSettings();
+      return true;
+    }
     if (c == KEY_ENTER && _page == HomePage::SHUTDOWN) {
       _shutdown_init = true;  // need to wait for button to be released
       return true;
@@ -565,6 +576,15 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 #if defined(PIN_USER_BTN_ANA)
   analog_btn.begin();
 #endif
+#if UI_HAS_TRACKBALL
+  trackball_up.begin();
+  trackball_down.begin();
+  trackball_left.begin();
+  trackball_right.begin();
+#endif
+#if UI_HAS_KEYBOARD
+  tdeck_keyboard.begin();
+#endif
 
   _node_prefs = node_prefs;
 
@@ -588,6 +608,8 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   splash = new SplashScreen(this);
   home = new HomeScreen(this, &rtc_clock, sensors, node_prefs);
   msg_preview = new MsgPreviewScreen(this, &rtc_clock);
+  settings_list = new SettingsListScreen(this);
+  setting_edit = new SettingEditScreen(this);
   setCurrScreen(splash);
 }
 
@@ -674,6 +696,69 @@ void UITask::userLedHandler() {
 void UITask::setCurrScreen(UIScreen* c) {
   curr = c;
   _next_refresh = 100;
+}
+
+void UITask::gotoSettings() {
+  settings_list->showRoot();
+  setCurrScreen(settings_list);
+}
+
+void UITask::editSetting(const Setting* s) {
+  bool has_phys_kb =
+#ifdef UI_HAS_KEYBOARD
+      true;
+#else
+      false;
+#endif
+  // use the on-screen keyboard only on touch boards that lack a physical keyboard
+  bool use_osk = (_display != NULL) && _display->hasTouch() && !has_phys_kb;
+  setting_edit->begin(s, use_osk);
+  setCurrScreen(setting_edit);
+}
+
+void UITask::closeSettingEdit() {
+  setCurrScreen(settings_list);   // back to the list (retains group + selection)
+}
+
+void UITask::pollTouch() {
+  if (_display == NULL || !_display->hasTouch()) return;
+  if (millis() < next_touch_check) return;
+  next_touch_check = millis() + 20;
+
+  int tx, ty;
+  bool down = _display->getTouch(&tx, &ty);
+
+  if (!_display->isOn()) {            // first touch just wakes the display
+    if (down) { _display->turnOn(); _auto_off = millis() + AUTO_OFF_MILLIS; }
+    _touching = false;
+    return;
+  }
+  if (down && !_touching) {
+    _touching = true; _touch_x = tx; _touch_y = ty;
+    if (curr) curr->handleTouch(tx, ty, TouchEvent::press);
+    _auto_off = millis() + AUTO_OFF_MILLIS; _next_refresh = 100;
+  } else if (down && _touching) {
+    _touch_x = tx; _touch_y = ty;
+    if (curr) curr->handleTouch(tx, ty, TouchEvent::move);
+    _auto_off = millis() + AUTO_OFF_MILLIS; _next_refresh = 100;
+  } else if (!down && _touching) {
+    _touching = false;
+    if (curr) curr->handleTouch(_touch_x, _touch_y, TouchEvent::release);
+    _auto_off = millis() + AUTO_OFF_MILLIS; _next_refresh = 100;
+  }
+}
+
+void UITask::pollKeyboard(char& c) {
+#ifdef UI_HAS_KEYBOARD
+  if (millis() < next_kb_check) return;
+  next_kb_check = millis() + 20;
+  char kc = tdeck_keyboard.read();   // 0 if no key
+  if (kc == 0) return;
+  if (kc == 127) kc = KEY_BACKSPACE;  // DEL -> backspace
+  c = checkDisplayOn(kc);
+#else
+  (void)c;
+#endif
 }
 
 /*
@@ -775,11 +860,27 @@ void UITask::loop() {
   }
 #endif
 
+#if UI_HAS_TRACKBALL
+  {
+    int tev;
+    tev = trackball_up.check();    if (tev == BUTTON_EVENT_CLICK) c = checkDisplayOn(KEY_UP);
+    tev = trackball_down.check();  if (tev == BUTTON_EVENT_CLICK) c = checkDisplayOn(KEY_DOWN);
+    tev = trackball_left.check();  if (tev == BUTTON_EVENT_CLICK) c = checkDisplayOn(KEY_LEFT);
+    tev = trackball_right.check(); if (tev == BUTTON_EVENT_CLICK) c = checkDisplayOn(KEY_RIGHT);
+  }
+#endif
+
+#if UI_HAS_KEYBOARD
+  pollKeyboard(c);
+#endif
+
   if (c != 0 && curr) {
     curr->handleInput(c);
     _auto_off = millis() + AUTO_OFF_MILLIS;   // extend auto-off timer
     _next_refresh = 100;  // trigger refresh
   }
+
+  pollTouch();   // coordinate input (no-op on boards without a touch display)
 
   userLedHandler();
 

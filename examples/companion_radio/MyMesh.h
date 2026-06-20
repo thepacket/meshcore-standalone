@@ -102,6 +102,33 @@ public:
 
   int  getRecentlyHeard(AdvertPath dest[], int max_num);
 
+  // ---- Companion config API (shared by the frame protocol and the on-device UI) ----
+  // Each performs validate -> apply-live -> persist. Setters returning bool report
+  // false on an invalid argument (no side effects on failure). freq/bw are in kHz.
+  bool setRadioParams(uint32_t freq_khz, uint32_t bw_khz, uint8_t sf, uint8_t cr, uint8_t repeat);
+  bool setTxPower(int8_t power_dbm);
+  void setAdvertName(const char* name);
+  bool setAdvertLatLon(int32_t lat_e6, int32_t lon_e6);
+  void setAdvertLocPolicy(uint8_t policy);
+  void setTuningParams(float rx_delay_base, float airtime_factor);
+  void setManualAdd(bool on);
+  void setMultiAcks(uint8_t v);
+  void setTelemetryModes(uint8_t base, uint8_t loc, uint8_t env);
+  bool setPathHashMode(uint8_t mode);
+  void setAutoAddConfig(uint8_t mask);
+  void setMaxHops(uint8_t hops);
+  bool setDefaultFloodScope(const char* name, const uint8_t* key16);  // key16==NULL or empty name => clear
+  bool setBlePin(uint32_t pin);
+  bool setDeviceTime(uint32_t epoch_secs);
+#if ENV_INCLUDE_GPS == 1
+  void setGpsEnabled(bool on);
+  void setGpsInterval(uint32_t secs);
+#endif
+  bool advertFlood();                 // zero-hop self-advert is the existing advert()
+  void rebootDevice();
+  bool factoryReset();                // formats FS then reboots; false on IO error
+  void getBattAndStorage(uint16_t& batt_mv, uint32_t& used_kb, uint32_t& total_kb);
+
 protected:
   float getAirtimeBudgetFactor() const override;
   int getInterferenceThreshold() const override;

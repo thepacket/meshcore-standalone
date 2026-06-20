@@ -15,6 +15,10 @@ public:
 
   virtual bool isOn() = 0;
   virtual bool isEink() { return false; } // default to non-eink, override in eink drivers
+  // touch support: default is 'no touch'. Touch-capable drivers (e.g. LGFXDisplay) override this.
+  // On a touch event, writes the touch point (in this display's logical coord space) and returns true.
+  virtual bool getTouch(int* x, int* y) { return false; }
+  virtual bool hasTouch() { return false; }  // static capability hint (override to return true on touch drivers)
   virtual void turnOn() = 0;
   virtual void turnOff() = 0;
   virtual void clear() = 0;

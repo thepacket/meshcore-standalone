@@ -1196,23 +1196,15 @@ void MyMesh::handleCmdFrame(size_t len) {
       _most_recent_lastmod = 0;
     }
   } else if (cmd_frame[0] == CMD_SET_ADVERT_NAME && len >= 2) {
-    int nlen = len - 1;
-    if (nlen > sizeof(_prefs.node_name) - 1) nlen = sizeof(_prefs.node_name) - 1; // max len
-    memcpy(_prefs.node_name, &cmd_frame[1], nlen);
-    _prefs.node_name[nlen] = 0; // null terminator
-    savePrefs();
+    cmd_frame[len] = 0; // null-terminate the name
+    setAdvertName((char *)&cmd_frame[1]);
     writeOKFrame();
   } else if (cmd_frame[0] == CMD_SET_ADVERT_LATLON && len >= 9) {
-    int32_t lat, lon, alt = 0;
+    int32_t lat, lon;
     memcpy(&lat, &cmd_frame[1], 4);
     memcpy(&lon, &cmd_frame[5], 4);
-    if (len >= 13) {
-      memcpy(&alt, &cmd_frame[9], 4); // for FUTURE support
-    }
-    if (lat <= 90 * 1E6 && lat >= -90 * 1E6 && lon <= 180 * 1E6 && lon >= -180 * 1E6) {
-      sensors.node_lat = ((double)lat) / 1000000.0;
-      sensors.node_lon = ((double)lon) / 1000000.0;
-      savePrefs();
+    // cmd_frame[9..12] = altitude reserved for FUTURE support (currently unused)
+    if (setAdvertLatLon(lat, lon)) {
       writeOKFrame();
     } else {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG); // invalid geo coordinate
@@ -1226,9 +1218,7 @@ void MyMesh::handleCmdFrame(size_t len) {
   } else if (cmd_frame[0] == CMD_SET_DEVICE_TIME && len >= 5) {
     uint32_t secs;
     memcpy(&secs, &cmd_frame[1], 4);
-    uint32_t curr = getRTCClock()->getCurrentTime();
-    if (secs >= curr) {
-      getRTCClock()->setCurrentTime(secs);
+    if (setDeviceTime(secs)) {
       writeOKFrame();
     } else {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
@@ -1377,21 +1367,9 @@ void MyMesh::handleCmdFrame(size_t len) {
       repeat = cmd_frame[i++];   // FIRMWARE_VER_CODE  9+
     }
 
-    if (repeat && !isValidClientRepeatFreq(freq)) {
-      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    } else if (freq >= 150000 && freq <= 2500000 && sf >= 5 && sf <= 12 && cr >= 5 && cr <= 8 && bw >= 7000 &&
-        bw <= 500000) {
-      _prefs.sf = sf;
-      _prefs.cr = cr;
-      _prefs.freq = (float)freq / 1000.0;
-      _prefs.bw = (float)bw / 1000.0;
-      _prefs.client_repeat = repeat;
-      savePrefs();
-
-      radio_driver.setParams(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr);
+    if (setRadioParams(freq, bw, sf, cr, repeat)) {
       MESH_DEBUG_PRINTLN("OK: CMD_SET_RADIO_PARAMS: f=%d, bw=%d, sf=%d, cr=%d", freq, bw, (uint32_t)sf,
                          (uint32_t)cr);
-
       writeOKFrame();
     } else {
       MESH_DEBUG_PRINTLN("Error: CMD_SET_RADIO_PARAMS: f=%d, bw=%d, sf=%d, cr=%d", freq, bw, (uint32_t)sf,
@@ -1399,14 +1377,10 @@ void MyMesh::handleCmdFrame(size_t len) {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
   } else if (cmd_frame[0] == CMD_SET_RADIO_TX_POWER) {
-    int8_t power = (int8_t)cmd_frame[1];
-    if (power < -9 || power > MAX_LORA_TX_POWER) {
-      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    } else {
-      _prefs.tx_power_dbm = power;
-      savePrefs();
-      radio_driver.setTxPower(_prefs.tx_power_dbm);
+    if (setTxPower((int8_t)cmd_frame[1])) {
       writeOKFrame();
+    } else {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
   } else if (cmd_frame[0] == CMD_SET_TUNING_PARAMS) {
     int i = 1;
@@ -1415,9 +1389,7 @@ void MyMesh::handleCmdFrame(size_t len) {
     i += 4;
     memcpy(&af, &cmd_frame[i], 4);
     i += 4;
-    _prefs.rx_delay_base = ((float)rx) / 1000.0f;
-    _prefs.airtime_factor = ((float)af) / 1000.0f;
-    savePrefs();
+    setTuningParams(((float)rx) / 1000.0f, ((float)af) / 1000.0f);
     writeOKFrame();
   } else if (cmd_frame[0] == CMD_GET_TUNING_PARAMS) {
     uint32_t rx = _prefs.rx_delay_base * 1000, af = _prefs.airtime_factor * 1000;
@@ -1443,12 +1415,10 @@ void MyMesh::handleCmdFrame(size_t len) {
     savePrefs();
     writeOKFrame();
   } else if (cmd_frame[0] == CMD_SET_PATH_HASH_MODE && cmd_frame[1] == 0 && len >= 3) {
-    if (cmd_frame[2] >= 3) {
-      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
-    } else {
-      _prefs.path_hash_mode = cmd_frame[2];
-      savePrefs();
+    if (setPathHashMode(cmd_frame[2])) {
       writeOKFrame();
+    } else {
+      writeErrFrame(ERR_CODE_ILLEGAL_ARG);
     }
   } else if (cmd_frame[0] == CMD_REBOOT && memcmp(&cmd_frame[1], "reboot", 6) == 0) {
     if (dirty_contacts_expiry) { // is there are pending dirty contacts write needed?
@@ -1459,9 +1429,9 @@ void MyMesh::handleCmdFrame(size_t len) {
     uint8_t reply[11];
     int i = 0;
     reply[i++] = RESP_CODE_BATT_AND_STORAGE;
-    uint16_t battery_millivolts = board.getBattMilliVolts();
-    uint32_t used = _store->getStorageUsedKb();
-    uint32_t total = _store->getStorageTotalKb();
+    uint16_t battery_millivolts;
+    uint32_t used, total;
+    getBattAndStorage(battery_millivolts, used, total);
     memcpy(&reply[i], &battery_millivolts, 2); i += 2;
     memcpy(&reply[i], &used, 4); i += 4;
     memcpy(&reply[i], &total, 4); i += 4;
@@ -1773,10 +1743,8 @@ void MyMesh::handleCmdFrame(size_t len) {
     uint32_t pin;
     memcpy(&pin, &cmd_frame[1], 4);
 
-    // ensure pin is zero, or a valid 6 digit pin
-    if (pin == 0 || (pin >= 100000 && pin <= 999999)) {
-      _prefs.ble_pin = pin;
-      savePrefs();
+    // setBlePin enforces: pin is zero, or a valid 6 digit pin
+    if (setBlePin(pin)) {
       writeOKFrame();
     } else {
       writeErrFrame(ERR_CODE_ILLEGAL_ARG);
@@ -1919,19 +1887,13 @@ void MyMesh::handleCmdFrame(size_t len) {
     writeOKFrame();
   } else if (cmd_frame[0] == CMD_SET_DEFAULT_FLOOD_SCOPE && len >= 1) {
     if (len >= 1+31+16) {
-      int n = strlen((char *) &cmd_frame[1]);
-      if (n > 0 && n < 31) {
-        strcpy(_prefs.default_scope_name, (char *) &cmd_frame[1]);
-        memcpy(_prefs.default_scope_key, &cmd_frame[1+31], 16);
-        savePrefs();
+      if (setDefaultFloodScope((char *) &cmd_frame[1], &cmd_frame[1+31])) {
         writeOKFrame();
       } else {
         writeErrFrame(ERR_CODE_ILLEGAL_ARG);
       }
     } else {
-      memset(_prefs.default_scope_name, 0, sizeof(_prefs.default_scope_name));  // set default scope to null
-      memset(_prefs.default_scope_key, 0, sizeof(_prefs.default_scope_key));
-      savePrefs();
+      setDefaultFloodScope(NULL, NULL);  // short frame => clear default scope
       writeOKFrame();
     }
   } else if (cmd_frame[0] == CMD_GET_DEFAULT_FLOOD_SCOPE) {
@@ -2231,6 +2193,177 @@ void MyMesh::loop() {
 #ifdef DISPLAY_CLASS
   if (_ui) _ui->setHasConnection(_serial->isConnected());
 #endif
+}
+
+// ---- Companion config API: one implementation shared by handleCmdFrame() and the on-device UI ----
+
+bool MyMesh::setRadioParams(uint32_t freq, uint32_t bw, uint8_t sf, uint8_t cr, uint8_t repeat) {
+  if (repeat && !isValidClientRepeatFreq(freq)) return false;
+  if (freq >= 150000 && freq <= 2500000 && sf >= 5 && sf <= 12 && cr >= 5 && cr <= 8 && bw >= 7000 &&
+      bw <= 500000) {
+    _prefs.sf = sf;
+    _prefs.cr = cr;
+    _prefs.freq = (float)freq / 1000.0;
+    _prefs.bw = (float)bw / 1000.0;
+    _prefs.client_repeat = repeat;
+    savePrefs();
+    radio_driver.setParams(_prefs.freq, _prefs.bw, _prefs.sf, _prefs.cr);
+    return true;
+  }
+  return false;
+}
+
+bool MyMesh::setTxPower(int8_t power) {
+  if (power < -9 || power > MAX_LORA_TX_POWER) return false;
+  _prefs.tx_power_dbm = power;
+  savePrefs();
+  radio_driver.setTxPower(_prefs.tx_power_dbm);
+  return true;
+}
+
+void MyMesh::setAdvertName(const char* name) {
+  int nlen = strlen(name);
+  if (nlen > (int)sizeof(_prefs.node_name) - 1) nlen = sizeof(_prefs.node_name) - 1;
+  memcpy(_prefs.node_name, name, nlen);
+  _prefs.node_name[nlen] = 0;
+  savePrefs();
+}
+
+bool MyMesh::setAdvertLatLon(int32_t lat, int32_t lon) {
+  if (lat <= 90 * 1E6 && lat >= -90 * 1E6 && lon <= 180 * 1E6 && lon >= -180 * 1E6) {
+    sensors.node_lat = ((double)lat) / 1000000.0;
+    sensors.node_lon = ((double)lon) / 1000000.0;
+    savePrefs();
+    return true;
+  }
+  return false;
+}
+
+void MyMesh::setAdvertLocPolicy(uint8_t policy) {
+  _prefs.advert_loc_policy = policy;
+  savePrefs();
+}
+
+void MyMesh::setTuningParams(float rx_delay_base, float airtime_factor) {
+  _prefs.rx_delay_base = rx_delay_base;
+  _prefs.airtime_factor = airtime_factor;
+  savePrefs();
+}
+
+void MyMesh::setManualAdd(bool on) {
+  _prefs.manual_add_contacts = on ? 1 : 0;
+  savePrefs();
+}
+
+void MyMesh::setMultiAcks(uint8_t v) {
+  _prefs.multi_acks = v;
+  savePrefs();
+}
+
+void MyMesh::setTelemetryModes(uint8_t base, uint8_t loc, uint8_t env) {
+  _prefs.telemetry_mode_base = base & 0x03;
+  _prefs.telemetry_mode_loc = loc & 0x03;
+  _prefs.telemetry_mode_env = env & 0x03;
+  savePrefs();
+}
+
+bool MyMesh::setPathHashMode(uint8_t mode) {
+  if (mode >= 3) return false;
+  _prefs.path_hash_mode = mode;
+  savePrefs();
+  return true;
+}
+
+void MyMesh::setAutoAddConfig(uint8_t mask) {
+  _prefs.autoadd_config = mask;
+  savePrefs();
+}
+
+void MyMesh::setMaxHops(uint8_t hops) {
+  _prefs.autoadd_max_hops = min(hops, (uint8_t)64);
+  savePrefs();
+}
+
+bool MyMesh::setDefaultFloodScope(const char* name, const uint8_t* key16) {
+  if (key16 == NULL) {   // clear default scope
+    memset(_prefs.default_scope_name, 0, sizeof(_prefs.default_scope_name));
+    memset(_prefs.default_scope_key, 0, sizeof(_prefs.default_scope_key));
+    savePrefs();
+    return true;
+  }
+  int n = name ? strlen(name) : 0;
+  if (n > 0 && n < 31) {
+    strcpy(_prefs.default_scope_name, name);
+    memcpy(_prefs.default_scope_key, key16, 16);
+    savePrefs();
+    return true;
+  }
+  return false;
+}
+
+bool MyMesh::setBlePin(uint32_t pin) {
+  if (pin == 0 || (pin >= 100000 && pin <= 999999)) {
+    _prefs.ble_pin = pin;
+    savePrefs();
+    return true;
+  }
+  return false;
+}
+
+bool MyMesh::setDeviceTime(uint32_t epoch_secs) {
+  if (epoch_secs >= getRTCClock()->getCurrentTime()) {
+    getRTCClock()->setCurrentTime(epoch_secs);
+    return true;
+  }
+  return false;
+}
+
+#if ENV_INCLUDE_GPS == 1
+void MyMesh::setGpsEnabled(bool on) {
+  _prefs.gps_enabled = on ? 1 : 0;
+  sensors.setSettingValue("gps", on ? "1" : "0");
+  savePrefs();
+}
+
+void MyMesh::setGpsInterval(uint32_t secs) {
+  _prefs.gps_interval = constrain(secs, 0, 86400);
+  char buf[12];
+  sprintf(buf, "%u", _prefs.gps_interval);
+  sensors.setSettingValue("gps_interval", buf);
+  savePrefs();
+}
+#endif
+
+bool MyMesh::advertFlood() {
+  mesh::Packet* pkt;
+  if (_prefs.advert_loc_policy == ADVERT_LOC_NONE) {
+    pkt = createSelfAdvert(_prefs.node_name);
+  } else {
+    pkt = createSelfAdvert(_prefs.node_name, sensors.node_lat, sensors.node_lon);
+  }
+  if (!pkt) return false;
+  TransportKey default_scope;
+  memcpy(&default_scope.key, _prefs.default_scope_key, sizeof(default_scope.key));
+  sendFloodScoped(default_scope, pkt, 0);
+  return true;
+}
+
+void MyMesh::rebootDevice() {
+  if (dirty_contacts_expiry) saveContacts();
+  board.reboot();
+}
+
+bool MyMesh::factoryReset() {
+  if (!_store->formatFileSystem()) return false;
+  delay(500);
+  board.reboot();  // doesn't return
+  return true;
+}
+
+void MyMesh::getBattAndStorage(uint16_t& batt_mv, uint32_t& used_kb, uint32_t& total_kb) {
+  batt_mv = board.getBattMilliVolts();
+  used_kb = _store->getStorageUsedKb();
+  total_kb = _store->getStorageTotalKb();
 }
 
 bool MyMesh::advert() {
