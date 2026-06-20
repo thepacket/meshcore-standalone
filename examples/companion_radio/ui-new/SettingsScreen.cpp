@@ -3,28 +3,87 @@
 #include <stdio.h>
 #include <string.h>
 
-// ---- shared layout helpers ----
-static const int HEADER_H = 16;
-static int rowHeight(DisplayDriver& d) { return d.height() >= 160 ? 22 : 11; }
-static int visibleRows(DisplayDriver& d) {
-  int vr = (d.height() - HEADER_H) / rowHeight(d);
+// ---- styling (modeled on the MeshCore Android app) -------------------------
+// Colors are set via setColorRGB(); on mono/limited displays they degrade to the
+// nearest palette color automatically (see DisplayDriver::setColorRGB).
+namespace {
+struct RGB { uint8_t r, g, b; };
+const RGB C_HEADER  = {38, 48, 63};    // navy header bar
+const RGB C_CARD    = {42, 46, 53};    // row background
+const RGB C_CARDSEL = {56, 62, 74};    // selected row background
+const RGB C_DIV     = {64, 68, 78};    // row divider
+const RGB C_LABEL   = {150, 160, 172}; // secondary (label) text
+const RGB C_VALUE   = {236, 238, 242}; // primary (value) text
+const RGB C_ACCENT  = {91, 141, 239};  // blue accent (selection, checks)
+const RGB C_MUTED   = {120, 128, 140}; // affordance glyphs
+
+inline void col(DisplayDriver& d, const RGB& c) { d.setColorRGB(c.r, c.g, c.b); }
+inline bool big(DisplayDriver& d) { return d.height() >= 160; }
+int headerH(DisplayDriver& d) { return big(d) ? 28 : 14; }
+int rowH(DisplayDriver& d) { return big(d) ? 30 : 13; }
+int visibleRows(DisplayDriver& d) {
+  int vr = (d.height() - headerH(d)) / rowH(d);
   return vr < 1 ? 1 : vr;
 }
-static bool inRect(int x, int y, int rx, int ry, int rw, int rh) {
+bool inRect(int x, int y, int rx, int ry, int rw, int rh) {
   return x >= rx && y >= ry && x < rx + rw && y < ry + rh;
 }
 
-static void formatValue(const Setting& s, char* out, size_t n) {
+// small affordance triangles
+void triRight(DisplayDriver& d, int xLeft, int cy, int half) {
+  for (int i = 0; i <= half; i++) d.fillRect(xLeft + i, cy - (half - i), 1, 2 * (half - i) + 1);
+}
+void triLeft(DisplayDriver& d, int xLeft, int cy, int half) {
+  for (int i = 0; i <= half; i++) d.fillRect(xLeft + i, cy - i, 1, 2 * i + 1);
+}
+void triDown(DisplayDriver& d, int cx, int yTop, int half) {
+  for (int i = 0; i <= half; i++) d.fillRect(cx - half + i, yTop + i, 2 * (half - i) + 1, 1);
+}
+void drawCheckbox(DisplayDriver& d, int x, int y, int sz, bool on) {
+  if (on) {
+    col(d, C_ACCENT);
+    d.fillRect(x, y, sz, sz);
+    col(d, C_VALUE);  // V-shaped check
+    d.fillRect(x + sz * 3 / 16, y + sz * 8 / 16, 2, 2);
+    d.fillRect(x + sz * 4 / 16, y + sz * 9 / 16, 2, 2);
+    d.fillRect(x + sz * 5 / 16, y + sz * 10 / 16, 2, 2);
+    d.fillRect(x + sz * 6 / 16, y + sz * 9 / 16, 2, 2);
+    d.fillRect(x + sz * 7 / 16, y + sz * 8 / 16, 2, 2);
+    d.fillRect(x + sz * 8 / 16, y + sz * 7 / 16, 2, 2);
+    d.fillRect(x + sz * 9 / 16, y + sz * 6 / 16, 2, 2);
+    d.fillRect(x + sz * 10 / 16, y + sz * 5 / 16, 2, 2);
+    d.fillRect(x + sz * 11 / 16, y + sz * 4 / 16, 2, 2);
+  } else {
+    col(d, C_MUTED);
+    d.drawRect(x, y, sz, sz);
+  }
+}
+
+void drawHeaderBar(DisplayDriver& d, const char* title, bool back) {
+  int hH = headerH(d), W = d.width();
+  col(d, C_HEADER);
+  d.fillRect(0, 0, W, hH);
+  int titleX = 4;
+  if (back) {
+    col(d, C_VALUE);
+    triLeft(d, 5, hH / 2, big(d) ? 5 : 3);
+    titleX = big(d) ? 20 : 12;
+  }
+  col(d, C_VALUE);
+  d.setTextSize(big(d) ? 2 : 1);
+  d.setCursor(titleX, (hH - (big(d) ? 14 : 8)) / 2);
+  d.print(title);
+  d.setTextSize(1);
+}
+
+void formatValue(const Setting& s, char* out, size_t n) {
   switch (s.type) {
-    case ST_BOOL:
-      snprintf(out, n, "%s", s.getInt() ? "On" : "Off");
-      break;
+    case ST_BOOL: snprintf(out, n, "%s", s.getInt() ? "On" : "Off"); break;
     case ST_ENUM: {
       int32_t v = s.getInt();
       const char* lbl = "?";
-      for (int i = 0; i < s.num_opts; i++) {
+      for (int i = 0; i < s.num_opts; i++)
         if (s.opts[i].value == v) { lbl = s.opts[i].label; break; }
-      }
       snprintf(out, n, "%s", lbl);
       break;
     }
@@ -39,14 +98,11 @@ static void formatValue(const Setting& s, char* out, size_t n) {
       break;
     }
     case ST_STRING:
-    case ST_INFO:
-      snprintf(out, n, "%s", s.getStr() ? s.getStr() : "");
-      break;
-    case ST_ACTION:
-      out[0] = 0;
-      break;
+    case ST_INFO: snprintf(out, n, "%s", s.getStr() ? s.getStr() : ""); break;
+    case ST_ACTION: out[0] = 0; break;
   }
 }
+}  // namespace
 
 // =================== SettingsListScreen ===================
 int SettingsListScreen::itemCount() const {
@@ -54,68 +110,89 @@ int SettingsListScreen::itemCount() const {
 }
 
 int SettingsListScreen::render(DisplayDriver& d) {
-  d.setTextSize(1);
-  int n = itemCount();
-  int vr = visibleRows(d);
-  int rh = rowHeight(d);
+  int W = d.width();
+  int hH = headerH(d), rh = rowH(d), vr = visibleRows(d), n = itemCount();
 
-  // keep selection visible
   if (_sel < _scroll_top) _scroll_top = _sel;
   if (_sel >= _scroll_top + vr) _scroll_top = _sel - vr + 1;
   if (_scroll_top > n - vr) _scroll_top = (n > vr) ? n - vr : 0;
   if (_scroll_top < 0) _scroll_top = 0;
 
-  // header: title, with a back chevron when inside a category (built as one
-  // string -- some drivers' print() emits a newline, so don't chain prints)
-  char hdr[44];
-  if (_group) snprintf(hdr, sizeof(hdr), "< %s", _group->title);
-  else        snprintf(hdr, sizeof(hdr), "Settings");
-  d.setColor(DisplayDriver::GREEN);
-  d.setCursor(2, 2);
-  d.print(hdr);
-  d.setColor(DisplayDriver::LIGHT);
-  d.drawRect(0, HEADER_H - 2, d.width(), 1);
+  drawHeaderBar(d, _group ? _group->title : "Settings", _group != nullptr);
 
   bool overflow = n > vr;
-  int right = d.width() - (overflow ? 8 : 3);  // leave room for the scrollbar
+  int rightX = W - (overflow ? 12 : 8);
+  char nm[44], val[40], valf[44];
 
-  char namef[48], val[40], valf[44];
   for (int row = 0; row < vr; row++) {
     int idx = _scroll_top + row;
     if (idx >= n) break;
-    int y = HEADER_H + row * rh;
-    int ty = y + (rh - 8) / 2;
+    int y = hH + row * rh;
     bool selected = (idx == _sel);
-    if (selected) {
-      d.setColor(DisplayDriver::BLUE);
-      d.fillRect(0, y, d.width(), rh - 1);
+
+    col(d, selected ? C_CARDSEL : C_CARD);
+    d.fillRect(0, y, W, rh - 1);
+    col(d, C_DIV);
+    d.fillRect(0, y + rh - 1, W, 1);
+    if (selected) { col(d, C_ACCENT); d.fillRect(0, y, 3, rh - 1); }
+
+    int padX = 8;
+
+    if (!_group) {  // category navigation row
+      col(d, C_VALUE);
+      d.translateUTF8ToBlocks(nm, SETTINGS_ROOT[idx].title, sizeof(nm));
+      d.setCursor(padX, y + (rh - 8) / 2);
+      d.print(nm);
+      col(d, C_MUTED);
+      triRight(d, rightX - 4, y + rh / 2, 4);
+      continue;
     }
-    d.setColor(selected ? DisplayDriver::DARK : DisplayDriver::LIGHT);
-    if (_group) {
-      const Setting& s = _group->items[idx];
-      if (s.type == ST_ACTION) strcpy(val, ">");
-      else formatValue(s, val, sizeof(val));
+
+    const Setting& s = _group->items[idx];
+    d.translateUTF8ToBlocks(nm, s.label, sizeof(nm));
+
+    if (s.type == ST_BOOL) {
+      col(d, C_VALUE);
+      d.setCursor(padX, y + (rh - 8) / 2);
+      d.print(nm);
+      int cb = big(d) ? 16 : 9;
+      drawCheckbox(d, rightX - cb, y + (rh - cb) / 2, cb, s.getInt());
+    } else if (s.type == ST_ACTION) {
+      col(d, C_ACCENT);
+      d.setCursor(padX, y + (rh - 8) / 2);
+      d.print(nm);
+      col(d, C_MUTED);
+      triRight(d, rightX - 4, y + rh / 2, 4);
+    } else {  // ENUM / INT / FLOAT / STRING / INFO -> label over value
+      formatValue(s, val, sizeof(val));
       d.translateUTF8ToBlocks(valf, val, sizeof(valf));
-      int vw = d.getTextWidth(valf);
-      d.drawTextRightAlign(right, ty, valf);
-      d.translateUTF8ToBlocks(namef, s.label, sizeof(namef));
-      d.drawTextEllipsized(3, ty, right - vw - 6, namef);
-    } else {
-      d.translateUTF8ToBlocks(namef, SETTINGS_ROOT[idx].title, sizeof(namef));
-      d.drawTextEllipsized(3, ty, right - 14, namef);
-      d.drawTextRightAlign(right, ty, ">");
+      bool drop = (s.type == ST_ENUM);
+      int avail = rightX - padX - (drop ? 12 : 2);
+      if (big(d)) {
+        col(d, C_LABEL);
+        d.drawTextEllipsized(padX, y + 4, avail, nm);
+        col(d, C_VALUE);
+        d.drawTextEllipsized(padX, y + rh - 12, avail, valf);
+        if (drop) { col(d, C_MUTED); triDown(d, rightX - 4, y + rh - 11, 4); }
+      } else {
+        col(d, C_LABEL);
+        d.drawTextEllipsized(padX, y + (rh - 8) / 2, avail / 2, nm);
+        col(d, C_VALUE);
+        d.drawTextRightAlign(rightX - (drop ? 8 : 0), y + (rh - 8) / 2, valf);
+        if (drop) { col(d, C_MUTED); triDown(d, rightX - 4, y + rh / 2 - 1, 3); }
+      }
     }
   }
 
-  // scrollbar when the list is taller than the viewport
   if (overflow) {
-    int trackX = d.width() - 4, trackY = HEADER_H, trackH = vr * rh;
-    d.setColor(DisplayDriver::LIGHT);
-    d.drawRect(trackX, trackY, 2, trackH);
+    int trackX = W - 4, trackY = hH, trackH = vr * rh;
+    col(d, C_DIV);
+    d.fillRect(trackX, trackY, 2, trackH);
     int thumbH = trackH * vr / n;
-    if (thumbH < 6) thumbH = 6;
+    if (thumbH < 8) thumbH = 8;
     int denom = (n - vr) > 0 ? (n - vr) : 1;
     int thumbY = trackY + (trackH - thumbH) * _scroll_top / denom;
+    col(d, C_ACCENT);
     d.fillRect(trackX, thumbY, 2, thumbH);
   }
   return 3000;
@@ -130,27 +207,18 @@ void SettingsListScreen::activate(int idx) {
   }
   const Setting* s = &_group->items[idx];
   if (s->type == ST_BOOL) {
-    if (s->setInt) s->setInt(s->getInt() ? 0 : 1);  // toggle inline (op persists)
+    if (s->setInt) s->setInt(s->getInt() ? 0 : 1);
     return;
   }
-  if (s->type == ST_INFO) return;  // not interactive
+  if (s->type == ST_INFO) return;
   _task->editSetting(s);
 }
 
 bool SettingsListScreen::handleInput(char c) {
   int n = itemCount();
-  if (c == KEY_UP || c == KEY_PREV) {
-    if (_sel > 0) _sel--;
-    return true;
-  }
-  if (c == KEY_DOWN || c == KEY_NEXT) {
-    if (_sel < n - 1) _sel++;
-    return true;
-  }
-  if (c == KEY_ENTER || c == KEY_SELECT) {
-    activate(_sel);
-    return true;
-  }
+  if (c == KEY_UP || c == KEY_PREV) { if (_sel > 0) _sel--; return true; }
+  if (c == KEY_DOWN || c == KEY_NEXT) { if (_sel < n - 1) _sel++; return true; }
+  if (c == KEY_ENTER || c == KEY_SELECT) { activate(_sel); return true; }
   if (c == KEY_CANCEL || c == KEY_LEFT) {
     if (_group) showRoot();
     else _task->gotoHomeScreen();
@@ -162,9 +230,7 @@ bool SettingsListScreen::handleInput(char c) {
 bool SettingsListScreen::handleTouch(int x, int y, TouchEvent ev) {
   DisplayDriver* d = _task->getDisplay();
   if (!d) return false;
-  int rh = rowHeight(*d);
-  int vr = visibleRows(*d);
-  int n = itemCount();
+  int hH = headerH(*d), rh = rowH(*d), vr = visibleRows(*d), n = itemCount();
   if (ev == TouchEvent::press) {
     _press_y = y; _last_y = y; _moved = false; _pressing = true;
     return true;
@@ -177,13 +243,13 @@ bool SettingsListScreen::handleTouch(int x, int y, TouchEvent ev) {
   }
   if (ev == TouchEvent::release) {
     _pressing = false;
-    if (_moved) return true;  // it was a scroll, not a tap
-    if (y < HEADER_H) {
+    if (_moved) return true;
+    if (y < hH) {
       if (_group) showRoot();
       else _task->gotoHomeScreen();
       return true;
     }
-    int idx = _scroll_top + (y - HEADER_H) / rh;
+    int idx = _scroll_top + (y - hH) / rh;
     if (idx >= 0 && idx < n) { _sel = idx; activate(idx); }
     return true;
   }
@@ -201,12 +267,8 @@ void SettingEditScreen::begin(const Setting* s, bool use_osk) {
   switch (s->type) {
     case ST_BOOL:
     case ST_ENUM:
-    case ST_INT:
-      _ival = s->getInt ? s->getInt() : 0;
-      break;
-    case ST_FLOAT:
-      _fval = s->getFloat ? s->getFloat() : 0;
-      break;
+    case ST_INT: _ival = s->getInt ? s->getInt() : 0; break;
+    case ST_FLOAT: _fval = s->getFloat ? s->getFloat() : 0; break;
     case ST_STRING: {
       const char* cur = s->getStr ? s->getStr() : "";
       strncpy(_sbuf, cur, sizeof(_sbuf) - 1);
@@ -214,28 +276,20 @@ void SettingEditScreen::begin(const Setting* s, bool use_osk) {
       _slen = strlen(_sbuf);
       break;
     }
-    default:
-      break;
+    default: break;
   }
 }
 
 int SettingEditScreen::enumIndex() const {
-  for (int i = 0; i < _s->num_opts; i++) {
+  for (int i = 0; i < _s->num_opts; i++)
     if (_s->opts[i].value == _ival) return i;
-  }
   return 0;
 }
 
 void SettingEditScreen::adjust(int dir) {
   switch (_s->type) {
-    case ST_BOOL:
-      _ival = _ival ? 0 : 1;
-      break;
-    case ST_ENUM: {
-      int i = (enumIndex() + dir + _s->num_opts) % _s->num_opts;
-      _ival = _s->opts[i].value;
-      break;
-    }
+    case ST_BOOL: _ival = _ival ? 0 : 1; break;
+    case ST_ENUM: { int i = (enumIndex() + dir + _s->num_opts) % _s->num_opts; _ival = _s->opts[i].value; break; }
     case ST_INT:
       _ival += dir * _s->istep;
       if (_ival < _s->imin) _ival = _s->imin;
@@ -246,8 +300,7 @@ void SettingEditScreen::adjust(int dir) {
       if (_fval < _s->fmin) _fval = _s->fmin;
       if (_fval > _s->fmax) _fval = _s->fmax;
       break;
-    default:
-      break;
+    default: break;
   }
 }
 
@@ -256,47 +309,62 @@ void SettingEditScreen::commit() {
   switch (_s->type) {
     case ST_BOOL:
     case ST_ENUM:
-    case ST_INT:
-      ok = _s->setInt ? _s->setInt(_ival) : false;
-      break;
-    case ST_FLOAT:
-      ok = _s->setFloat ? _s->setFloat(_fval) : false;
-      break;
-    case ST_STRING:
-      ok = _s->setStr ? _s->setStr(_sbuf) : false;
-      break;
-    default:
-      break;
+    case ST_INT: ok = _s->setInt ? _s->setInt(_ival) : false; break;
+    case ST_FLOAT: ok = _s->setFloat ? _s->setFloat(_fval) : false; break;
+    case ST_STRING: ok = _s->setStr ? _s->setStr(_sbuf) : false; break;
+    default: break;
   }
   _task->showAlert(ok ? "Saved" : "Invalid", 1000);
   _task->closeSettingEdit();
 }
 
+static void workingValue(const Setting* s, int32_t ival, float fval, char* out, size_t n) {
+  if (s->type == ST_BOOL) snprintf(out, n, "%s", ival ? "On" : "Off");
+  else if (s->type == ST_ENUM) {
+    const char* lbl = "?";
+    for (int i = 0; i < s->num_opts; i++)
+      if (s->opts[i].value == ival) { lbl = s->opts[i].label; break; }
+    snprintf(out, n, "%s", lbl);
+  } else if (s->type == ST_INT) {
+    snprintf(out, n, "%ld%s%s", (long)ival, (s->units && s->units[0]) ? " " : "", s->units ? s->units : "");
+  } else if (s->type == ST_FLOAT) {
+    char nb[16];
+    snprintf(nb, sizeof(nb), "%g", (double)fval);
+    snprintf(out, n, "%s%s%s", nb, (s->units && s->units[0]) ? " " : "", s->units ? s->units : "");
+  } else out[0] = 0;
+}
+
+// rounded-ish filled button helper
+static void drawButton(DisplayDriver& d, int x, int y, int w, int h, const char* label, const RGB& bg,
+                       const RGB& fg) {
+  col(d, bg);
+  d.fillRect(x, y, w, h);
+  col(d, C_DIV);
+  d.drawRect(x, y, w, h);
+  col(d, fg);
+  d.drawTextCentered(x + w / 2, y + h / 2 - 4, label);
+}
+
 int SettingEditScreen::render(DisplayDriver& d) {
   if (!_s) return 1000;
   int W = d.width(), H = d.height();
-
-  // header
-  d.setTextSize(1);
-  d.setColor(DisplayDriver::GREEN);
-  d.setCursor(2, 2);
-  d.print(_s->label);
-  d.setColor(DisplayDriver::LIGHT);
-  d.drawRect(0, HEADER_H - 2, W, 1);
+  drawHeaderBar(d, _s->label, true);
 
   if (_s->type == ST_STRING) {
-    // text box
-    d.setColor(DisplayDriver::LIGHT);
-    d.drawRect(4, HEADER_H + 2, W - 8, 20);
+    int boxY = headerH(d) + 4;
+    col(d, C_CARD);
+    d.fillRect(4, boxY, W - 8, 20);
+    col(d, C_DIV);
+    d.drawRect(4, boxY, W - 8, 20);
     char shown[68];
     snprintf(shown, sizeof(shown), "%s_", _sbuf);
-    d.setColor(DisplayDriver::YELLOW);
-    d.drawTextEllipsized(8, HEADER_H + 8, W - 16, shown);
+    col(d, C_VALUE);
+    d.drawTextEllipsized(9, boxY + 6, W - 18, shown);
     if (_use_osk) {
-      int ky = HEADER_H + 26;
+      int ky = boxY + 26;
       _kb.render(d, 2, ky, W - 4, H - ky - 2);
     } else {
-      d.setColor(DisplayDriver::LIGHT);
+      col(d, C_LABEL);
       d.drawTextCentered(W / 2, H / 2, "type on keyboard");
     }
     return 1000;
@@ -308,47 +376,28 @@ int SettingEditScreen::render(DisplayDriver& d) {
   if (_s->type == ST_INFO) {
     char val[48];
     formatValue(*_s, val, sizeof(val));
-    d.setColor(DisplayDriver::YELLOW);
-    d.setTextSize(1);
+    col(d, C_VALUE);
     d.drawTextCentered(W / 2, H / 3, val);
-    d.setColor(DisplayDriver::LIGHT);
-    d.drawRect(W / 2 - cw / 2, cy, cw, bh);
-    d.drawTextCentered(W / 2, cy + bh / 2 - 4, "Back");
+    drawButton(d, W / 2 - cw / 2, cy, cw, bh, "Back", C_CARD, C_VALUE);
     return 3000;
   }
 
   if (_s->type == ST_ACTION) {
-    d.setColor(DisplayDriver::YELLOW);
+    col(d, C_VALUE);
     d.drawTextCentered(W / 2, H / 3, "Confirm?");
-    d.setColor(DisplayDriver::LIGHT);
-    d.drawRect(8, cy, cw, bh);
-    d.drawTextCentered(8 + cw / 2, cy + bh / 2 - 4, "Cancel");
-    d.drawRect(W - 8 - cw, cy, cw, bh);
-    d.drawTextCentered(W - 8 - cw / 2, cy + bh / 2 - 4, "Confirm");
+    drawButton(d, 8, cy, cw, bh, "Cancel", C_CARD, C_VALUE);
+    drawButton(d, W - 8 - cw, cy, cw, bh, "Confirm", C_ACCENT, C_VALUE);
     return 3000;
   }
 
-  // BOOL / ENUM / INT / FLOAT: value + [-]/[+] + Cancel/OK
+  // BOOL / ENUM / INT / FLOAT
   char val[40];
-  formatValue(*_s, val, sizeof(val));
-  // formatValue reads live getters; for the working value, override display:
-  if (_s->type == ST_BOOL) snprintf(val, sizeof(val), "%s", _ival ? "On" : "Off");
-  else if (_s->type == ST_ENUM) {
-    const char* lbl = "?";
-    for (int i = 0; i < _s->num_opts; i++) if (_s->opts[i].value == _ival) { lbl = _s->opts[i].label; break; }
-    snprintf(val, sizeof(val), "%s", lbl);
-  } else if (_s->type == ST_INT) {
-    snprintf(val, sizeof(val), "%ld%s%s", (long)_ival, (_s->units && _s->units[0]) ? " " : "", _s->units ? _s->units : "");
-  } else if (_s->type == ST_FLOAT) {
-    char nb[16]; snprintf(nb, sizeof(nb), "%g", (double)_fval);
-    snprintf(val, sizeof(val), "%s%s%s", nb, (_s->units && _s->units[0]) ? " " : "", _s->units ? _s->units : "");
-  }
-  d.setColor(DisplayDriver::YELLOW);
+  workingValue(_s, _ival, _fval, val, sizeof(val));
+  col(d, C_VALUE);
   d.setTextSize(2);
   d.drawTextCentered(W / 2, (int)(H * 0.24f), val);
   d.setTextSize(1);
 
-  // value/range bar for numeric settings (only where there's vertical room)
   if ((_s->type == ST_INT || _s->type == ST_FLOAT) && H >= 160) {
     float frac;
     if (_s->type == ST_INT) {
@@ -361,8 +410,9 @@ int SettingEditScreen::render(DisplayDriver& d) {
     if (frac < 0) frac = 0;
     if (frac > 1) frac = 1;
     int barW = (int)(W * 0.7f), barX = (W - barW) / 2, barY = (int)(H * 0.34f), barH = 5;
-    d.setColor(DisplayDriver::LIGHT);
-    d.drawRect(barX, barY, barW, barH);
+    col(d, C_CARD);
+    d.fillRect(barX, barY, barW, barH);
+    col(d, C_ACCENT);
     d.fillRect(barX, barY, (int)(barW * frac), barH);
     char lo[14], hi[14];
     if (_s->type == ST_INT) {
@@ -372,19 +422,15 @@ int SettingEditScreen::render(DisplayDriver& d) {
       snprintf(lo, sizeof(lo), "%g", (double)_s->fmin);
       snprintf(hi, sizeof(hi), "%g", (double)_s->fmax);
     }
+    col(d, C_LABEL);
     d.drawTextLeftAlign(barX, barY + barH + 3, lo);
     d.drawTextRightAlign(barX + barW, barY + barH + 3, hi);
   }
 
-  d.setColor(DisplayDriver::LIGHT);
-  d.drawRect(8, by, bw, bh);
-  d.drawTextCentered(8 + bw / 2, by + bh / 2 - 4, "-");
-  d.drawRect(W - 8 - bw, by, bw, bh);
-  d.drawTextCentered(W - 8 - bw / 2, by + bh / 2 - 4, "+");
-  d.drawRect(8, cy, cw, bh);
-  d.drawTextCentered(8 + cw / 2, cy + bh / 2 - 4, "Cancel");
-  d.drawRect(W - 8 - cw, cy, cw, bh);
-  d.drawTextCentered(W - 8 - cw / 2, cy + bh / 2 - 4, "OK");
+  drawButton(d, 8, by, bw, bh, "-", C_CARD, C_VALUE);
+  drawButton(d, W - 8 - bw, by, bw, bh, "+", C_CARD, C_VALUE);
+  drawButton(d, 8, cy, cw, bh, "Cancel", C_CARD, C_VALUE);
+  drawButton(d, W - 8 - cw, cy, cw, bh, "OK", C_ACCENT, C_VALUE);
   return 3000;
 }
 
@@ -422,16 +468,16 @@ bool SettingEditScreen::handleInput(char c) {
 
 bool SettingEditScreen::handleTouch(int x, int y, TouchEvent ev) {
   if (!_s) return false;
-  if (ev != TouchEvent::release) return true;  // act on tap (release)
+  if (ev != TouchEvent::release) return true;
   DisplayDriver* d = _task->getDisplay();
   if (!d) return false;
   int W = d->width(), H = d->height();
 
-  if (y < HEADER_H) { _task->closeSettingEdit(); return true; }  // header tap = back
+  if (y < headerH(*d)) { _task->closeSettingEdit(); return true; }
 
   if (_s->type == ST_STRING) {
     if (_use_osk) {
-      int ky = HEADER_H + 26;
+      int ky = headerH(*d) + 4 + 26;
       char k = _kb.handleTap(x, y, 2, ky, W - 4, H - ky - 2);
       if (k == OnScreenKeyboard::KEY_OK) commit();
       else if (k == OnScreenKeyboard::KEY_BKSP) { if (_slen > 0) _sbuf[--_slen] = 0; }
@@ -453,7 +499,6 @@ bool SettingEditScreen::handleTouch(int x, int y, TouchEvent ev) {
     return true;
   }
 
-  // BOOL / ENUM / INT / FLOAT
   if (inRect(x, y, 8, by, bw, bh)) { adjust(-1); return true; }
   if (inRect(x, y, W - 8 - bw, by, bw, bh)) { adjust(+1); return true; }
   if (inRect(x, y, 8, cy, cw, bh)) { _task->closeSettingEdit(); return true; }

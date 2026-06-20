@@ -32,6 +32,7 @@ public:
   void startFrame(Color bkg = DARK) override;
   void setTextSize(int sz) override { _cur = (sz >= 2) ? _font2 : _font1; }
   void setColor(Color c) override;
+  void setColorRGB(uint8_t r, uint8_t g, uint8_t b) override { _col = {r, g, b, 255}; }
   void setCursor(int x, int y) override { _cx = x; _cy = y; }
   void print(const char* str) override;
   void fillRect(int x, int y, int w, int h) override;

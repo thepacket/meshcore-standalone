@@ -76,6 +76,11 @@ void LGFXDisplay::setColor(Color c) {
   buffer.setTextColor(_color);
 }
 
+void LGFXDisplay::setColorRGB(uint8_t r, uint8_t g, uint8_t b) {
+  _color = buffer.color888(r, g, b);
+  buffer.setTextColor(_color);
+}
+
 void LGFXDisplay::setCursor(int x, int y) {
   buffer.setCursor(x, y);
 }

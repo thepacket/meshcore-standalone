@@ -25,6 +25,19 @@ public:
   virtual void startFrame(Color bkg = DARK) = 0;
   virtual void setTextSize(int sz) = 0;
   virtual void setColor(Color c) = 0;
+  // Set an exact RGB color. Touch/color drivers (LGFXDisplay) override this for
+  // true color; the default maps to the nearest palette Color so mono/limited
+  // drivers degrade gracefully without any per-driver changes.
+  virtual void setColorRGB(uint8_t r, uint8_t g, uint8_t b) {
+    int lum = (r * 30 + g * 59 + b * 11) / 100;
+    if (lum < 90) { setColor(DARK); return; }            // dark grays/navy -> background
+    if (r > 150 && g < 120 && b < 120) { setColor(RED); return; }
+    if (g > 140 && r < 160 && b < 160) { setColor(GREEN); return; }
+    if (b > 150 && r < 160) { setColor(BLUE); return; }   // accent blue
+    if (r > 200 && g > 120 && b < 90) { setColor(ORANGE); return; }
+    if (r > 180 && g > 160 && b < 130) { setColor(YELLOW); return; }
+    setColor(LIGHT);
+  }
   virtual void setCursor(int x, int y) = 0;
   virtual void print(const char* str) = 0;
   virtual void printWordWrap(const char* str, int max_width) { print(str); }   // fallback to basic print() if no override

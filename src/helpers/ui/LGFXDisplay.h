@@ -28,6 +28,7 @@ public:
   void startFrame(Color bkg = DARK) override;
   void setTextSize(int sz) override;
   void setColor(Color c) override;
+  void setColorRGB(uint8_t r, uint8_t g, uint8_t b) override;
   void setCursor(int x, int y) override;
   void print(const char* str) override;
   void fillRect(int x, int y, int w, int h) override;

@@ -24,8 +24,11 @@ void OnScreenKeyboard::render(DisplayDriver& d, int rx, int ry, int rw, int rh) 
     int y = ry + r * rowH;
     for (int c = 0; c < n; c++) {
       int x = startX + c * cellW;
-      d.setColor(DisplayDriver::LIGHT);
+      d.setColorRGB(42, 46, 53);
+      d.fillRect(x, y, cellW - 2, rowH - 2);
+      d.setColorRGB(64, 68, 78);
       d.drawRect(x, y, cellW - 2, rowH - 2);
+      d.setColorRGB(236, 238, 242);
       char tmp[2] = { shiftChar(KB_ROWS[r][c], _shift), 0 };
       d.drawTextCentered(x + cellW / 2 - 1, y + rowH / 2 - 4, tmp);
     }
@@ -36,8 +39,13 @@ void OnScreenKeyboard::render(DisplayDriver& d, int rx, int ry, int rw, int rh) 
   const char* labels[4] = { _shift ? "SHFT" : "shft", "space", "<-", "OK" };
   for (int b = 0; b < 4; b++) {
     int x = rx + b * bw;
-    d.setColor(DisplayDriver::LIGHT);
+    bool accent = (b == 3);  // OK key uses the accent color
+    if (accent) d.setColorRGB(91, 141, 239);
+    else d.setColorRGB(54, 60, 72);
+    d.fillRect(x, y, bw - 2, rowH - 2);
+    d.setColorRGB(64, 68, 78);
     d.drawRect(x, y, bw - 2, rowH - 2);
+    d.setColorRGB(236, 238, 242);
     d.drawTextCentered(x + bw / 2 - 1, y + rowH / 2 - 4, labels[b]);
   }
 }
