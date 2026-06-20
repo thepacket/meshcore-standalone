@@ -48,11 +48,15 @@ static const Setting GRP_PUBLIC[] = {
 
 // ---- Radio presets ----
 const RadioPreset RADIO_PRESETS[] = {
-  {"USA/Canada", 910.525f, 62.5f, 7, 5},
-  {"EU/UK",      869.618f, 62.5f, 8, 8},
+  {"USA/Canada", 910.525f, 62.5f,  7, 5},
+  {"EU",         869.525f, 250.0f, 10, 5},
+  {"UK/CH",      869.618f, 62.5f,  8, 8},
+  {"AU/NZ",      915.800f, 250.0f, 10, 5},
 };
 const uint8_t RADIO_PRESETS_COUNT = sizeof(RADIO_PRESETS) / sizeof(RADIO_PRESETS[0]);
-static const EnumOpt OPT_PRESET[] = { {"Custom", -1}, {"USA/Canada", 0}, {"EU/UK", 1} };
+static const EnumOpt OPT_PRESET[] = {
+  {"Custom", -1}, {"USA/Canada", 0}, {"EU", 1}, {"UK/CH", 2}, {"AU/NZ", 3},
+};
 static int32_t get_preset() {
   for (uint8_t i = 0; i < RADIO_PRESETS_COUNT; i++) {
     const RadioPreset& r = RADIO_PRESETS[i];
@@ -87,7 +91,7 @@ static bool set_tx(int32_t v) { S.tx = v; return true; }
 static int32_t get_rep() { return S.client_repeat; }
 static bool set_rep(int32_t v) { S.client_repeat = v ? 1 : 0; return true; }
 static const Setting GRP_RADIO[] = {
-  SET_ENUM("Preset", get_preset, set_preset, OPT_PRESET, 3),
+  SET_ENUM("Preset", get_preset, set_preset, OPT_PRESET, 5),
   SET_STRING("Frequency (MHz)", get_freq, set_freq),
   SET_ENUM("Bandwidth", get_bw, set_bw, OPT_BW, 10),
   SET_INT("Spread factor", get_sf, set_sf, 5, 12, 1, ""),
