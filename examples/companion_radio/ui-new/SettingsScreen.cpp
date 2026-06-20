@@ -222,8 +222,13 @@ void SettingsListScreen::activate(int idx) {
     if (s->setInt) s->setInt(s->opts[nxt].value);
     return;
   }
+  if (s->type == ST_ACTION) {
+    if (s->imin != 0) _task->editSetting(s);   // needs confirmation -> confirm screen
+    else if (s->action) s->action(_task);      // fire immediately on tap
+    return;
+  }
   if (s->type == ST_INFO) return;
-  _task->editSetting(s);  // INT / FLOAT / STRING / ACTION
+  _task->editSetting(s);  // INT / FLOAT / STRING
 }
 
 bool SettingsListScreen::handleInput(char c) {

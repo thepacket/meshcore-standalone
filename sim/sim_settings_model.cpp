@@ -69,8 +69,8 @@ static bool set_preset(int32_t idx) {
 }
 
 // ---- Radio ----
-static float get_freq() { return S.freq; }
-static bool set_freq(float v) { if (v < 150 || v > 960) return false; S.freq = v; return true; }
+static const char* get_freq() { static char b[12]; snprintf(b, sizeof(b), "%g", S.freq); return b; }
+static bool set_freq(const char* s) { float v = atof(s); if (v < 150 || v > 960) return false; S.freq = v; return true; }
 static const EnumOpt OPT_BW[] = {
   {"7.8", 7800}, {"10.4", 10400}, {"15.6", 15600}, {"20.8", 20800}, {"31.25", 31250},
   {"41.7", 41700}, {"62.5", 62500}, {"125", 125000}, {"250", 250000}, {"500", 500000},
@@ -87,7 +87,7 @@ static int32_t get_rep() { return S.client_repeat; }
 static bool set_rep(int32_t v) { S.client_repeat = v ? 1 : 0; return true; }
 static const Setting GRP_RADIO[] = {
   SET_ENUM("Preset", get_preset, set_preset, OPT_PRESET, 3),
-  SET_FLOAT("Frequency", get_freq, set_freq, 150.0f, 960.0f, 0.125f, "MHz"),
+  SET_STRING("Frequency (MHz)", get_freq, set_freq),
   SET_ENUM("Bandwidth", get_bw, set_bw, OPT_BW, 10),
   SET_INT("Spread factor", get_sf, set_sf, 5, 12, 1, ""),
   SET_INT("Coding rate", get_cr, set_cr, 5, 8, 1, ""),
@@ -174,8 +174,8 @@ static const Setting GRP_DEVICE[] = {
   SET_INFO("Firmware", info_fw),
   SET_INFO("Device", info_dev),
   SET_STRING("BLE pin", get_pin, set_pin),
-  SET_ACTION("Reboot", act_reboot),
-  SET_ACTION("Factory reset", act_factory),
+  SET_ACTION_CONFIRM("Reboot", act_reboot),
+  SET_ACTION_CONFIRM("Factory reset", act_factory),
 };
 
 // ---- Root ----

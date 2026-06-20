@@ -62,8 +62,12 @@ struct SettingsGroup {
   { label, ST_FLOAT, nullptr,nullptr, get,set, nullptr,nullptr, nullptr, nullptr,0, 0,0,0, lo,hi,step, units }
 #define SET_STRING(label, get, set) \
   { label, ST_STRING, nullptr,nullptr, nullptr,nullptr, get,set, nullptr, nullptr,0, 0,0,0, 0,0,0, nullptr }
+// SET_ACTION fires immediately on tap; SET_ACTION_CONFIRM (imin=1) shows a
+// confirm prompt first (for destructive actions like reboot / factory reset).
 #define SET_ACTION(label, act) \
   { label, ST_ACTION, nullptr,nullptr, nullptr,nullptr, nullptr,nullptr, act, nullptr,0, 0,0,0, 0,0,0, nullptr }
+#define SET_ACTION_CONFIRM(label, act) \
+  { label, ST_ACTION, nullptr,nullptr, nullptr,nullptr, nullptr,nullptr, act, nullptr,0, 1,0,0, 0,0,0, nullptr }
 #define SET_INFO(label, get) \
   { label, ST_INFO, nullptr,nullptr, nullptr,nullptr, get,nullptr, nullptr, nullptr,0, 0,0,0, 0,0,0, nullptr }
 

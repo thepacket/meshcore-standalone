@@ -33,13 +33,13 @@ void OnScreenKeyboard::render(DisplayDriver& d, int rx, int ry, int rw, int rh) 
       d.drawTextCentered(x + cellW / 2 - 1, y + rowH / 2 - 4, tmp);
     }
   }
-  // bottom special row: Shift | space | Bksp | OK
+  // bottom special row: Shift | space | . | Bksp | OK
   int y = ry + 4 * rowH;
-  int bw = rw / 4;
-  const char* labels[4] = { _shift ? "SHFT" : "shft", "space", "<-", "OK" };
-  for (int b = 0; b < 4; b++) {
+  int bw = rw / 5;
+  const char* labels[5] = { _shift ? "SHFT" : "shft", "space", ".", "<-", "OK" };
+  for (int b = 0; b < 5; b++) {
     int x = rx + b * bw;
-    bool accent = (b == 3);  // OK key uses the accent color
+    bool accent = (b == 4);  // OK key uses the accent color
     if (accent) d.setColorRGB(91, 141, 239);
     else d.setColorRGB(54, 60, 72);
     d.fillRect(x, y, bw - 2, rowH - 2);
@@ -64,13 +64,14 @@ char OnScreenKeyboard::handleTap(int tx, int ty, int rx, int ry, int rw, int rh)
     return KEY_NONE;
   }
   // bottom row
-  int bw = rw / 4;
+  int bw = rw / 5;
   int b = (tx - rx) / bw;
   switch (b) {
     case 0: _shift = !_shift; return KEY_NONE;  // toggle shift
     case 1: return ' ';
-    case 2: return KEY_BKSP;
-    case 3: return KEY_OK;
+    case 2: return '.';
+    case 3: return KEY_BKSP;
+    case 4: return KEY_OK;
     default: return KEY_NONE;
   }
 }

@@ -1,5 +1,6 @@
 #include "SettingsModel.h"
 #include <math.h>
+#include <stdlib.h>
 #include "../MyMesh.h"
 #include "UITask.h"
 
@@ -61,9 +62,15 @@ static bool set_preset(int32_t idx) {
 }
 
 // ---------------- Radio ----------------
-static float get_freq() { return P()->freq; }
-static bool set_freq(float mhz) {
+// Frequency is typed on the keyboard (it needs decimals), not stepped with +/-.
+static const char* get_freq() {
+  static char b[12];
+  snprintf(b, sizeof(b), "%g", P()->freq);
+  return b;
+}
+static bool set_freq(const char* s) {
   NodePrefs* p = P();
+  float mhz = atof(s);
   return the_mesh.setRadioParams((uint32_t)lroundf(mhz * 1000.0f), (uint32_t)lroundf(p->bw * 1000.0f),
                                  p->sf, p->cr, p->client_repeat);
 }
@@ -102,7 +109,7 @@ static bool set_repeat(int32_t v) {
 
 static const Setting GRP_RADIO[] = {
   SET_ENUM("Preset", get_preset, set_preset, OPT_PRESET, 3),
-  SET_FLOAT("Frequency", get_freq, set_freq, 150.0f, 960.0f, 0.125f, "MHz"),
+  SET_STRING("Frequency (MHz)", get_freq, set_freq),
   SET_ENUM ("Bandwidth", get_bw, set_bw, OPT_BW, 10),
   SET_INT  ("Spread factor", get_sf, set_sf, 5, 12, 1, ""),
   SET_INT  ("Coding rate", get_cr, set_cr, 5, 8, 1, ""),
@@ -249,8 +256,8 @@ static const Setting GRP_DEVICE[] = {
   SET_INFO  ("Firmware", info_fw),
   SET_INFO  ("Device", info_dev),
   SET_STRING("BLE pin", get_pin, set_pin),
-  SET_ACTION("Reboot", act_reboot),
-  SET_ACTION("Factory reset", act_factory),
+  SET_ACTION_CONFIRM("Reboot", act_reboot),
+  SET_ACTION_CONFIRM("Factory reset", act_factory),
 };
 
 // ---------------- Root ----------------

@@ -55,9 +55,7 @@ static int run_shots(TTF_Font* f1, TTF_Font* f2) {
   ui.render(); save_ppm(ren, "sim/shots/02_radio.ppm");
   ui.onKey(KEY_ENTER);                               // tap "Preset" -> cycles in place
   ui.render(); save_ppm(ren, "sim/shots/03_edit.ppm");  // Radio now shows the next preset applied
-  ui.onKey(KEY_CANCEL); ui.onKey(KEY_CANCEL);       // back to root
-  ui.onKey(KEY_ENTER);                               // open "Public info"
-  ui.onKey(KEY_ENTER);                               // edit "Node name" (string -> OSK)
+  ui.onKey(KEY_DOWN); ui.onKey(KEY_ENTER);          // "Frequency (MHz)" -> keyboard entry (with '.')
   ui.render(); save_ppm(ren, "sim/shots/04_keyboard.ppm");
 
   SDL_DestroyRenderer(ren);
