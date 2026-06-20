@@ -9,7 +9,7 @@
 #include <cstdio>
 #include <cstring>
 
-static const int SCALE = 3;
+static const int SCALE = 1;  // 1:1 with the real 320x240 T-Deck panel (no pixel inflation)
 static const char* FONT_PATH = "/System/Library/Fonts/Menlo.ttc";
 
 static char mapKey(SDL_Keycode k) {

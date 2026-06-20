@@ -38,5 +38,7 @@ The on-screen keyboard appears for text fields (e.g. Node name); you can tap it 
 ## Notes
 
 - Changes are not persisted — the mock model resets each run.
-- Window is the 320x240 device screen scaled 3x.
+- Window is 320x240 — 1:1 with the real T-Deck panel (no pixel inflation), so the
+  layout/legibility you see matches the device resolution. (Exact glyphs differ:
+  the sim uses Menlo, the device uses LovyanGFX's built-in font.)
 - This is a development tool; it is not built or shipped as firmware.
