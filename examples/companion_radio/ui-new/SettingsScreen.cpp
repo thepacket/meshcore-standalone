@@ -76,6 +76,18 @@ void drawHeaderBar(DisplayDriver& d, const char* title, bool back) {
   d.setTextSize(1);
 }
 
+// A field is "cyclable" (tap advances in place, no editor) when it has only a
+// few accepted values: any ENUM, or an INT whose range spans few steps.
+const int CYCLE_MAX_STEPS = 12;
+bool isCyclable(const Setting& s) {
+  if (s.type == ST_ENUM && s.num_opts > 0) return true;
+  if (s.type == ST_INT && s.istep != 0) {
+    long steps = (long)(s.imax - s.imin) / s.istep + 1;
+    return steps > 1 && steps <= CYCLE_MAX_STEPS;
+  }
+  return false;
+}
+
 void formatValue(const Setting& s, char* out, size_t n) {
   switch (s.type) {
     case ST_BOOL: snprintf(out, n, "%s", s.getInt() ? "On" : "Off"); break;
@@ -166,7 +178,7 @@ int SettingsListScreen::render(DisplayDriver& d) {
     } else {  // ENUM / INT / FLOAT / STRING / INFO -> label over value
       formatValue(s, val, sizeof(val));
       d.translateUTF8ToBlocks(valf, val, sizeof(valf));
-      bool drop = (s.type == ST_ENUM);
+      bool drop = isCyclable(s);  // show the dropdown affordance on tap-to-cycle fields
       int avail = rightX - padX - (drop ? 12 : 2);
       if (big(d)) {
         col(d, C_LABEL);
@@ -220,6 +232,14 @@ void SettingsListScreen::activate(int idx) {
     int nxt = cur, guard = 0;
     do { nxt = (nxt + 1) % s->num_opts; guard++; } while (s->opts[nxt].value < 0 && guard <= s->num_opts);
     if (s->setInt) s->setInt(s->opts[nxt].value);
+    return;
+  }
+  if (s->type == ST_INT && isCyclable(*s)) {
+    // small-range integer: advance one step in place, wrapping at the top
+    int32_t v = s->getInt ? s->getInt() : s->imin;
+    v += s->istep;
+    if (v > s->imax) v = s->imin;
+    if (s->setInt) s->setInt(v);
     return;
   }
   if (s->type == ST_ACTION) {
