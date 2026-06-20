@@ -40,20 +40,16 @@ public:
 class SettingEditScreen : public UIScreen {
   UITask* _task;
   const Setting* _s;
-  int32_t _ival;     // working value for BOOL/ENUM/INT
-  float _fval;       // working value for FLOAT
-  char _sbuf[64];    // working value for STRING
+  char _sbuf[64];    // text-entry working buffer (STRING/INT/FLOAT)
   int _slen;
   OnScreenKeyboard _kb;
-  bool _use_osk;     // render on-screen keyboard for STRING entry
+  bool _use_osk;     // render the on-screen keyboard for text entry
 
-  void adjust(int dir);
   void commit();
-  int enumIndex() const;
 
 public:
   SettingEditScreen(UITask* task)
-      : _task(task), _s(nullptr), _ival(0), _fval(0), _slen(0), _use_osk(true) {}
+      : _task(task), _s(nullptr), _slen(0), _use_osk(true) {}
 
   void begin(const Setting* s, bool use_osk);
 

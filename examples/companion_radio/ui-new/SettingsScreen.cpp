@@ -1,6 +1,7 @@
 #include "SettingsScreen.h"
 #include "UITask.h"
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 // ---- styling (modeled on the MeshCore Android app) -------------------------
@@ -294,6 +295,12 @@ bool SettingsListScreen::handleTouch(int x, int y, TouchEvent ev) {
 }
 
 // =================== SettingEditScreen ===================
+// The editor only handles keyboard entry (STRING/INT/FLOAT), action confirmation
+// (ACTION), and read-only display (INFO). Bool/enum/small-int cycle in the list.
+static bool isTextEntry(const Setting* s) {
+  return s && (s->type == ST_STRING || s->type == ST_INT || s->type == ST_FLOAT);
+}
+
 void SettingEditScreen::begin(const Setting* s, bool use_osk) {
   _s = s;
   _use_osk = use_osk;
@@ -301,77 +308,31 @@ void SettingEditScreen::begin(const Setting* s, bool use_osk) {
   _slen = 0;
   _sbuf[0] = 0;
   if (!s) return;
-  switch (s->type) {
-    case ST_BOOL:
-    case ST_ENUM:
-    case ST_INT: _ival = s->getInt ? s->getInt() : 0; break;
-    case ST_FLOAT: _fval = s->getFloat ? s->getFloat() : 0; break;
-    case ST_STRING: {
-      const char* cur = s->getStr ? s->getStr() : "";
-      strncpy(_sbuf, cur, sizeof(_sbuf) - 1);
-      _sbuf[sizeof(_sbuf) - 1] = 0;
-      _slen = strlen(_sbuf);
-      break;
-    }
-    default: break;
+  if (s->type == ST_STRING) {
+    const char* cur = s->getStr ? s->getStr() : "";
+    strncpy(_sbuf, cur, sizeof(_sbuf) - 1);
+  } else if (s->type == ST_INT) {
+    snprintf(_sbuf, sizeof(_sbuf), "%ld", (long)(s->getInt ? s->getInt() : 0));
+  } else if (s->type == ST_FLOAT) {
+    snprintf(_sbuf, sizeof(_sbuf), "%g", (double)(s->getFloat ? s->getFloat() : 0));
   }
-}
-
-int SettingEditScreen::enumIndex() const {
-  for (int i = 0; i < _s->num_opts; i++)
-    if (_s->opts[i].value == _ival) return i;
-  return 0;
-}
-
-void SettingEditScreen::adjust(int dir) {
-  switch (_s->type) {
-    case ST_BOOL: _ival = _ival ? 0 : 1; break;
-    case ST_ENUM: { int i = (enumIndex() + dir + _s->num_opts) % _s->num_opts; _ival = _s->opts[i].value; break; }
-    case ST_INT:
-      _ival += dir * _s->istep;
-      if (_ival < _s->imin) _ival = _s->imin;
-      if (_ival > _s->imax) _ival = _s->imax;
-      break;
-    case ST_FLOAT:
-      _fval += dir * _s->fstep;
-      if (_fval < _s->fmin) _fval = _s->fmin;
-      if (_fval > _s->fmax) _fval = _s->fmax;
-      break;
-    default: break;
-  }
+  _sbuf[sizeof(_sbuf) - 1] = 0;
+  _slen = strlen(_sbuf);
 }
 
 void SettingEditScreen::commit() {
   bool ok = true;
   switch (_s->type) {
-    case ST_BOOL:
-    case ST_ENUM:
-    case ST_INT: ok = _s->setInt ? _s->setInt(_ival) : false; break;
-    case ST_FLOAT: ok = _s->setFloat ? _s->setFloat(_fval) : false; break;
     case ST_STRING: ok = _s->setStr ? _s->setStr(_sbuf) : false; break;
+    case ST_INT: ok = _s->setInt ? _s->setInt((int32_t)atol(_sbuf)) : false; break;
+    case ST_FLOAT: ok = _s->setFloat ? _s->setFloat((float)atof(_sbuf)) : false; break;
     default: break;
   }
   _task->showAlert(ok ? "Saved" : "Invalid", 1000);
   _task->closeSettingEdit();
 }
 
-static void workingValue(const Setting* s, int32_t ival, float fval, char* out, size_t n) {
-  if (s->type == ST_BOOL) snprintf(out, n, "%s", ival ? "On" : "Off");
-  else if (s->type == ST_ENUM) {
-    const char* lbl = "?";
-    for (int i = 0; i < s->num_opts; i++)
-      if (s->opts[i].value == ival) { lbl = s->opts[i].label; break; }
-    snprintf(out, n, "%s", lbl);
-  } else if (s->type == ST_INT) {
-    snprintf(out, n, "%ld%s%s", (long)ival, (s->units && s->units[0]) ? " " : "", s->units ? s->units : "");
-  } else if (s->type == ST_FLOAT) {
-    char nb[16];
-    snprintf(nb, sizeof(nb), "%g", (double)fval);
-    snprintf(out, n, "%s%s%s", nb, (s->units && s->units[0]) ? " " : "", s->units ? s->units : "");
-  } else out[0] = 0;
-}
-
-// rounded-ish filled button helper
+// filled button helper
 static void drawButton(DisplayDriver& d, int x, int y, int w, int h, const char* label, const RGB& bg,
                        const RGB& fg) {
   col(d, bg);
@@ -387,7 +348,7 @@ int SettingEditScreen::render(DisplayDriver& d) {
   int W = d.width(), H = d.height();
   drawHeaderBar(d, _s->label, true);
 
-  if (_s->type == ST_STRING) {
+  if (isTextEntry(_s)) {
     int boxY = headerH(d) + 4;
     col(d, C_CARD);
     d.fillRect(4, boxY, W - 8, 20);
@@ -402,12 +363,12 @@ int SettingEditScreen::render(DisplayDriver& d) {
       _kb.render(d, 2, ky, W - 4, H - ky - 2);
     } else {
       col(d, C_LABEL);
-      d.drawTextCentered(W / 2, H / 2, "type on keyboard");
+      d.drawTextCentered(W / 2, H / 2, "type, then Enter to save");
     }
     return 1000;
   }
 
-  int bw = (int)(W * 0.28f), bh = (int)(H * 0.18f), by = (int)(H * 0.46f);
+  int bh = (int)(H * 0.18f);
   int cw = (int)(W * 0.40f), cy = H - bh - 6;
 
   if (_s->type == ST_INFO) {
@@ -419,88 +380,32 @@ int SettingEditScreen::render(DisplayDriver& d) {
     return 3000;
   }
 
-  if (_s->type == ST_ACTION) {
-    col(d, C_VALUE);
-    d.drawTextCentered(W / 2, H / 3, "Confirm?");
-    drawButton(d, 8, cy, cw, bh, "Cancel", C_CARD, C_VALUE);
-    drawButton(d, W - 8 - cw, cy, cw, bh, "Confirm", C_ACCENT, C_VALUE);
-    return 3000;
-  }
-
-  // BOOL / ENUM / INT / FLOAT
-  char val[40];
-  workingValue(_s, _ival, _fval, val, sizeof(val));
+  // ST_ACTION (confirmation required)
   col(d, C_VALUE);
-  d.setTextSize(2);
-  d.drawTextCentered(W / 2, (int)(H * 0.24f), val);
-  d.setTextSize(1);
-
-  if ((_s->type == ST_INT || _s->type == ST_FLOAT) && H >= 160) {
-    float frac;
-    if (_s->type == ST_INT) {
-      float span = (float)(_s->imax - _s->imin);
-      frac = span > 0 ? (float)(_ival - _s->imin) / span : 0;
-    } else {
-      float span = _s->fmax - _s->fmin;
-      frac = span > 0 ? (_fval - _s->fmin) / span : 0;
-    }
-    if (frac < 0) frac = 0;
-    if (frac > 1) frac = 1;
-    int barW = (int)(W * 0.7f), barX = (W - barW) / 2, barY = (int)(H * 0.34f), barH = 5;
-    col(d, C_CARD);
-    d.fillRect(barX, barY, barW, barH);
-    col(d, C_ACCENT);
-    d.fillRect(barX, barY, (int)(barW * frac), barH);
-    char lo[14], hi[14];
-    if (_s->type == ST_INT) {
-      snprintf(lo, sizeof(lo), "%ld", (long)_s->imin);
-      snprintf(hi, sizeof(hi), "%ld", (long)_s->imax);
-    } else {
-      snprintf(lo, sizeof(lo), "%g", (double)_s->fmin);
-      snprintf(hi, sizeof(hi), "%g", (double)_s->fmax);
-    }
-    col(d, C_LABEL);
-    d.drawTextLeftAlign(barX, barY + barH + 3, lo);
-    d.drawTextRightAlign(barX + barW, barY + barH + 3, hi);
-  }
-
-  drawButton(d, 8, by, bw, bh, "-", C_CARD, C_VALUE);
-  drawButton(d, W - 8 - bw, by, bw, bh, "+", C_CARD, C_VALUE);
+  d.drawTextCentered(W / 2, H / 3, "Confirm?");
   drawButton(d, 8, cy, cw, bh, "Cancel", C_CARD, C_VALUE);
-  drawButton(d, W - 8 - cw, cy, cw, bh, "OK", C_ACCENT, C_VALUE);
+  drawButton(d, W - 8 - cw, cy, cw, bh, "Confirm", C_ACCENT, C_VALUE);
   return 3000;
 }
 
 bool SettingEditScreen::handleInput(char c) {
   if (!_s) return false;
-  switch (_s->type) {
-    case ST_BOOL:
-    case ST_ENUM:
-    case ST_INT:
-    case ST_FLOAT:
-      if (c == KEY_UP || c == KEY_RIGHT) { adjust(+1); return true; }
-      if (c == KEY_DOWN || c == KEY_LEFT) { adjust(-1); return true; }
-      if (c == KEY_ENTER || c == KEY_SELECT) { commit(); return true; }
-      if (c == KEY_CANCEL) { _task->closeSettingEdit(); return true; }
-      return true;
-    case ST_STRING:
-      if (c == KEY_ENTER || c == KEY_SELECT) { commit(); return true; }
-      if (c == KEY_CANCEL) { _task->closeSettingEdit(); return true; }
-      if (c == KEY_BACKSPACE) { if (_slen > 0) _sbuf[--_slen] = 0; return true; }
-      if ((unsigned char)c >= 32 && (unsigned char)c < 127) {
-        if (_slen < (int)sizeof(_sbuf) - 1) { _sbuf[_slen++] = c; _sbuf[_slen] = 0; }
-        return true;
-      }
-      return true;
-    case ST_ACTION:
-      if (c == KEY_ENTER || c == KEY_SELECT) { if (_s->action) _s->action(_task); _task->closeSettingEdit(); return true; }
-      if (c == KEY_CANCEL) { _task->closeSettingEdit(); return true; }
-      return true;
-    case ST_INFO:
-      _task->closeSettingEdit();
-      return true;
+  if (isTextEntry(_s)) {
+    if (c == KEY_ENTER || c == KEY_SELECT) { commit(); return true; }
+    if (c == KEY_CANCEL) { _task->closeSettingEdit(); return true; }
+    if (c == KEY_BACKSPACE) { if (_slen > 0) _sbuf[--_slen] = 0; return true; }
+    if ((unsigned char)c >= 32 && (unsigned char)c < 127) {
+      if (_slen < (int)sizeof(_sbuf) - 1) { _sbuf[_slen++] = c; _sbuf[_slen] = 0; }
+    }
+    return true;
   }
-  return false;
+  if (_s->type == ST_ACTION) {
+    if (c == KEY_ENTER || c == KEY_SELECT) { if (_s->action) _s->action(_task); _task->closeSettingEdit(); return true; }
+    if (c == KEY_CANCEL) { _task->closeSettingEdit(); return true; }
+    return true;
+  }
+  _task->closeSettingEdit();  // INFO
+  return true;
 }
 
 bool SettingEditScreen::handleTouch(int x, int y, TouchEvent ev) {
@@ -512,7 +417,7 @@ bool SettingEditScreen::handleTouch(int x, int y, TouchEvent ev) {
 
   if (y < headerH(*d)) { _task->closeSettingEdit(); return true; }
 
-  if (_s->type == ST_STRING) {
+  if (isTextEntry(_s)) {
     if (_use_osk) {
       int ky = headerH(*d) + 4 + 26;
       char k = _kb.handleTap(x, y, 2, ky, W - 4, H - ky - 2);
@@ -525,20 +430,13 @@ bool SettingEditScreen::handleTouch(int x, int y, TouchEvent ev) {
     return true;
   }
 
-  int bw = (int)(W * 0.28f), bh = (int)(H * 0.18f), by = (int)(H * 0.46f);
+  int bh = (int)(H * 0.18f);
   int cw = (int)(W * 0.40f), cy = H - bh - 6;
 
   if (_s->type == ST_INFO) { _task->closeSettingEdit(); return true; }
 
-  if (_s->type == ST_ACTION) {
-    if (inRect(x, y, 8, cy, cw, bh)) { _task->closeSettingEdit(); return true; }
-    if (inRect(x, y, W - 8 - cw, cy, cw, bh)) { if (_s->action) _s->action(_task); _task->closeSettingEdit(); return true; }
-    return true;
-  }
-
-  if (inRect(x, y, 8, by, bw, bh)) { adjust(-1); return true; }
-  if (inRect(x, y, W - 8 - bw, by, bw, bh)) { adjust(+1); return true; }
+  // ST_ACTION
   if (inRect(x, y, 8, cy, cw, bh)) { _task->closeSettingEdit(); return true; }
-  if (inRect(x, y, W - 8 - cw, cy, cw, bh)) { commit(); return true; }
+  if (inRect(x, y, W - 8 - cw, cy, cw, bh)) { if (_s->action) _s->action(_task); _task->closeSettingEdit(); return true; }
   return true;
 }
