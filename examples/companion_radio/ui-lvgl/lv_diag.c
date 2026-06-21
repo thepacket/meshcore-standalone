@@ -2,6 +2,14 @@
 #include "lv_ui.h"
 #include <stdio.h>
 
+void lv_chat_set_peer(const char* name);  // peer-details target (lv_chat.c)
+
+static void heard_clicked(lv_event_t* e) {
+  const char* n = (const char*)lv_event_get_user_data(e);
+  lv_chat_set_peer(n);
+  if (lv_nav_cb) lv_nav_cb("peer");
+}
+
 static lv_obj_t* full_list(lv_obj_t* scr) {
   lv_obj_t* list = lv_obj_create(scr);
   lv_obj_set_pos(list, 4, 34);
@@ -129,10 +137,13 @@ static void heard_row(lv_obj_t* list, const Stn* s) {
   lv_obj_set_style_pad_hor(row, 10, 0);
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(row, heard_clicked, LV_EVENT_CLICKED, (void*)s->name);
 
   uint32_t col = s->bars >= 3 ? UI_GREEN : (s->bars == 2 ? UI_AMBER : UI_RED);
   lv_obj_t* dot = lv_obj_create(row);
   lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(dot, 10, 10); lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_color(dot, lv_color_hex(col), 0);
   lv_obj_set_style_border_width(dot, 0, 0);
@@ -142,6 +153,7 @@ static void heard_row(lv_obj_t* list, const Stn* s) {
 
   lv_obj_t* mid = lv_obj_create(row);
   lv_obj_remove_flag(mid, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(mid, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_style_bg_opa(mid, 0, 0); lv_obj_set_style_border_width(mid, 0, 0);
   lv_obj_set_style_pad_all(mid, 0, 0); lv_obj_set_flex_grow(mid, 1); lv_obj_set_height(mid, 34);
   lv_obj_set_flex_flow(mid, LV_FLEX_FLOW_COLUMN);

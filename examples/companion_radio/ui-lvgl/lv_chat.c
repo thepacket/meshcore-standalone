@@ -30,6 +30,9 @@ static lv_obj_t* avatar(lv_obj_t* parent, const char* txt, uint32_t color) {
 // the peer whose message was last tapped (shown by the peer-details screen)
 static char g_peer[24] = "Repeater-7";
 const char* lv_chat_active_peer(void) { return g_peer; }
+void lv_chat_set_peer(const char* name) {
+  if (name) { strncpy(g_peer, name, sizeof(g_peer) - 1); g_peer[sizeof(g_peer) - 1] = 0; }
+}
 static void peer_clicked(lv_event_t* e) {
   const char* s = (const char*)lv_event_get_user_data(e);
   if (s) { strncpy(g_peer, s, sizeof(g_peer) - 1); g_peer[sizeof(g_peer) - 1] = 0; }
