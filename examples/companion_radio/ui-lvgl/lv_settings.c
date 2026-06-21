@@ -25,7 +25,7 @@ typedef struct {
   int          n;
 } Group;
 
-#define ENUM_TELEM "Deny\nFlags\nAll"
+#define ENUM_TELEM "Deny\nAllow-listed\nEveryone"
 
 static const Field F_PUBLIC[] = {
   {"Node name",        F_VAL,    "MyNode", 0},

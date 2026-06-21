@@ -205,7 +205,7 @@ static const Setting GRP_POSITION[] = {
 
 // ---------------- Telemetry ----------------
 static const EnumOpt OPT_TELEM[] = {
-  {"Deny", TELEM_MODE_DENY}, {"Flags", TELEM_MODE_ALLOW_FLAGS}, {"All", TELEM_MODE_ALLOW_ALL},
+  {"Deny", TELEM_MODE_DENY}, {"Allow-listed", TELEM_MODE_ALLOW_FLAGS}, {"Everyone", TELEM_MODE_ALLOW_ALL},
 };
 static int32_t get_tb() { return P()->telemetry_mode_base; }
 static bool set_tb(int32_t v) { the_mesh.setTelemetryModes((uint8_t)v, P()->telemetry_mode_loc, P()->telemetry_mode_env); return true; }

@@ -142,7 +142,7 @@ static const Setting GRP_POSITION[] = {
 };
 
 // ---- Telemetry ----
-static const EnumOpt OPT_TELEM[] = {{"Deny", 0}, {"Flags", 1}, {"All", 2}};
+static const EnumOpt OPT_TELEM[] = {{"Deny", 0}, {"Allow-listed", 1}, {"Everyone", 2}};
 static int32_t get_tb() { return S.telem_base; } static bool set_tb(int32_t v) { S.telem_base = v; return true; }
 static int32_t get_tl() { return S.telem_loc; }  static bool set_tl(int32_t v) { S.telem_loc = v; return true; }
 static int32_t get_te() { return S.telem_env; }  static bool set_te(int32_t v) { S.telem_env = v; return true; }
