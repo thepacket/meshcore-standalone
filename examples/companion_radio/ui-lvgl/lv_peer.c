@@ -6,36 +6,40 @@
 
 const char* lv_chat_active_peer(void);  // provided by lv_chat.c
 
+// stat card: label on TOP, value below
 static void stat_card(lv_obj_t* grid, const char* k, const char* v, uint32_t color) {
   lv_obj_t* c = lv_ui_card(grid, -1, 0, 0, 0);
   lv_obj_set_size(c, 98, 44);
   lv_obj_set_style_pad_all(c, 5, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(c, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-  lv_obj_t* vl = lv_label_create(c);
-  lv_label_set_text(vl, v);
-  lv_obj_set_style_text_font(vl, &lv_font_montserrat_16, 0);
-  lv_obj_set_style_text_color(vl, lv_color_hex(color), 0);
   lv_obj_t* kl = lv_label_create(c);
   lv_label_set_text(kl, k);
   lv_obj_set_style_text_font(kl, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(kl, lv_color_hex(UI_MUTED), 0);
+  lv_obj_t* vl = lv_label_create(c);
+  lv_label_set_text(vl, v);
+  lv_obj_set_style_text_font(vl, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_color(vl, lv_color_hex(color), 0);
 }
 
-static void info_row(lv_obj_t* list, const char* k, const char* v) {
-  lv_obj_t* c = lv_ui_card(list, -1, 0, 0, 36);
-  lv_obj_set_width(c, lv_pct(100)); lv_obj_set_height(c, 34);
-  lv_obj_set_style_min_height(c, 0, 0); lv_obj_set_style_pad_hor(c, 12, 0);
-  lv_obj_set_flex_flow(c, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(c, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+// key/value block: label on TOP, value on the line below (wraps if long)
+static void kv_block(lv_obj_t* list, const char* k, const char* v, bool wrap) {
+  lv_obj_t* c = lv_ui_card(list, -1, 0, 0, 0);
+  lv_obj_set_width(c, lv_pct(100)); lv_obj_set_height(c, LV_SIZE_CONTENT);
+  lv_obj_set_style_min_height(c, 0, 0); lv_obj_set_style_pad_all(c, 8, 0);
+  lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+  lv_obj_set_style_pad_row(c, 2, 0);
   lv_obj_t* kl = lv_label_create(c);
   lv_label_set_text(kl, k);
-  lv_obj_set_style_text_font(kl, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_font(kl, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(kl, lv_color_hex(UI_MUTED), 0);
   lv_obj_t* vl = lv_label_create(c);
   lv_label_set_text(vl, v);
   lv_obj_set_style_text_font(vl, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(vl, lv_color_hex(UI_TEXT), 0);
+  if (wrap) { lv_label_set_long_mode(vl, LV_LABEL_LONG_WRAP); lv_obj_set_width(vl, lv_pct(100)); }
 }
 
 static void act_btn(lv_obj_t* row, const char* icon, const char* txt, uint32_t color, const char* dest) {
@@ -111,8 +115,9 @@ void lv_peer_create(lv_obj_t* scr) {
   stat_card(grid, "Last heard", "12s", UI_TEXT);
   stat_card(grid, "Path", "direct", UI_TEXT);
 
-  // location + identity
-  info_row(list, "Latitude", "51.7960 deg");
-  info_row(list, "Longitude", "-0.0810 deg");
-  info_row(list, "Public key", "A3 7F 12 ... 9C");
+  // location + identity (label on top; key wraps to its own line)
+  kv_block(list, "Latitude", "51.7960 deg", false);
+  kv_block(list, "Longitude", "-0.0810 deg", false);
+  kv_block(list, "Public key",
+           "a37f12c49b0e5d612f8a44d3b7e190ca5e6b8847aa12cd3490ff7e2b1d0c4a59", true);
 }
