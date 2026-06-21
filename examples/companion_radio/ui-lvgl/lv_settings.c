@@ -1,9 +1,8 @@
 // LVGL settings: complete panel covering every configurable field found in the
-// MeshCore companion firmware (NodePrefs + CMD_SET_*/CMD_GET_*). Category list +
-// per-group detail rendered from a data table, one widget per field type.
-//
-// Prototype values are static; the firmware build will bind these rows to the
-// real SettingsModel forwarders (same field set).
+// MeshCore companion firmware (NodePrefs + CMD_SET_*/CMD_GET_*). Category list,
+// per-group detail (one widget per field type), and a keyboard editor for the
+// value fields. Edits persist in an in-memory overlay (prototype); the firmware
+// build binds the same rows to the SettingsModel forwarders.
 #include "lv_ui.h"
 #include <stdio.h>
 #include <stdlib.h>
@@ -14,7 +13,7 @@ typedef enum { F_BOOL, F_ENUM, F_VAL, F_INFO, F_ACTION, F_ACTION_WARN } FType;
 typedef struct {
   const char* label;
   FType       type;
-  const char* value;   // VAL/INFO text, or ENUM options ('\n'-separated)
+  const char* value;   // VAL/INFO initial text, or ENUM options ('\n'-separated)
   int         sel;     // BOOL state, or ENUM selected index
 } Field;
 
@@ -36,11 +35,11 @@ static const Field F_PUBLIC[] = {
 };
 static const Field F_RADIO[] = {
   {"Preset",        F_ENUM, "USA/Canada\nEU\nUK/CH\nAU/NZ\nCustom", 0},
-  {"Frequency",     F_VAL,  "910.525 MHz", 0},
+  {"Frequency",     F_VAL,  "910.525", 0},
   {"Bandwidth",     F_ENUM, "7.8\n10.4\n15.6\n20.8\n31.25\n41.7\n62.5\n125\n250\n500", 6},
   {"Spreading factor", F_VAL, "7", 0},
   {"Coding rate",   F_VAL,  "5", 0},
-  {"TX power",      F_VAL,  "22 dBm", 0},
+  {"TX power",      F_VAL,  "22", 0},
   {"Client repeat", F_BOOL, NULL, 0},
   {"RX boosted gain", F_BOOL, NULL, 1},
 };
@@ -58,10 +57,10 @@ static const Field F_MSG[] = {
   {"Path hash mode", F_ENUM, "Off\nMode 1\nMode 2", 0},
 };
 static const Field F_POSITION[] = {
-  {"Latitude",     F_VAL,  "0.0000 deg", 0},
-  {"Longitude",    F_VAL,  "0.0000 deg", 0},
+  {"Latitude",     F_VAL,  "0.0000", 0},
+  {"Longitude",    F_VAL,  "0.0000", 0},
   {"GPS enabled",  F_BOOL, NULL, 0},
-  {"GPS interval", F_VAL,  "0 s", 0},
+  {"GPS interval", F_VAL,  "0", 0},
 };
 static const Field F_TELEM[] = {
   {"Base",        F_ENUM, ENUM_TELEM, 0},
@@ -70,7 +69,7 @@ static const Field F_TELEM[] = {
 };
 static const Field F_TUNING[] = {
   {"Airtime factor", F_VAL,    "1.0", 0},
-  {"RX delay base",  F_VAL,    "500 ms", 0},
+  {"RX delay base",  F_VAL,    "500", 0},
   {"Default scope",  F_INFO,   "(none)", 0},
   {"Clear default scope", F_ACTION, NULL, 0},
 };
@@ -104,10 +103,30 @@ static const Group GROUPS[] = {
   GRP("Device",      UI_INDIGO,  ICON_SETTINGS,  F_DEVICE),
   GRP("Channels",    UI_LIME,    ICON_CHAT,      F_CHANNELS),
 };
-static const int N_GROUPS = (int)(sizeof(GROUPS) / sizeof(GROUPS[0]));
+#define N_GROUPS  ((int)(sizeof(GROUPS) / sizeof(GROUPS[0])))
+#define MAX_FIELDS 8
 static const char* SG_DEST[] = {"sg0","sg1","sg2","sg3","sg4","sg5","sg6","sg7","sg8","sg9"};
 
-int  lv_settings_group_count(void) { return N_GROUPS; }
+// ---- mutable value overlay (prototype state; persists across navigation) ----
+static char g_val[N_GROUPS][MAX_FIELDS][28];
+static int  g_sel[N_GROUPS][MAX_FIELDS];
+static bool g_inited = false;
+static int  g_edit_g = 0, g_edit_f = 0;   // field currently being edited
+
+static void store_init(void) {
+  if (g_inited) return;
+  for (int g = 0; g < N_GROUPS; g++)
+    for (int f = 0; f < GROUPS[g].n; f++) {
+      const Field* fl = &GROUPS[g].fields[f];
+      if (fl->value) { strncpy(g_val[g][f], fl->value, sizeof(g_val[g][f]) - 1); g_val[g][f][sizeof(g_val[g][f]) - 1] = 0; }
+      g_sel[g][f] = fl->sel;
+    }
+  g_inited = true;
+}
+
+static bool field_numeric(const Field* f) {
+  return f->type == F_VAL && strcmp(f->label, "Node name") != 0;
+}
 
 static lv_obj_t* scroll_list(lv_obj_t* scr) {
   lv_obj_t* list = lv_obj_create(scr);
@@ -123,6 +142,7 @@ static lv_obj_t* scroll_list(lv_obj_t* scr) {
 
 // ---- category list ----------------------------------------------------------
 void lv_settings_create(lv_obj_t* scr) {
+  store_init();
   lv_ui_screen_bg(scr);
   lv_ui_topbar(scr, "Settings", UI_INDIGO, NULL);
   lv_obj_t* list = scroll_list(scr);
@@ -162,6 +182,23 @@ void lv_settings_create(lv_obj_t* scr) {
   }
 }
 
+// ---- event handlers ---------------------------------------------------------
+static void on_enum_changed(lv_event_t* e) {
+  int ud = (int)(intptr_t)lv_event_get_user_data(e);
+  lv_obj_t* dd = (lv_obj_t*)lv_event_get_target(e);
+  g_sel[ud >> 8][ud & 0xff] = lv_dropdown_get_selected(dd);
+}
+static void on_bool_changed(lv_event_t* e) {
+  int ud = (int)(intptr_t)lv_event_get_user_data(e);
+  lv_obj_t* sw = (lv_obj_t*)lv_event_get_target(e);
+  g_sel[ud >> 8][ud & 0xff] = lv_obj_has_state(sw, LV_STATE_CHECKED) ? 1 : 0;
+}
+static void on_edit_clicked(lv_event_t* e) {
+  int ud = (int)(intptr_t)lv_event_get_user_data(e);
+  g_edit_g = ud >> 8; g_edit_f = ud & 0xff;
+  if (lv_nav_cb) lv_nav_cb("edit");
+}
+
 // ---- per-field widgets ------------------------------------------------------
 static lv_obj_t* field_card(lv_obj_t* list, const char* label) {
   lv_obj_t* c = lv_ui_card(list, -1, 0, 0, 44);
@@ -195,6 +232,7 @@ static void action_button(lv_obj_t* list, const char* label, uint32_t color) {
 }
 
 void lv_settings_group_create(lv_obj_t* scr, int idx) {
+  store_init();
   if (idx < 0 || idx >= N_GROUPS) idx = 0;
   const Group* g = &GROUPS[idx];
   lv_ui_screen_bg(scr);
@@ -203,43 +241,92 @@ void lv_settings_group_create(lv_obj_t* scr, int idx) {
 
   for (int i = 0; i < g->n; i++) {
     const Field* f = &g->fields[i];
+    int ud = (idx << 8) | i;
     switch (f->type) {
       case F_ACTION:      action_button(list, f->label, g->color); break;
       case F_ACTION_WARN: action_button(list, f->label, UI_RED);   break;
       case F_BOOL: {
         lv_obj_t* c = field_card(list, f->label);
         lv_obj_t* sw = lv_switch_create(c);
-        if (f->sel) lv_obj_add_state(sw, LV_STATE_CHECKED);
+        if (g_sel[idx][i]) lv_obj_add_state(sw, LV_STATE_CHECKED);
         lv_obj_set_style_bg_color(sw, lv_color_hex(0x2a3343), LV_PART_MAIN);
         lv_obj_set_style_bg_color(sw, lv_color_hex(g->color), LV_PART_INDICATOR | LV_STATE_CHECKED);
+        lv_obj_add_event_cb(sw, on_bool_changed, LV_EVENT_VALUE_CHANGED, (void*)(intptr_t)ud);
         break;
       }
       case F_ENUM: {
         lv_obj_t* c = field_card(list, f->label);
         lv_obj_t* dd = lv_dropdown_create(c);
         lv_dropdown_set_options(dd, f->value);
-        lv_dropdown_set_selected(dd, f->sel);
+        lv_dropdown_set_selected(dd, g_sel[idx][i]);
         lv_obj_set_width(dd, 124);
         lv_obj_set_style_bg_color(dd, lv_color_hex(0x18202c), 0);
         lv_obj_set_style_border_color(dd, lv_color_hex(g->color), 0);
         lv_obj_set_style_border_width(dd, 1, 0);
         lv_obj_set_style_text_color(dd, lv_color_hex(UI_TEXT), 0);
         lv_obj_set_style_text_font(dd, &lv_font_montserrat_14, 0);
+        lv_obj_add_event_cb(dd, on_enum_changed, LV_EVENT_VALUE_CHANGED, (void*)(intptr_t)ud);
         break;
       }
       case F_VAL: {
         lv_obj_t* c = field_card(list, f->label);
-        lv_ui_pill(c, f->value, g->color);
+        lv_ui_pill(c, g_val[idx][i], g->color);
+        lv_ui_clickable(c, NULL);   // make the row tappable
+        lv_obj_add_event_cb(c, on_edit_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)ud);
+        // a faint pencil hint
+        lv_obj_t* pen = lv_label_create(c);
+        lv_label_set_text(pen, LV_SYMBOL_EDIT);
+        lv_obj_set_style_text_color(pen, lv_color_hex(UI_MUTED), 0);
         break;
       }
       case F_INFO: {
         lv_obj_t* c = field_card(list, f->label);
         lv_obj_t* v = lv_label_create(c);
-        lv_label_set_text(v, f->value);
+        lv_label_set_text(v, g_val[idx][i]);
         lv_obj_set_style_text_font(v, &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_color(v, lv_color_hex(UI_MUTED), 0);
         break;
       }
     }
   }
+}
+
+// ---- keyboard editor for value fields ---------------------------------------
+static lv_obj_t* s_edit_ta = NULL;
+
+static void on_kb_ready(lv_event_t* e) {
+  (void)e;
+  if (s_edit_ta) {
+    const char* txt = lv_textarea_get_text(s_edit_ta);
+    strncpy(g_val[g_edit_g][g_edit_f], txt, sizeof(g_val[0][0]) - 1);
+    g_val[g_edit_g][g_edit_f][sizeof(g_val[0][0]) - 1] = 0;
+  }
+  if (lv_nav_cb) lv_nav_cb("back");
+}
+static void on_kb_cancel(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("back"); }
+
+void lv_settings_edit_create(lv_obj_t* scr) {
+  const Field* f = &GROUPS[g_edit_g].fields[g_edit_f];
+  uint32_t accent = GROUPS[g_edit_g].color;
+  lv_ui_screen_bg(scr);
+  lv_ui_topbar(scr, f->label, accent, NULL);
+
+  lv_obj_t* ta = lv_textarea_create(scr);
+  lv_textarea_set_one_line(ta, true);
+  lv_textarea_set_text(ta, g_val[g_edit_g][g_edit_f]);
+  lv_obj_set_pos(ta, 8, 38);
+  lv_obj_set_size(ta, 320 - 16, 34);
+  lv_obj_set_style_bg_color(ta, lv_color_hex(0x18202c), 0);
+  lv_obj_set_style_border_color(ta, lv_color_hex(accent), 0);
+  lv_obj_set_style_border_width(ta, 1, 0);
+  lv_obj_set_style_text_color(ta, lv_color_hex(UI_TEXT), 0);
+  s_edit_ta = ta;
+
+  lv_obj_t* kb = lv_keyboard_create(scr);
+  lv_keyboard_set_mode(kb, field_numeric(f) ? LV_KEYBOARD_MODE_NUMBER : LV_KEYBOARD_MODE_TEXT_LOWER);
+  lv_keyboard_set_textarea(kb, ta);
+  lv_obj_set_size(kb, 320, 150);
+  lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_add_event_cb(kb, on_kb_ready, LV_EVENT_READY, NULL);
+  lv_obj_add_event_cb(kb, on_kb_cancel, LV_EVENT_CANCEL, NULL);
 }
