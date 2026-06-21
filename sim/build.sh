@@ -15,7 +15,13 @@ rm -rf "$OUT"; mkdir -p "$OUT" sim/shots
 # them compile against it instead of the firmware's UITask.h.
 cp "$SRC/SettingsScreen.cpp" "$SRC/SettingsScreen.h" "$SRC/SettingsModel.h" \
    "$SRC/OnScreenKeyboard.cpp" "$SRC/OnScreenKeyboard.h" \
-   "$SRC/PacketMonitorScreen.cpp" "$SRC/PacketMonitorScreen.h" "$SRC/UIStyle.h" "$OUT/"
+   "$SRC/PacketMonitorScreen.cpp" "$SRC/PacketMonitorScreen.h" \
+   "$SRC/HomeLauncherScreen.cpp" "$SRC/HomeLauncherScreen.h" "$SRC/TileIcons.h" \
+   "$SRC/NoiseScopeScreen.cpp" "$SRC/NoiseScopeScreen.h" \
+   "$SRC/LastHeardScreen.cpp" "$SRC/LastHeardScreen.h" \
+   "$SRC/SignalScreen.cpp" "$SRC/SignalScreen.h" \
+   "$SRC/TraceRouteScreen.cpp" "$SRC/TraceRouteScreen.h" \
+   "$SRC/UIStyle.h" "$OUT/"
 cp sim/UITask.h sim/SimDisplay.h "$OUT/"
 
 BREW=/opt/homebrew/bin/brew
@@ -28,6 +34,8 @@ clang++ -std=c++17 -DSIM_BUILD -funsigned-char \
   -I "$OUT" -I src -I sim \
   $SDL_CFLAGS \
   "$OUT/SettingsScreen.cpp" "$OUT/OnScreenKeyboard.cpp" "$OUT/PacketMonitorScreen.cpp" \
+  "$OUT/HomeLauncherScreen.cpp" "$OUT/NoiseScopeScreen.cpp" "$OUT/LastHeardScreen.cpp" \
+  "$OUT/SignalScreen.cpp" "$OUT/TraceRouteScreen.cpp" \
   sim/SimDisplay.cpp sim/sim_settings_model.cpp sim/sim_main.cpp \
   $SDL_LIBS \
   -o sim/uisim

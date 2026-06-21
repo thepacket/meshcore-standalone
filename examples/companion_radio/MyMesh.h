@@ -82,6 +82,10 @@ struct AdvertPath {
   char    name[32];
   uint32_t recv_timestamp;
   uint8_t path[MAX_PATH_SIZE];
+  int8_t  snr_q;       // SNR*4 of the advert as heard (0 = unknown)
+  int8_t  rssi;        // dBm of the advert as heard (0 = unknown)
+  int32_t gps_lat;     // advert position, 1e-6 deg (0 = none)
+  int32_t gps_lon;
 };
 
 class MyMesh : public BaseChatMesh, public DataStoreHost {
@@ -101,6 +105,11 @@ public:
   void enterCLIRescue();
 
   int  getRecentlyHeard(AdvertPath dest[], int max_num);
+
+  // Start a trace-route to a contact over its known direct path. Generates a
+  // random tag (returned via `tag`) used to match the later onTraceResult().
+  // Returns false if the contact has no known path or no packet was available.
+  bool sendTrace(const ContactInfo& contact, uint32_t& tag);
 
   // ---- Companion config API (shared by the frame protocol and the on-device UI) ----
   // Each performs validate -> apply-live -> persist. Setters returning bool report

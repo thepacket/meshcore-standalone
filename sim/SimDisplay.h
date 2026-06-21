@@ -37,7 +37,19 @@ public:
   void print(const char* str) override;
   void fillRect(int x, int y, int w, int h) override;
   void drawRect(int x, int y, int w, int h) override;
-  void drawXbm(int, int, const uint8_t*, int, int) override {}
+  void drawXbm(int x, int y, const uint8_t* bits, int w, int h) override {
+    // XBM: LSB-first, each row padded to whole bytes (matches LovyanGFX drawBitmap).
+    // Use 1x1 fillRect per pixel: SDL_RenderDrawPoint is unreliable under the
+    // software renderer + logical size used for headless shots.
+    int bpr = (w + 7) / 8;
+    SDL_SetRenderDrawColor(_ren, _col.r, _col.g, _col.b, _col.a);
+    for (int row = 0; row < h; row++)
+      for (int cx = 0; cx < w; cx++)
+        if (bits[row * bpr + (cx >> 3)] & (1 << (cx & 7))) {
+          SDL_Rect px{x + cx, y + row, 1, 1};
+          SDL_RenderFillRect(_ren, &px);
+        }
+  }
   uint16_t getTextWidth(const char* str) override;
   void endFrame() override;
   bool getTouch(int* x, int* y) override {

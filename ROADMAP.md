@@ -27,13 +27,22 @@ A smartphone-style chat, fully on-device.
 - ⏳ **URL → QR code** on-screen (needs a small MIT QR encoder lib).
 - History is volatile in-RAM initially (see M7 for persistence).
 
-## M3 — RF diagnostics & tools  🟡
-- ✅ **Packet monitor** — decoded raw packet stream + per-packet detail (done).
-- ⏳ **Live noise scope** — scrolling graph of noise-floor history (`radio_driver.getNoiseFloor()`).
-- ⏳ **Last-heard list** — recent stations with SNR/RSSI + estimated distance
-  (extend `getRecentlyHeard`; distance from advert lat/lon vs our GPS).
-- ⏳ **Trace-route tool** — hop-by-hop path with per-hop metrics
-  (`CMD_SEND_TRACE_PATH` / `onTraceRecv`).
+## M3 — RF diagnostics & tools  ✅ (done; pending on-hardware validation)
+- ✅ **Packet monitor** — decoded raw packet stream + per-packet detail.
+- ✅ **Live noise scope** — scrolling graph of noise-floor history (`radio_driver.getNoiseFloor()`).
+- ✅ **Last-heard list** — recent stations with SNR/RSSI + estimated distance
+  (extended `AdvertPath`/`getRecentlyHeard`; haversine from advert lat/lon vs our GPS).
+- ✅ **Signal meter** — per-repeater mesh-coverage bars + last-heard age.
+- ✅ **Trace-route tool** — hop-by-hop path with per-hop SNR
+  (`MyMesh::sendTrace` + `onTraceResult`).
+
+## M3.5 — MeshOS-style home & theme ✅ (done; pending on-hardware validation)
+Delivered alongside M3 to host the diagnostic tiles:
+- ✅ **Icon-grid launcher** home (4-col tiles, line-art XBM icons + labels), replacing the
+  paginated home; future tiles (Chat/Contacts/Repeaters/Finder/Map) shown dimmed.
+- ✅ **Cyan-on-black theme** (shared `UIStyle.h` palette; settings + packet monitor inherit it).
+- ✅ **Status bars** — top (menu · channel · clock), bottom (node · device · signal bars · battery).
+- ✅ **Hamburger menu** — Send advert · Bluetooth · Reboot · Shutdown.
 
 ## M4 — GPS & offline mapping
 - ⏳ **Offline maps** from SD-card tiles (needs tile renderer + projection).
@@ -71,5 +80,6 @@ A smartphone-style chat, fully on-device.
 - New deps must be MIT-compatible (e.g. QR encoder); no GPL code pulled in.
 
 ## Done so far
-M1 settings, region presets, frequency validation, app-style themed UI, desktop simulator,
-and the M3 packet monitor.
+M1 settings, region presets, frequency validation, desktop simulator; the MeshOS-style
+cyan-on-black icon-grid launcher home with status bars; and all of M3 (packet monitor, noise
+scope, last-heard, signal meter, trace route).

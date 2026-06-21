@@ -44,5 +44,9 @@ public:
   virtual void notify(UIEventType t = UIEventType::none) = 0;
   // raw received packet (pre-decryption) for the on-device packet monitor; default no-op
   virtual void onRawRx(float snr, float rssi, const uint8_t* raw, int len) {}
+  // result of an on-device trace-route; default no-op. path_snrs has (path_len >> path_sz)
+  // entries; final_snr_q is the trace's SNR (*4) as heard by us. tag matches sendTrace().
+  virtual void onTraceResult(uint32_t tag, const uint8_t* path_hashes, const uint8_t* path_snrs,
+                             uint8_t path_len, uint8_t path_sz, int8_t final_snr_q) {}
   virtual void loop() = 0;
 };

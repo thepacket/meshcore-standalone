@@ -9,15 +9,25 @@
 #include "SettingsModel.h"
 #include "SettingsScreen.h"
 #include "PacketMonitorScreen.h"
+#include "HomeLauncherScreen.h"
+#include "NoiseScopeScreen.h"
+#include "LastHeardScreen.h"
+#include "SignalScreen.h"
+#include "TraceRouteScreen.h"
 #include "SimDisplay.h"
 #include <string.h>
 #include <SDL.h>
 
 class UITask {
   DisplayDriver* _disp;
+  HomeLauncherScreen* _home;
   SettingsListScreen* _list;
   SettingEditScreen* _edit;
   PacketMonitorScreen* _pkt;
+  NoiseScopeScreen* _noise;
+  LastHeardScreen* _heard;
+  SignalScreen* _signal;
+  TraceRouteScreen* _trace;
   UIScreen* _curr;
   char _alert[80];
   Uint32 _alert_expiry;
@@ -25,19 +35,59 @@ class UITask {
 public:
   explicit UITask(DisplayDriver* d) : _disp(d), _curr(nullptr), _alert_expiry(0) {
     _alert[0] = 0;
+    _home = new HomeLauncherScreen(this);
     _list = new SettingsListScreen(this);
     _edit = new SettingEditScreen(this);
     _pkt = new PacketMonitorScreen(this);
+    _noise = new NoiseScopeScreen(this);
+    _heard = new LastHeardScreen(this);
+    _signal = new SignalScreen(this);
+    _trace = new TraceRouteScreen(this);
     _list->showRoot();
-    _curr = _list;
+    _curr = _home;
   }
 
   DisplayDriver* getDisplay() { return _disp; }
-  void gotoHomeScreen() { _list->showRoot(); _curr = _list; }
+  void gotoHomeScreen() { _curr = _home; }
   void gotoSettings() { _list->showRoot(); _curr = _list; }
   void gotoPacketMonitor() { _pkt->reset(); _curr = _pkt; }
   void editSetting(const Setting* s) { _edit->begin(s, /*use_osk=*/true); _curr = _edit; }
   void closeSettingEdit() { _curr = _list; }
+
+  // launcher tile destinations
+  void gotoHeard()  { _heard->reset(); _curr = _heard; }
+  void gotoNoise()  { _curr = _noise; }
+  void gotoSignal() { _signal->reset(); _curr = _signal; }
+  void gotoTrace()  { _trace->beginPick(); _curr = _trace; }
+  void doAdvertise() { showAlert("Advert sent", 1200); }
+  void toggleBluetooth() { showAlert("Bluetooth toggled", 1000); }
+  void shutdown(bool restart) { showAlert(restart ? "Rebooting" : "Shutting down", 1200); }
+  uint32_t startTrace(int idx) { return 0xCAFEBABE; }  // sim: pretend a trace was sent
+
+  // sim seeders for previewing the diagnostic screens
+  void simNoiseSample(int dbm) { _noise->addSample(dbm); }
+  void simAddHeard(const HeardStation& s) { _heard->addStation(s); }
+  void simAddRepeater(const RepeaterSignal& r) { _signal->addRepeater(r); }
+  void simAddTraceTarget(const char* name, int idx) { _trace->addTarget(name, idx); }
+  void simTraceResult(const char* name, const uint8_t* hashes, const uint8_t* snrs,
+                      uint8_t n, int8_t final_q) {
+    _trace->onTraceStarted(0xCAFEBABE, name);
+    _trace->onResult(0xCAFEBABE, hashes, snrs, n, 0, final_q);
+  }
+  void simSetDiagNow(uint32_t now) {
+    _heard->setNow(now); _signal->setNow(now); _trace->setNow(now);
+  }
+
+  // status for the launcher's top/bottom bars (fake data for preview)
+  void getHomeStatus(HomeStatus& s) {
+    s.node_name = "Andy";
+    s.device = "TDeck+";
+    s.channel = "Public";
+    s.epoch = 15 * 3600 + 34 * 60;  // 15:34
+    s.batt_pct = 78;
+    s.bars = 3;
+    s.msgcount = 2;
+  }
 
   // sim helpers to preview the packet monitor with fake traffic
   void simAddRaw(uint32_t now, float snr, float rssi, const uint8_t* raw, int len) {

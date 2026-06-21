@@ -23,6 +23,11 @@
 #include "../NodePrefs.h"
 #include "SettingsScreen.h"
 #include "PacketMonitorScreen.h"
+#include "HomeLauncherScreen.h"
+#include "NoiseScopeScreen.h"
+#include "LastHeardScreen.h"
+#include "SignalScreen.h"
+#include "TraceRouteScreen.h"
 
 class UITask : public AbstractUITask {
   DisplayDriver* _display;
@@ -57,6 +62,12 @@ class UITask : public AbstractUITask {
   SettingsListScreen* settings_list;
   SettingEditScreen*  setting_edit;
   PacketMonitorScreen* packet_monitor;
+  NoiseScopeScreen* noise_scope;
+  LastHeardScreen* last_heard;
+  SignalScreen* signal_scr;
+  TraceRouteScreen* trace_scr;
+  unsigned long next_noise_sample = 0;
+  int _last_rssi = 0;   // last received RSSI, for the home signal bars (0 = unknown)
 
   // touch + keyboard polling state
   unsigned long next_touch_check = 0;
@@ -88,6 +99,14 @@ public:
   void gotoHomeScreen() { setCurrScreen(home); }
   void gotoSettings();
   void gotoPacketMonitor();
+  void gotoNoise();
+  void gotoHeard();
+  void gotoSignal();
+  void gotoTrace();
+  void doAdvertise();
+  void toggleBluetooth();
+  uint32_t startTrace(int contact_idx);   // returns trace tag (0 = failed)
+  void getHomeStatus(HomeStatus& s);
   void editSetting(const Setting* s);
   void closeSettingEdit();
   DisplayDriver* getDisplay() { return _display; }
@@ -114,6 +133,8 @@ public:
   void newMsg(uint8_t path_len, const char* from_name, const char* text, int msgcount) override;
   void notify(UIEventType t = UIEventType::none) override;
   void onRawRx(float snr, float rssi, const uint8_t* raw, int len) override;
+  void onTraceResult(uint32_t tag, const uint8_t* path_hashes, const uint8_t* path_snrs,
+                     uint8_t path_len, uint8_t path_sz, int8_t final_snr_q) override;
   void loop() override;
 
   void shutdown(bool restart = false);

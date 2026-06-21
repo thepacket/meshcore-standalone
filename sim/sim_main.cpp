@@ -8,6 +8,7 @@
 #include "UITask.h"
 #include <cstdio>
 #include <cstring>
+#include <cmath>
 
 static const int SCALE = 1;  // 1:1 with the real 320x240 T-Deck panel (no pixel inflation)
 static const char* FONT_PATH = "/System/Library/Fonts/Menlo.ttc";
@@ -50,6 +51,8 @@ static int run_shots(TTF_Font* f1, TTF_Font* f2) {
   SimDisplay disp(ren, f1, f2);
   UITask ui(&disp);
 
+  ui.render(); save_ppm(ren, "sim/shots/00_home.ppm");  // MeshOS-style launcher grid
+  ui.onKey(KEY_ENTER);                               // Settings tile is selected by default
   ui.render(); save_ppm(ren, "sim/shots/01_root.ppm");
   ui.onKey(KEY_DOWN); ui.onKey(KEY_ENTER);          // open "Radio"
   ui.render(); save_ppm(ren, "sim/shots/02_radio.ppm");
@@ -75,6 +78,43 @@ static int run_shots(TTF_Font* f1, TTF_Font* f2) {
   ui.render(); save_ppm(ren, "sim/shots/05_packets.ppm");
   ui.onKey(KEY_ENTER);  // open the selected (newest) packet's detail view
   ui.render(); save_ppm(ren, "sim/shots/06_packet_detail.ppm");
+
+  // ---- RF diagnostics: seed fake data and capture each screen ----
+  ui.simSetDiagNow(NOW);
+
+  // Noise scope: a wandering noise floor
+  for (int i = 0; i < 200; i++) {
+    int base = -103 + (int)(8 * sin(i * 0.15)) + ((i * 37) % 7) - 3;
+    ui.simNoiseSample(base);
+  }
+  ui.gotoNoise();
+  ui.render(); save_ppm(ren, "sim/shots/07_noise.ppm");
+
+  // Heard: a few stations, one with GPS-derived distance
+  HeardStation h1 = {"Repeater-7", 2, NOW - 12, 9 * 4, -78, 4200};
+  HeardStation h2 = {"Andy-Mobile", 0, NOW - 45, 6 * 4, -92, 850};
+  HeardStation h3 = {"GW-Hertford", 3, NOW - 600, 2 * 4, -108, -1};
+  ui.simAddHeard(h1); ui.simAddHeard(h2); ui.simAddHeard(h3);
+  ui.gotoHeard();
+  ui.render(); save_ppm(ren, "sim/shots/08_heard.ppm");
+
+  // Signal: repeaters with varying coverage
+  RepeaterSignal r1 = {"Repeater-7", NOW - 12, 9 * 4, -72, true};
+  RepeaterSignal r2 = {"GW-Hertford", NOW - 600, 2 * 4, -104, true};
+  RepeaterSignal r3 = {"Hilltop-Relay", 0, 0, 0, false};
+  ui.simAddRepeater(r1); ui.simAddRepeater(r2); ui.simAddRepeater(r3);
+  ui.gotoSignal();
+  ui.render(); save_ppm(ren, "sim/shots/09_signal.ppm");
+
+  // Trace: target list, then a result
+  ui.simAddTraceTarget("Repeater-7", 0);
+  ui.simAddTraceTarget("GW-Hertford", 1);
+  ui.gotoTrace();
+  ui.render(); save_ppm(ren, "sim/shots/10_trace_pick.ppm");
+  { uint8_t hashes[] = {0xA3, 0x7F, 0x12};
+    uint8_t snrs[]   = {(uint8_t)(int8_t)(8*4), (uint8_t)(int8_t)(5*4), (uint8_t)(int8_t)(3*4)};
+    ui.simTraceResult("Repeater-7", hashes, snrs, 3, (int8_t)(7*4)); }
+  ui.render(); save_ppm(ren, "sim/shots/11_trace_result.ppm");
 
   SDL_DestroyRenderer(ren);
   SDL_FreeSurface(surf);

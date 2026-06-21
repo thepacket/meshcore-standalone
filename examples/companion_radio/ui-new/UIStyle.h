@@ -8,14 +8,18 @@
 namespace uistyle {
 
 struct RGB { uint8_t r, g, b; };
-constexpr RGB C_HEADER  = {38, 48, 63};    // navy header bar
-constexpr RGB C_CARD    = {42, 46, 53};    // row background
-constexpr RGB C_CARDSEL = {56, 62, 74};    // selected row background
-constexpr RGB C_DIV     = {64, 68, 78};    // dividers / outlines
-constexpr RGB C_LABEL   = {150, 160, 172}; // secondary text
-constexpr RGB C_VALUE   = {236, 238, 242}; // primary text
-constexpr RGB C_ACCENT  = {91, 141, 239};  // blue accent
-constexpr RGB C_MUTED   = {120, 128, 140}; // affordance glyphs
+// MeshOS-style cyan-on-black theme. Names are kept stable so every screen
+// (settings, packet monitor, diagnostics) re-themes for free.
+constexpr RGB C_HEADER  = {0, 0, 0};        // black header (cyan accent underline)
+constexpr RGB C_CARD    = {10, 14, 18};     // row background (near-black)
+constexpr RGB C_CARDSEL = {0, 32, 42};      // selected row background (dark cyan)
+constexpr RGB C_DIV     = {0, 70, 92};      // dividers / outlines (dim cyan)
+constexpr RGB C_LABEL   = {120, 165, 178};  // secondary text (muted cyan-gray)
+constexpr RGB C_VALUE   = {206, 236, 242};  // primary text (near-white)
+constexpr RGB C_ACCENT  = {63, 199, 232};   // cyan accent (#3FC7E8)
+constexpr RGB C_MUTED   = {70, 108, 120};   // disabled glyphs / affordances
+constexpr RGB C_BADGE   = {236, 140, 48};   // unread badge (orange)
+constexpr RGB C_WARN    = {230, 80, 80};    // warnings / failures (red)
 
 inline void col(DisplayDriver& d, const RGB& c) { d.setColorRGB(c.r, c.g, c.b); }
 inline bool big(DisplayDriver& d) { return d.height() >= 160; }
@@ -46,7 +50,7 @@ inline void drawHeaderBar(DisplayDriver& d, const char* title, bool back) {
   d.fillRect(0, 0, W, hH);
   int titleX = 4;
   if (back) {
-    col(d, C_VALUE);
+    col(d, C_ACCENT);
     triLeft(d, 5, hH / 2, big(d) ? 5 : 3);
     titleX = big(d) ? 20 : 12;
   }
@@ -55,6 +59,9 @@ inline void drawHeaderBar(DisplayDriver& d, const char* title, bool back) {
   d.setCursor(titleX, (hH - (big(d) ? 14 : 8)) / 2);
   d.print(title);
   d.setTextSize(1);
+  // thin cyan accent line under the header
+  col(d, C_ACCENT);
+  d.fillRect(0, hH - 1, W, 1);
 }
 
 }  // namespace uistyle

@@ -384,6 +384,10 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path
     strcpy(p->name, contact.name);
     p->recv_timestamp = getRTCClock()->getCurrentTime();
     p->path_len = mesh::Packet::copyPath(p->path, path, path_len);
+    p->snr_q = (int8_t)(_radio->getLastSNR() * 4);   // link quality of this advert
+    p->rssi = (int8_t)(_radio->getLastRSSI());
+    p->gps_lat = contact.gps_lat;                     // advert position (0 if none)
+    p->gps_lon = contact.gps_lon;
   }
 
   if (!is_new) dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY); // only schedule lazy write for contacts that are in contacts[]
@@ -401,6 +405,16 @@ int MyMesh::getRecentlyHeard(AdvertPath dest[], int max_num) {
     dest[i] = advert_paths[i];
   }
   return max_num;
+}
+
+bool MyMesh::sendTrace(const ContactInfo& contact, uint32_t& tag) {
+  if (contact.out_path_len == OUT_PATH_UNKNOWN || contact.out_path_len == 0)
+    return false;  // trace needs a known direct path
+  getRNG()->random((uint8_t*)&tag, 4);
+  auto pkt = createTrace(tag, 0, 0);  // flags=0 -> path_sz=0 (one SNR byte per hop)
+  if (!pkt) return false;
+  sendDirect(pkt, contact.out_path, contact.out_path_len);
+  return true;
 }
 
 void MyMesh::onContactPathUpdated(const ContactInfo &contact) {
@@ -841,6 +855,11 @@ void MyMesh::onTraceRecv(mesh::Packet *packet, uint32_t tag, uint32_t auth_code,
   } else {
     MESH_DEBUG_PRINTLN("onTraceRecv(), data received while app offline");
   }
+
+#ifdef DISPLAY_CLASS
+  if (_ui) _ui->onTraceResult(tag, path_hashes, path_snrs, path_len, path_sz,
+                              (int8_t)(packet->getSNR() * 4));  // feed the on-device trace screen
+#endif
 }
 
 uint32_t MyMesh::calcFloodTimeoutMillisFor(uint32_t pkt_airtime_millis) const {
