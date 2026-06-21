@@ -33,6 +33,10 @@ class RepeaterDetailScreen : public UIScreen {
   char _pw[24]; int _pwlen;
   OnScreenKeyboard _kb;
 
+  // advert one-hop/flood choice overlay
+  bool _advert_menu; int _advert_sel;
+  void drawAdvertMenu(DisplayDriver& d);
+
   int _scroll;
   int _sel;                // selected action
   int _last_y; bool _moved, _pressing;
@@ -44,7 +48,8 @@ public:
   RepeaterDetailScreen(UITask* t)
       : _task(t), _type(0), _fav(false), _logged_in(false), _perms(0),
         _has_status(false), _login_mode(false), _osk_open(false), _use_osk(false),
-        _pwlen(0), _scroll(0), _sel(0), _last_y(0), _moved(false), _pressing(false) {
+        _pwlen(0), _advert_menu(false), _advert_sel(0),
+        _scroll(0), _sel(0), _last_y(0), _moved(false), _pressing(false) {
     _name[0] = 0; _info[0] = 0; _pw[0] = 0;
   }
 

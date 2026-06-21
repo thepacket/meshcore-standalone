@@ -25,12 +25,32 @@ void RepeaterDetailScreen::begin(const uint8_t* pubkey6, const char* name, uint8
   _type = type; _fav = fav; _use_osk = use_osk;
   _logged_in = false; _perms = 0; _has_status = false;
   _login_mode = false; _osk_open = false; _pwlen = 0; _pw[0] = 0;
+  _advert_menu = false; _advert_sel = 0;
   _scroll = 0; _sel = 0;
   snprintf(_info, sizeof(_info), "Not logged in");
   _kb.reset();
 }
 
 int RepeaterDetailScreen::oskHeight(DisplayDriver& d) { return _osk_open ? (d.height() * 48 / 100) : 0; }
+
+void RepeaterDetailScreen::drawAdvertMenu(DisplayDriver& d) {
+  int W = d.width(), H = d.height();
+  const char* items[2] = {"One hop", "Flood"};
+  int itemH = big(d) ? 24 : 14;
+  int boxW = W * 3 / 5, boxH = 2 * itemH + 6;
+  int bx = (W - boxW) / 2, by = (H - boxH) / 2;
+  col(d, C_CARD); d.fillRect(bx, by, boxW, boxH);
+  col(d, C_ACCENT); d.drawRect(bx, by, boxW, boxH);
+  d.setTextSize(1);
+  for (int i = 0; i < 2; i++) {
+    int iy = by + 3 + i * itemH;
+    if (i == _advert_sel) {
+      col(d, C_CARDSEL); d.fillRect(bx + 2, iy, boxW - 4, itemH - 1);
+      col(d, C_ACCENT); d.fillRect(bx + 2, iy, 3, itemH - 1);
+    }
+    col(d, C_VALUE); d.drawTextCentered(W / 2, iy + (itemH - 8) / 2, items[i]);
+  }
+}
 
 void RepeaterDetailScreen::onLogin(bool success, uint8_t perms) {
   _logged_in = success; _perms = perms;
@@ -118,6 +138,7 @@ int RepeaterDetailScreen::render(DisplayDriver& dd) {
     snprintf(v, sizeof(v), "%u", _st.err_events); row("Errors", v);
     (void)k;
   }
+  if (_advert_menu) drawAdvertMenu(dd);
   return 1000;
 }
 
@@ -126,7 +147,7 @@ void RepeaterDetailScreen::activate(int a) {
   switch (a) {
     case 0: _task->requestStatus(_pubkey); snprintf(_info, sizeof(_info), "Requesting status..."); break;
     case 1: _login_mode = true; _pwlen = 0; _pw[0] = 0; if (_use_osk) _osk_open = true; break;
-    case 2: _task->sendTrigger(_pubkey, "advert"); snprintf(_info, sizeof(_info), "Advert sent..."); break;
+    case 2: _advert_menu = true; _advert_sel = 0; break;  // choose one-hop vs flood
     case 3: _task->sendTrigger(_pubkey, "clock sync"); snprintf(_info, sizeof(_info), "Clock sync sent..."); break;
     case 4: _fav = !_fav; _task->toggleFavourite(_pubkey, _fav); break;
   }
@@ -134,6 +155,16 @@ void RepeaterDetailScreen::activate(int a) {
 }
 
 bool RepeaterDetailScreen::handleInput(char c) {
+  if (_advert_menu) {
+    if (c == KEY_UP || c == KEY_PREV || c == KEY_DOWN || c == KEY_NEXT) { _advert_sel ^= 1; return true; }
+    if (c == KEY_ENTER || c == KEY_SELECT) {
+      _task->sendTrigger(_pubkey, _advert_sel == 0 ? "advert.zerohop" : "advert");
+      snprintf(_info, sizeof(_info), _advert_sel == 0 ? "One-hop advert sent..." : "Flood advert sent...");
+      _advert_menu = false; return true;
+    }
+    if (c == KEY_CANCEL || c == KEY_LEFT) { _advert_menu = false; return true; }
+    return true;
+  }
   if (_login_mode) {
     if (c == KEY_ENTER || c == KEY_SELECT) { _task->startLogin(_pubkey, _pw); _login_mode = false; _osk_open = false; return true; }
     if (c == KEY_BACKSPACE) { if (_pwlen > 0) _pw[--_pwlen] = 0; return true; }
@@ -152,6 +183,21 @@ bool RepeaterDetailScreen::handleTouch(int x, int y, TouchEvent ev) {
   DisplayDriver* d = _task->getDisplay();
   if (!d) return false;
   int W = d->width(), H = d->height(), hH = headerH(*d), ah = actionH(*d);
+
+  if (_advert_menu) {
+    if (ev != TouchEvent::release) return true;
+    int itemH = big(*d) ? 24 : 14;
+    int boxW = W * 3 / 5, boxH = 2 * itemH + 6;
+    int bx = (W - boxW) / 2, by = (H - boxH) / 2;
+    if (!inRect(x, y, bx, by, boxW, boxH)) { _advert_menu = false; return true; }
+    int item = (y - (by + 3)) / itemH;
+    if (item == 0 || item == 1) {
+      _task->sendTrigger(_pubkey, item == 0 ? "advert.zerohop" : "advert");
+      snprintf(_info, sizeof(_info), item == 0 ? "One-hop advert sent..." : "Flood advert sent...");
+      _advert_menu = false;
+    }
+    return true;
+  }
 
   if (_login_mode) {
     if (ev != TouchEvent::release) return true;

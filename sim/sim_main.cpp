@@ -181,6 +181,9 @@ static int run_shots(TTF_Font* f1, TTF_Font* f2) {
   ui.render(); save_ppm(ren, "sim/shots/20_repeater_detail.ppm");
   ui.requestStatus(rp1);  // sim feeds a fake RepeaterStats
   ui.render(); save_ppm(ren, "sim/shots/21_repeater_status.ppm");
+  ui.onTouch(120, 78, TouchEvent::press);   // tap "Send advert" -> one-hop/flood choice
+  ui.onTouch(120, 78, TouchEvent::release);
+  ui.render(); save_ppm(ren, "sim/shots/22_advert_choice.ppm");
 
   SDL_DestroyRenderer(ren);
   SDL_FreeSurface(surf);
