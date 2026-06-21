@@ -35,7 +35,10 @@ static void rep_row(lv_obj_t* list, const Node* n) {
   (void)tp;
 }
 
-static void seg_tab(lv_obj_t* parent, const char* txt, bool active) {
+static int g_rep_tab = 0;   // 0 = Saved, 1 = Scan
+void lv_repeaters_set_tab(int t) { g_rep_tab = (t == 1) ? 1 : 0; }
+
+static void seg_tab(lv_obj_t* parent, const char* txt, bool active, const char* dest) {
   lv_obj_t* t = lv_obj_create(parent);
   lv_obj_remove_flag(t, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_flex_grow(t, 1); lv_obj_set_height(t, lv_pct(100));
@@ -43,6 +46,7 @@ static void seg_tab(lv_obj_t* parent, const char* txt, bool active) {
   lv_obj_set_style_bg_color(t, lv_color_hex(UI_PURPLE), 0);
   lv_obj_set_style_bg_opa(t, active ? 200 : 0, 0);
   lv_obj_set_style_border_width(t, 0, 0); lv_obj_set_style_pad_all(t, 0, 0);
+  if (!active && dest) lv_ui_clickable(t, dest);   // tap the other tab to switch
   lv_obj_t* l = lv_label_create(t);
   lv_label_set_text(l, txt);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
@@ -61,20 +65,29 @@ void lv_repeaters_create(lv_obj_t* scr) {
   lv_obj_set_style_bg_color(seg, lv_color_hex(UI_CARD), 0); lv_obj_set_style_bg_opa(seg, 16, 0);
   lv_obj_set_style_border_width(seg, 0, 0); lv_obj_set_style_pad_all(seg, 3, 0);
   lv_obj_set_flex_flow(seg, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(seg, 4, 0);
-  seg_tab(seg, "Saved", true);
-  seg_tab(seg, "Scan", false);
+  seg_tab(seg, "Saved", g_rep_tab == 0, "repeaters");
+  seg_tab(seg, "Scan",  g_rep_tab == 1, "scan");
 
   lv_obj_t* list = lv_obj_create(scr);
   lv_obj_set_pos(list, 4, 70); lv_obj_set_size(list, 320 - 8, 240 - 70 - 4);
   lv_obj_set_style_bg_opa(list, 0, 0); lv_obj_set_style_border_width(list, 0, 0);
   lv_obj_set_style_pad_all(list, 2, 0);
   lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN); lv_obj_set_style_pad_row(list, 6, 0);
-  Node nodes[] = {
-    {"GW-Hertford", "RPT", true, false},
-    {"Hilltop-Relay", "RPT", false, false},
-    {"Town Square", "ROOM", false, false},
-  };
-  for (unsigned i = 0; i < sizeof(nodes)/sizeof(nodes[0]); i++) rep_row(list, &nodes[i]);
+
+  if (g_rep_tab == 0) {
+    Node nodes[] = {
+      {"GW-Hertford", "RPT", true, false},
+      {"Hilltop-Relay", "RPT", false, false},
+      {"Town Square", "ROOM", false, false},
+    };
+    for (unsigned i = 0; i < sizeof(nodes)/sizeof(nodes[0]); i++) rep_row(list, &nodes[i]);
+  } else {
+    Node nodes[] = {                                   // heard but not yet saved
+      {"New-Repeater-9", "RPT", false, true},
+      {"Field-Node", "RPT", false, true},
+    };
+    for (unsigned i = 0; i < sizeof(nodes)/sizeof(nodes[0]); i++) rep_row(list, &nodes[i]);
+  }
 }
 
 // ---- detail -----------------------------------------------------------------

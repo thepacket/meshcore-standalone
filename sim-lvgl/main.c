@@ -21,6 +21,7 @@ void lv_noise_create(lv_obj_t* scr);
 void lv_signal_create(lv_obj_t* scr);
 void lv_heard_create(lv_obj_t* scr);
 void lv_repeaters_create(lv_obj_t* scr);
+void lv_repeaters_set_tab(int t);
 void lv_repeater_detail_create(lv_obj_t* scr);
 void lv_peer_create(lv_obj_t* scr);
 
@@ -53,7 +54,8 @@ static void build(const char* name) {
   else if (!strcmp(name, "noise")) lv_noise_create(s);
   else if (!strcmp(name, "signal")) lv_signal_create(s);
   else if (!strcmp(name, "heard")) lv_heard_create(s);
-  else if (!strcmp(name, "repeaters")) lv_repeaters_create(s);
+  else if (!strcmp(name, "repeaters")) { lv_repeaters_set_tab(0); lv_repeaters_create(s); }
+  else if (!strcmp(name, "scan")) { lv_repeaters_set_tab(1); lv_repeaters_create(s); }
   else if (!strcmp(name, "repeater_detail")) lv_repeater_detail_create(s);
   else if (!strcmp(name, "peer")) lv_peer_create(s);
   else placeholder(s, name);
