@@ -16,6 +16,9 @@ void lv_chat_list_create(lv_obj_t* scr);
 void lv_chat_conv_create(lv_obj_t* scr);
 void lv_settings_create(lv_obj_t* scr);
 void lv_settings_radio_create(lv_obj_t* scr);
+void lv_noise_create(lv_obj_t* scr);
+void lv_signal_create(lv_obj_t* scr);
+void lv_heard_create(lv_obj_t* scr);
 
 static uint32_t millis_cb(void) {
   struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -42,6 +45,9 @@ static void build(const char* name) {
   else if (!strcmp(name, "conv")) lv_chat_conv_create(s);
   else if (!strcmp(name, "settings")) lv_settings_create(s);
   else if (!strcmp(name, "settings_radio")) lv_settings_radio_create(s);
+  else if (!strcmp(name, "noise")) lv_noise_create(s);
+  else if (!strcmp(name, "signal")) lv_signal_create(s);
+  else if (!strcmp(name, "heard")) lv_heard_create(s);
   else placeholder(s, name);
 }
 
