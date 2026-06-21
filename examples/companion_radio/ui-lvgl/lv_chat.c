@@ -27,6 +27,15 @@ static lv_obj_t* avatar(lv_obj_t* parent, const char* txt, uint32_t color) {
   return a;
 }
 
+// the peer whose message was last tapped (shown by the peer-details screen)
+static char g_peer[24] = "Repeater-7";
+const char* lv_chat_active_peer(void) { return g_peer; }
+static void peer_clicked(lv_event_t* e) {
+  const char* s = (const char*)lv_event_get_user_data(e);
+  if (s) { strncpy(g_peer, s, sizeof(g_peer) - 1); g_peer[sizeof(g_peer) - 1] = 0; }
+  if (lv_nav_cb) lv_nav_cb("peer");
+}
+
 static const uint32_t NAME_COLORS[] = {UI_BLUE, UI_GREEN, UI_AMBER, UI_PINK, UI_CYAN, UI_PURPLE};
 static uint32_t name_color(const char* s) {
   uint32_t h = 5381; for (const char* p = s; *p; p++) h = ((h << 5) + h) + (uint8_t)*p;
@@ -185,6 +194,11 @@ static void add_bubble(lv_obj_t* scroll, const char* sender, const char* text,
     lv_obj_align(bub, LV_ALIGN_TOP_LEFT, 0, 0);
   }
 
+  if (!outgoing) {
+    // tap an incoming bubble to see everything known about the sender
+    lv_obj_add_flag(bub, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(bub, peer_clicked, LV_EVENT_CLICKED, (void*)(sender ? sender : "Peer"));
+  }
   if (!outgoing && sender) {
     lv_obj_t* s = lv_label_create(bub);
     lv_label_set_text(s, sender);
