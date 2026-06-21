@@ -29,9 +29,12 @@ static void flush_cb(lv_display_t* disp, const lv_area_t* area, uint8_t* px_map)
 }
 
 void lv_home_create(lv_obj_t* scr);
+void lv_chat_list_create(lv_obj_t* scr);
+void lv_chat_conv_create(lv_obj_t* scr);
 
 int main(int argc, char** argv) {
-  const char* out = argc > 1 ? argv[1] : "sim-lvgl/shots/home.ppm";
+  const char* screen = argc > 1 ? argv[1] : "home";
+  const char* out = argc > 2 ? argv[2] : "sim-lvgl/shots/home.ppm";
 
   lv_init();
   lv_tick_set_cb(millis_cb);
@@ -41,7 +44,10 @@ int main(int argc, char** argv) {
   lv_display_set_buffers(disp, draw_buf, NULL, sizeof(draw_buf), LV_DISPLAY_RENDER_MODE_PARTIAL);
   lv_display_set_flush_cb(disp, flush_cb);
 
-  lv_home_create(lv_screen_active());
+  lv_obj_t* s = lv_screen_active();
+  if (!strcmp(screen, "chatlist")) lv_chat_list_create(s);
+  else if (!strcmp(screen, "chat")) lv_chat_conv_create(s);
+  else lv_home_create(s);
 
   // let LVGL lay out + render a couple of frames, then force a full refresh
   for (int i = 0; i < 3; i++) { lv_timer_handler(); }

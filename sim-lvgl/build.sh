@@ -34,7 +34,9 @@ fi
 # 2. Compile our UI + harness and link
 cc $CFLAGS \
   sim-lvgl/main.c \
+  examples/companion_radio/ui-lvgl/lv_ui.c \
   examples/companion_radio/ui-lvgl/lv_home.c \
+  examples/companion_radio/ui-lvgl/lv_chat.c \
   examples/companion_radio/ui-lvgl/icons_fa.c \
   "$OUT/liblvgl.a" \
   -lm \
