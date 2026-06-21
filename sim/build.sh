@@ -25,6 +25,7 @@ cp "$SRC/SettingsScreen.cpp" "$SRC/SettingsScreen.h" "$SRC/SettingsModel.h" \
    "$SRC/ChatHomeScreen.cpp" "$SRC/ChatHomeScreen.h" \
    "$SRC/ConversationScreen.cpp" "$SRC/ConversationScreen.h" \
    "$SRC/RichText.cpp" "$SRC/RichText.h" "$SRC/EmojiGlyphs.h" \
+   "$SRC/qrcodegen.cpp" "$SRC/qrcodegen.h" \
    "$SRC/UIStyle.h" "$OUT/"
 cp sim/UITask.h sim/SimDisplay.h "$OUT/"
 
@@ -34,14 +35,14 @@ TTF=$($BREW --prefix sdl2_ttf)
 SDL_CFLAGS="-I$SDL/include/SDL2 -I$TTF/include/SDL2"
 SDL_LIBS="-L$SDL/lib -L$TTF/lib -lSDL2 -lSDL2_ttf"
 
-clang++ -std=c++17 -DSIM_BUILD -funsigned-char \
+clang++ -std=c++17 -DSIM_BUILD -DHAVE_QRCODEGEN=1 -funsigned-char \
   -I "$OUT" -I src -I sim \
   $SDL_CFLAGS \
   "$OUT/SettingsScreen.cpp" "$OUT/OnScreenKeyboard.cpp" "$OUT/PacketMonitorScreen.cpp" \
   "$OUT/HomeLauncherScreen.cpp" "$OUT/NoiseScopeScreen.cpp" "$OUT/LastHeardScreen.cpp" \
   "$OUT/SignalScreen.cpp" "$OUT/TraceRouteScreen.cpp" \
   "$OUT/ChatStore.cpp" "$OUT/ChatHomeScreen.cpp" "$OUT/ConversationScreen.cpp" \
-  "$OUT/RichText.cpp" \
+  "$OUT/RichText.cpp" "$OUT/qrcodegen.cpp" \
   sim/SimDisplay.cpp sim/sim_settings_model.cpp sim/sim_main.cpp \
   $SDL_LIBS \
   -o sim/uisim

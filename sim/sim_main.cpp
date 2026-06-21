@@ -158,6 +158,12 @@ static int run_shots(TTF_Font* f1, TTF_Font* f2) {
   ui.onTouch(312, 232, TouchEvent::release);
   ui.render(); save_ppm(ren, "sim/shots/17_emoji_picker.ppm");
 
+  // URL -> QR: reopen Public and tap Carol's URL message (newest, near the bottom)
+  ui.openConversation(true, 0, nullptr, "Public");
+  ui.onTouch(80, 182, TouchEvent::press);   // tap Carol's URL bubble
+  ui.onTouch(80, 182, TouchEvent::release);
+  ui.render(); save_ppm(ren, "sim/shots/18_url_qr.ppm");
+
   SDL_DestroyRenderer(ren);
   SDL_FreeSurface(surf);
   return 0;

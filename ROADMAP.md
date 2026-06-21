@@ -27,8 +27,8 @@ A smartphone-style chat, fully on-device.
 - ✅ **Tap-to-reply** quoting — tap a bubble to quote it; quoted lines render dimmed.
 - ✅ **Emoji** — curated emoticon set as inline monochrome glyphs + picker (sent over-air
   as shortcodes like `:)`; word-boundary matched so URLs stay intact).
-- 🟡 **URL → QR code** — detection + on-screen overlay are built behind `HAVE_QRCODEGEN`;
-  awaiting the vendored MIT QR encoder (qrcodegen) to enable.
+- ✅ **URL → QR code** — tap a message containing a URL to show it as a scannable
+  on-screen QR (vendored MIT qrcodegen; see `THIRD_PARTY.md`).
 - ⏳ **Contact-type-aware** room post/read niceties (rooms currently treated as DMs).
 
 ## M3 — RF diagnostics & tools  ✅ (done; pending on-hardware validation)
