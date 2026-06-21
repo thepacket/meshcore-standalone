@@ -76,9 +76,14 @@ static const Field F_TUNING[] = {
 static const Field F_SECURITY[] = {
   {"BLE pin", F_VAL, "123456", 0},
 };
+static const Field F_TIME[] = {
+  {"Set time now",  F_ACTION, NULL, 0},
+  {"Time source 1", F_VAL, "(none)", 0},   // named repeater used as a clock reference
+  {"Time source 2", F_VAL, "(none)", 0},
+  {"Time source 3", F_VAL, "(none)", 0},
+};
 static const Field F_DEVICE[] = {
   {"Buzzer quiet",    F_BOOL, NULL, 0},
-  {"Set time",        F_ACTION, NULL, 0},
   {"Battery/storage", F_INFO, "4050 mV  120/1536 KB", 0},
   {"Firmware",        F_INFO, "v1.16.0", 0},
   {"Device",          F_INFO, "LilyGo T-Deck", 0},
@@ -100,12 +105,13 @@ static const Group GROUPS[] = {
   GRP("Telemetry",   UI_RED,     ICON_NOISE,     F_TELEM),
   GRP("Tuning",      UI_AMBER,   ICON_SIGNAL,    F_TUNING),
   GRP("Security",    UI_TEAL,    ICON_FINDER,    F_SECURITY),
+  GRP("Time",        UI_AMBER,   ICON_HEARD,     F_TIME),
   GRP("Device",      UI_INDIGO,  ICON_SETTINGS,  F_DEVICE),
   GRP("Channels",    UI_LIME,    ICON_CHAT,      F_CHANNELS),
 };
 #define N_GROUPS  ((int)(sizeof(GROUPS) / sizeof(GROUPS[0])))
 #define MAX_FIELDS 8
-static const char* SG_DEST[] = {"sg0","sg1","sg2","sg3","sg4","sg5","sg6","sg7","sg8","sg9"};
+static const char* SG_DEST[] = {"sg0","sg1","sg2","sg3","sg4","sg5","sg6","sg7","sg8","sg9","sg10","sg11"};
 
 // ---- mutable value overlay (prototype state; persists across navigation) ----
 static char g_val[N_GROUPS][MAX_FIELDS][28];
@@ -125,7 +131,10 @@ static void store_init(void) {
 }
 
 static bool field_numeric(const Field* f) {
-  return f->type == F_VAL && strcmp(f->label, "Node name") != 0;
+  if (f->type != F_VAL) return false;
+  if (strcmp(f->label, "Node name") == 0) return false;
+  if (strncmp(f->label, "Time source", 11) == 0) return false;  // repeater names are text
+  return true;
 }
 
 static lv_obj_t* scroll_list(lv_obj_t* scr) {
