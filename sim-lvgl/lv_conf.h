@@ -1,0 +1,40 @@
+// Minimal LVGL config for the desktop prototype (host clang build).
+// Only overrides what we need; everything else falls back to LVGL defaults.
+#ifndef LV_CONF_H
+#define LV_CONF_H
+
+#include <stdint.h>
+
+#define LV_COLOR_DEPTH 32          // ARGB8888 on the host
+#define LV_USE_OS      LV_OS_NONE
+#define LV_USE_STDLIB_MALLOC  LV_STDLIB_CLIB
+#define LV_USE_STDLIB_STRING  LV_STDLIB_CLIB
+#define LV_USE_STDLIB_SPRINTF LV_STDLIB_CLIB
+
+// no SDL in the screenshot build: we flush to our own buffer
+#define LV_USE_SDL 0
+
+// theming + drawing
+#define LV_USE_THEME_DEFAULT 1
+#define LV_THEME_DEFAULT_DARK 1
+#define LV_USE_DRAW_SW 1
+
+// fonts (anti-aliased Montserrat family)
+#define LV_FONT_MONTSERRAT_12 1
+#define LV_FONT_MONTSERRAT_14 1
+#define LV_FONT_MONTSERRAT_16 1
+#define LV_FONT_MONTSERRAT_18 1
+#define LV_FONT_MONTSERRAT_20 1
+#define LV_FONT_MONTSERRAT_22 1
+#define LV_FONT_MONTSERRAT_24 1
+#define LV_FONT_MONTSERRAT_28 1
+#define LV_FONT_MONTSERRAT_36 1
+#define LV_FONT_MONTSERRAT_48 1
+#define LV_FONT_DEFAULT &lv_font_montserrat_16
+
+// widgets we'll use across screens
+#define LV_USE_QRCODE 1
+#define LV_USE_KEYBOARD 1
+#define LV_USE_CHART 1
+
+#endif // LV_CONF_H
