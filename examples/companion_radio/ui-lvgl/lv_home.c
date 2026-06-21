@@ -21,8 +21,11 @@ static const Tile TILES[12] = {
 };
 
 static int g_home_sel = 7;   // last-selected tile; restored when returning home
+// record the selected tile BEFORE navigating (nav destroys this screen), then go
 static void tile_clicked(lv_event_t* e) {
-  g_home_sel = (int)(intptr_t)lv_event_get_user_data(e);
+  int idx = (int)(intptr_t)lv_event_get_user_data(e);
+  g_home_sel = idx;
+  if (lv_nav_cb && TILES[idx].dest[0]) lv_nav_cb(TILES[idx].dest);
 }
 
 static void make_tile(lv_obj_t* parent, const Tile* t, int idx, int x, int y, int w, int h,
@@ -39,7 +42,7 @@ static void make_tile(lv_obj_t* parent, const Tile* t, int idx, int x, int y, in
   lv_obj_t* chip = lv_ui_chip(card, t->color, t->icon, 34, t->enabled);
   lv_obj_center(chip);
   if (t->enabled && t->dest[0]) {
-    lv_ui_clickable(card, t->dest);
+    lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(card, tile_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
   }
 
