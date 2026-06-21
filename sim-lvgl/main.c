@@ -15,7 +15,7 @@ void lv_home_create(lv_obj_t* scr);
 void lv_chat_list_create(lv_obj_t* scr);
 void lv_chat_conv_create(lv_obj_t* scr);
 void lv_settings_create(lv_obj_t* scr);
-void lv_settings_radio_create(lv_obj_t* scr);
+void lv_settings_group_create(lv_obj_t* scr, int idx);
 void lv_noise_create(lv_obj_t* scr);
 void lv_signal_create(lv_obj_t* scr);
 void lv_heard_create(lv_obj_t* scr);
@@ -46,7 +46,7 @@ static void build(const char* name) {
   else if (!strcmp(name, "chat")) lv_chat_list_create(s);
   else if (!strcmp(name, "conv")) lv_chat_conv_create(s);
   else if (!strcmp(name, "settings")) lv_settings_create(s);
-  else if (!strcmp(name, "settings_radio")) lv_settings_radio_create(s);
+  else if (name[0] == 's' && name[1] == 'g') lv_settings_group_create(s, atoi(name + 2));
   else if (!strcmp(name, "noise")) lv_noise_create(s);
   else if (!strcmp(name, "signal")) lv_signal_create(s);
   else if (!strcmp(name, "heard")) lv_heard_create(s);
