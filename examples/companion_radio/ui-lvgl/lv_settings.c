@@ -105,8 +105,8 @@ static const Group GROUPS[] = {
   GRP("Position",    UI_ORANGE,  ICON_MAP,       F_POSITION),
   GRP("Telemetry",   UI_RED,     ICON_NOISE,     F_TELEM),
   GRP("Tuning",      UI_AMBER,   ICON_SIGNAL,    F_TUNING),
-  GRP("Security",    UI_TEAL,    ICON_FINDER,    F_SECURITY),
-  GRP("Time",        UI_AMBER,   ICON_HEARD,     F_TIME),
+  GRP("Security",    UI_TEAL,    ICON_SHIELD,    F_SECURITY),
+  GRP("Time",        UI_AMBER,   ICON_CLOCK,     F_TIME),
   GRP("Device",      UI_INDIGO,  ICON_SETTINGS,  F_DEVICE),
   GRP("Channels",    UI_LIME,    ICON_CHAT,      F_CHANNELS),
 };
