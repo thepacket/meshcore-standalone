@@ -8,6 +8,7 @@
 static lv_obj_t* avatar(lv_obj_t* parent, const char* txt, uint32_t color) {
   lv_obj_t* a = lv_obj_create(parent);
   lv_obj_remove_flag(a, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(a, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_size(a, 38, 38);
   lv_obj_set_style_radius(a, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_color(a, lv_color_hex(color), 0);
@@ -55,6 +56,7 @@ static void add_row(lv_obj_t* list, const Row* r) {
 
   lv_obj_t* mid = lv_obj_create(row);
   lv_obj_remove_flag(mid, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(mid, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_style_bg_opa(mid, 0, 0); lv_obj_set_style_border_width(mid, 0, 0);
   lv_obj_set_style_pad_all(mid, 0, 0);
   lv_obj_set_flex_grow(mid, 1);
@@ -76,6 +78,7 @@ static void add_row(lv_obj_t* list, const Row* r) {
 
   lv_obj_t* right = lv_obj_create(row);
   lv_obj_remove_flag(right, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(right, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_style_bg_opa(right, 0, 0); lv_obj_set_style_border_width(right, 0, 0);
   lv_obj_set_style_pad_all(right, 0, 0);
   lv_obj_set_size(right, 36, 40);

@@ -142,6 +142,7 @@ void lv_settings_create(lv_obj_t* scr) {
 
     lv_obj_t* mid = lv_obj_create(row);
     lv_obj_remove_flag(mid, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(mid, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_bg_opa(mid, 0, 0); lv_obj_set_style_border_width(mid, 0, 0);
     lv_obj_set_style_pad_all(mid, 0, 0); lv_obj_set_flex_grow(mid, 1); lv_obj_set_height(mid, 36);
     lv_obj_set_flex_flow(mid, LV_FLEX_FLOW_COLUMN);

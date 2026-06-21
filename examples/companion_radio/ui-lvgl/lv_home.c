@@ -38,6 +38,7 @@ static void make_tile(lv_obj_t* parent, const Tile* t, int x, int y, int w, int 
   if (badge > 0) {
     lv_obj_t* b = lv_obj_create(card);
     lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_remove_flag(b, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_size(b, 16, 16);
     lv_obj_set_style_radius(b, LV_RADIUS_CIRCLE, 0);
     lv_obj_set_style_bg_color(b, lv_color_hex(UI_BADGE), 0);

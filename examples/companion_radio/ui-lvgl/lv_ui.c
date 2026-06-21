@@ -41,6 +41,7 @@ lv_obj_t* lv_ui_card(lv_obj_t* parent, int x, int y, int w, int h) {
 lv_obj_t* lv_ui_pill(lv_obj_t* parent, const char* text, uint32_t color) {
   lv_obj_t* p = lv_obj_create(parent);
   lv_obj_remove_flag(p, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(p, LV_OBJ_FLAG_CLICKABLE);  // decorative
   lv_obj_set_style_radius(p, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_color(p, lv_color_hex(color), 0);
   lv_obj_set_style_bg_opa(p, 56, 0);
@@ -61,6 +62,7 @@ lv_obj_t* lv_ui_pill(lv_obj_t* parent, const char* text, uint32_t color) {
 lv_obj_t* lv_ui_chip(lv_obj_t* parent, uint32_t color, const char* icon, int size, bool enabled) {
   lv_obj_t* chip = lv_obj_create(parent);
   lv_obj_remove_flag(chip, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(chip, LV_OBJ_FLAG_CLICKABLE);  // decorative: let taps reach the row
   lv_obj_set_size(chip, size, size);
   lv_obj_set_style_radius(chip, LV_RADIUS_CIRCLE, 0);
   uint32_t cc = enabled ? color : 0x39414f;
