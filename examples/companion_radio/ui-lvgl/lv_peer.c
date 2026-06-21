@@ -60,6 +60,25 @@ static void kv_block(lv_obj_t* list, const char* k, const char* v, bool wrap) {
   if (wrap) { lv_label_set_long_mode(vl, LV_LABEL_LONG_WRAP); lv_obj_set_width(vl, lv_pct(100)); }
 }
 
+// checkable favourite button: faint when off, filled/lighter when favourited
+static void fav_btn(lv_obj_t* row, bool is_fav) {
+  lv_obj_t* b = lv_ui_card(row, -1, 0, 0, 0);
+  lv_obj_set_flex_grow(b, 1); lv_obj_set_height(b, 34);
+  lv_obj_set_style_pad_all(b, 0, 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(UI_GREEN), 0);
+  lv_obj_set_style_bg_opa(b, 30, 0);                       // not a favourite: faint
+  lv_obj_set_style_bg_opa(b, 230, LV_STATE_CHECKED);       // favourite: filled/lighter
+  lv_obj_set_style_border_color(b, lv_color_hex(UI_GREEN), 0);
+  lv_obj_set_style_border_opa(b, 200, 0);
+  lv_obj_add_flag(b, LV_OBJ_FLAG_CHECKABLE);               // LVGL toggles LV_STATE_CHECKED
+  if (is_fav) lv_obj_add_state(b, LV_STATE_CHECKED);
+  lv_obj_t* l = lv_label_create(b);
+  lv_label_set_text(l, LV_SYMBOL_OK "  Favourite");
+  lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(l, lv_color_hex(0xffffff), 0);
+  lv_obj_center(l);
+}
+
 static void act_btn(lv_obj_t* row, const char* icon, const char* txt, uint32_t color, const char* dest) {
   lv_obj_t* b = lv_ui_card(row, -1, 0, 0, 0);
   lv_obj_set_flex_grow(b, 1); lv_obj_set_height(b, 34);
@@ -116,7 +135,7 @@ void lv_peer_create(lv_obj_t* scr) {
   lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(acts, 5, 0);
   act_btn(acts, LV_SYMBOL_LEFT, "Message", UI_BLUE, "back");
   act_btn(acts, "", "Trace", UI_AMBER, "trace");
-  act_btn(acts, "", "Favourite", UI_GREEN, NULL);
+  fav_btn(acts, true);   // checkable: filled when favourite, toggles on tap
 
   // signal stats grid
   lv_obj_t* grid = lv_obj_create(list);
