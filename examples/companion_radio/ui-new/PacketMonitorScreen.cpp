@@ -35,6 +35,34 @@ const char* routeName(uint8_t r) {
   }
   return "?";
 }
+// full readable names for the detail view
+const char* ptypeFull(uint8_t t) {
+  switch (t) {
+    case 0x00: return "Request";
+    case 0x01: return "Response";
+    case 0x02: return "Text message";
+    case 0x03: return "Ack";
+    case 0x04: return "Advert";
+    case 0x05: return "Group text";
+    case 0x06: return "Group data";
+    case 0x07: return "Anon request";
+    case 0x08: return "Path";
+    case 0x09: return "Trace";
+    case 0x0A: return "Multipart";
+    case 0x0B: return "Control";
+    case 0x0F: return "Raw custom";
+    default: return "Unknown";
+  }
+}
+const char* routeFull(uint8_t r) {
+  switch (r) {
+    case 0x00: return "Transport flood";
+    case 0x01: return "Flood";
+    case 0x02: return "Direct";
+    case 0x03: return "Transport direct";
+  }
+  return "Unknown";
+}
 void ageStr(uint32_t now, uint32_t t, char* b, size_t n) {
   uint32_t s = (now >= t) ? now - t : 0;
   if (s < 60) snprintf(b, n, "%us", (unsigned)s);
@@ -85,7 +113,17 @@ void PacketMonitorScreen::addRaw(uint32_t now, float snr, float rssi, const uint
   if (_count < CAP) _count++;
 }
 
+void PacketMonitorScreen::openDetail(int displayPos) {
+  if (displayPos < 0 || displayPos >= _count) return;
+  _detail_ring = (_head - displayPos + CAP) % CAP;
+  _detail = true;
+}
+
 int PacketMonitorScreen::render(DisplayDriver& d) {
+  return _detail ? renderDetail(d) : renderList(d);
+}
+
+int PacketMonitorScreen::renderList(DisplayDriver& d) {
   int W = d.width(), hH = headerH(d), eh = entryH(d);
   drawHeaderBar(d, "Packets", true);
 
@@ -97,6 +135,10 @@ int PacketMonitorScreen::render(DisplayDriver& d) {
 
   int vis = (d.height() - hH) / eh;
   if (vis < 1) vis = 1;
+  if (_sel < 0) _sel = 0;
+  if (_sel > _count - 1) _sel = _count - 1;
+  if (_sel < _scroll_top) _scroll_top = _sel;
+  if (_sel >= _scroll_top + vis) _scroll_top = _sel - vis + 1;
   int maxTop = (_count > vis) ? _count - vis : 0;
   if (_scroll_top > maxTop) _scroll_top = maxTop;
   if (_scroll_top < 0) _scroll_top = 0;
@@ -111,19 +153,18 @@ int PacketMonitorScreen::render(DisplayDriver& d) {
     int idx = (_head - pos + CAP) % CAP;
     const PktInfo& p = _ring[idx];
     int y = hH + row * eh;
+    bool selected = (pos == _sel);
 
-    col(d, C_CARD);
+    col(d, selected ? C_CARDSEL : C_CARD);
     d.fillRect(0, y, W, eh - 1);
     col(d, C_DIV);
     d.fillRect(0, y + eh - 1, W, 1);
+    if (selected) { col(d, C_ACCENT); d.fillRect(0, y, 3, eh - 1); }
 
     snrStr(p.snr_q, snr, sizeof(snr));
     ageStr(_now, p.t, age, sizeof(age));
 
-    // one line per packet: short "name:value" tokens, most important first so
-    // ellipsizing on a narrow screen drops the least useful fields last.
     if (big(d)) {
-      // key fields, ordered so the most useful survive if the line is clipped
       int k = snprintf(line, sizeof(line), "ty:%s rt:%s h:%u pl:%u rs:%d sn:%s ag:%s",
                        ptypeName(p.ptype), routeName(p.route), p.hops, p.plen, p.rssi, snr, age);
       if (p.has_tc && k > 0 && k < (int)sizeof(line))
@@ -133,7 +174,7 @@ int PacketMonitorScreen::render(DisplayDriver& d) {
                p.hops, p.rssi);
     }
     col(d, C_VALUE);
-    d.drawTextEllipsized(4, y + (eh - 8) / 2, right - 4, line);
+    d.drawTextEllipsized(5, y + (eh - 8) / 2, right - 5, line);
   }
 
   if (overflow) {
@@ -150,9 +191,52 @@ int PacketMonitorScreen::render(DisplayDriver& d) {
   return 1000;  // refresh ~1s so ages tick
 }
 
+int PacketMonitorScreen::renderDetail(DisplayDriver& d) {
+  int W = d.width(), hH = headerH(d);
+  drawHeaderBar(d, "Packet", true);
+  const PktInfo& p = _ring[_detail_ring];
+
+  char snr[12], age[12], val[24];
+  snrStr(p.snr_q, snr, sizeof(snr));
+  ageStr(_now, p.t, age, sizeof(age));
+
+  int lh = big(d) ? 19 : 11;
+  int y = hH + 1;
+  auto row = [&](const char* label, const char* value) {
+    col(d, C_CARD);
+    d.fillRect(0, y, W, lh - 1);
+    col(d, C_LABEL);
+    d.setCursor(6, y + (lh - 8) / 2);
+    d.print(label);
+    col(d, C_VALUE);
+    d.drawTextRightAlign(W - 6, y + (lh - 8) / 2, value);
+    col(d, C_DIV);
+    d.fillRect(0, y + lh - 1, W, 1);
+    y += lh;
+  };
+
+  row("Type", ptypeFull(p.ptype));
+  row("Route", routeFull(p.route));
+  snprintf(val, sizeof(val), "%u", p.ver);    row("Version", val);
+  snprintf(val, sizeof(val), "%u", p.hops);   row("Hops", val);
+  snprintf(val, sizeof(val), "%u", p.hashsz); row("Hash size", val);
+  snprintf(val, sizeof(val), "%u B", p.plen); row("Payload", val);
+  snprintf(val, sizeof(val), "%u B", p.len);  row("Total", val);
+  if (p.has_tc) { snprintf(val, sizeof(val), "%u / %u", p.tc0, p.tc1); row("Transport", val); }
+  snprintf(val, sizeof(val), "%d dBm", p.rssi); row("RSSI", val);
+  snprintf(val, sizeof(val), "%s dB", snr);     row("SNR", val);
+  row("Age", age);
+  return 1000;
+}
+
 bool PacketMonitorScreen::handleInput(char c) {
-  if (c == KEY_UP || c == KEY_PREV) { if (_scroll_top > 0) _scroll_top--; return true; }
-  if (c == KEY_DOWN || c == KEY_NEXT) { _scroll_top++; return true; }
+  if (_detail) {
+    if (c == KEY_CANCEL || c == KEY_LEFT || c == KEY_ENTER || c == KEY_SELECT) _detail = false;
+    return true;
+  }
+  if (c == KEY_UP || c == KEY_PREV) { if (_sel > 0) _sel--; return true; }
+  if (c == KEY_DOWN || c == KEY_NEXT) { if (_sel < _count - 1) _sel++; return true; }
+  if (c == KEY_ENTER || c == KEY_SELECT) { openDetail(_sel); return true; }
   if (c == KEY_CANCEL || c == KEY_LEFT) { _task->gotoHomeScreen(); return true; }
   return false;
 }
@@ -161,6 +245,11 @@ bool PacketMonitorScreen::handleTouch(int x, int y, TouchEvent ev) {
   DisplayDriver* d = _task->getDisplay();
   if (!d) return false;
   int hH = headerH(*d), eh = entryH(*d);
+
+  if (_detail) {
+    if (ev == TouchEvent::release) _detail = false;  // tap anywhere returns to the list
+    return true;
+  }
   if (ev == TouchEvent::press) {
     _press_y = y; _last_y = y; _moved = false; _pressing = true;
     return true;
@@ -173,7 +262,10 @@ bool PacketMonitorScreen::handleTouch(int x, int y, TouchEvent ev) {
   }
   if (ev == TouchEvent::release) {
     _pressing = false;
-    if (!_moved && y < hH) _task->gotoHomeScreen();  // tap header = back
+    if (_moved) return true;
+    if (y < hH) { _task->gotoHomeScreen(); return true; }  // tap header = back
+    int pos = _scroll_top + (y - hH) / eh;
+    if (pos >= 0 && pos < _count) { _sel = pos; openDetail(pos); }  // tap row = detail
     return true;
   }
   return false;

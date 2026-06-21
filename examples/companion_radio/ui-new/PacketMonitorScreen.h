@@ -28,17 +28,24 @@ class PacketMonitorScreen : public UIScreen {
   uint32_t _now;
   static const int CAP = 48;
   PktInfo _ring[CAP];
-  int _count, _head, _scroll_top;
+  int _count, _head, _scroll_top, _sel;
   int _press_y, _last_y;
   bool _moved, _pressing;
+  bool _detail;       // showing the full-field detail view
+  int _detail_ring;   // ring index of the packet being detailed
+
+  void openDetail(int displayPos);
+  int renderList(DisplayDriver& d);
+  int renderDetail(DisplayDriver& d);
 
 public:
   PacketMonitorScreen(UITask* task)
-      : _task(task), _now(0), _count(0), _head(0), _scroll_top(0),
-        _press_y(0), _last_y(0), _moved(false), _pressing(false) {}
+      : _task(task), _now(0), _count(0), _head(0), _scroll_top(0), _sel(0),
+        _press_y(0), _last_y(0), _moved(false), _pressing(false),
+        _detail(false), _detail_ring(0) {}
 
   void setNow(uint32_t now) { _now = now; }
-  void reset() { _scroll_top = 0; }
+  void reset() { _scroll_top = 0; _sel = 0; _detail = false; }
   // parse a raw received frame and store its decoded fields (newest first)
   void addRaw(uint32_t now, float snr, float rssi, const uint8_t* raw, int len);
 

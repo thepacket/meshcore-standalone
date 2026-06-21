@@ -73,6 +73,8 @@ static int run_shots(TTF_Font* f1, TTF_Font* f2) {
   ui.simSetPacketNow(NOW);
   ui.gotoPacketMonitor();
   ui.render(); save_ppm(ren, "sim/shots/05_packets.ppm");
+  ui.onKey(KEY_ENTER);  // open the selected (newest) packet's detail view
+  ui.render(); save_ppm(ren, "sim/shots/06_packet_detail.ppm");
 
   SDL_DestroyRenderer(ren);
   SDL_FreeSurface(surf);
