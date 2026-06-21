@@ -24,10 +24,12 @@ A smartphone-style chat, fully on-device.
   (`sendTextTo` → `expected_ack` → `onMsgSendConfirmed`); send timeout → failed.
 - ✅ **Compose** via physical keyboard + on-screen keyboard; word-wrapped bubbles.
 - ✅ Volatile in-RAM `ChatStore` (threads lost on reboot; see M7 for persistence).
+- ✅ **Tap-to-reply** quoting — tap a bubble to quote it; quoted lines render dimmed.
+- ✅ **Emoji** — curated emoticon set as inline monochrome glyphs + picker (sent over-air
+  as shortcodes like `:)`; word-boundary matched so URLs stay intact).
+- 🟡 **URL → QR code** — detection + on-screen overlay are built behind `HAVE_QRCODEGEN`;
+  awaiting the vendored MIT QR encoder (qrcodegen) to enable.
 - ⏳ **Contact-type-aware** room post/read niceties (rooms currently treated as DMs).
-- ⏳ **Tap/long-press-to-reply** quoting.
-- ⏳ **Emoji** support (needs a glyph set; scope to a common subset first).
-- ⏳ **URL → QR code** on-screen (needs a small MIT QR encoder lib).
 
 ## M3 — RF diagnostics & tools  ✅ (done; pending on-hardware validation)
 - ✅ **Packet monitor** — decoded raw packet stream + per-packet detail.

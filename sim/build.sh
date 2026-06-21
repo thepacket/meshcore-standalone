@@ -24,6 +24,7 @@ cp "$SRC/SettingsScreen.cpp" "$SRC/SettingsScreen.h" "$SRC/SettingsModel.h" \
    "$SRC/ChatStore.cpp" "$SRC/ChatStore.h" \
    "$SRC/ChatHomeScreen.cpp" "$SRC/ChatHomeScreen.h" \
    "$SRC/ConversationScreen.cpp" "$SRC/ConversationScreen.h" \
+   "$SRC/RichText.cpp" "$SRC/RichText.h" "$SRC/EmojiGlyphs.h" \
    "$SRC/UIStyle.h" "$OUT/"
 cp sim/UITask.h sim/SimDisplay.h "$OUT/"
 
@@ -40,6 +41,7 @@ clang++ -std=c++17 -DSIM_BUILD -funsigned-char \
   "$OUT/HomeLauncherScreen.cpp" "$OUT/NoiseScopeScreen.cpp" "$OUT/LastHeardScreen.cpp" \
   "$OUT/SignalScreen.cpp" "$OUT/TraceRouteScreen.cpp" \
   "$OUT/ChatStore.cpp" "$OUT/ChatHomeScreen.cpp" "$OUT/ConversationScreen.cpp" \
+  "$OUT/RichText.cpp" \
   sim/SimDisplay.cpp sim/sim_settings_model.cpp sim/sim_main.cpp \
   $SDL_LIBS \
   -o sim/uisim

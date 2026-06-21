@@ -125,9 +125,11 @@ static int run_shots(TTF_Font* f1, TTF_Font* f2) {
   ui.chatHome()->addDm(peerB, "GW-Hertford");
 
   chat::Conv* pub = ui.chatStore().getOrCreateChannel(0, "Public");
-  ui.chatStore().addIncoming(pub, "Alice", "Anyone around the north side?", NOW - 300);
-  ui.chatStore().addIncoming(pub, "Bob", "Yep, copy you 5 by 9", NOW - 200);
-  ui.chatStore().addOutgoing(pub, "Nice, strong signal here today", NOW - 60, 0, 0);
+  ui.chatStore().addIncoming(pub, "Alice", "Anyone around the north side? :)", NOW - 300);
+  ui.chatStore().addIncoming(pub, "Bob", "Yep, copy you 5 by 9 <3", NOW - 200);
+  ui.chatStore().addOutgoing(pub, "> Alice: Anyone around the north side?\nOn the hill now B)",
+                             NOW - 90, 0, 0);
+  ui.chatStore().addIncoming(pub, "Carol", "Map here: https://meshcore.io", NOW - 40);
 
   chat::Conv* dm = ui.chatStore().getOrCreateDm(peerA, "Andy-Mobile");
   chat::Msg* a = ui.chatStore().addOutgoing(dm, "On my way over", NOW - 140, 0x1111, 0);
@@ -147,6 +149,14 @@ static int run_shots(TTF_Font* f1, TTF_Font* f2) {
   ui.onTouch(160, 232, TouchEvent::press);              // tap the compose bar -> open OSK
   ui.onTouch(160, 232, TouchEvent::release);
   ui.render(); save_ppm(ren, "sim/shots/15_chat_compose.ppm");
+
+  // emoji + reply: open the Public channel (has emoji, a quote, and a URL)
+  ui.openConversation(true, 0, nullptr, "Public");
+  ui.render(); save_ppm(ren, "sim/shots/16_chat_emoji_reply.ppm");
+  // emoji picker overlay
+  ui.onTouch(312, 232, TouchEvent::press);              // tap the emoji button (far right of compose)
+  ui.onTouch(312, 232, TouchEvent::release);
+  ui.render(); save_ppm(ren, "sim/shots/17_emoji_picker.ppm");
 
   SDL_DestroyRenderer(ren);
   SDL_FreeSurface(surf);
