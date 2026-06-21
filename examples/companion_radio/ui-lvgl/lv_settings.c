@@ -77,10 +77,11 @@ static const Field F_SECURITY[] = {
   {"BLE pin", F_VAL, "123456", 0},
 };
 static const Field F_TIME[] = {
-  {"Set time now",  F_ACTION, NULL, 0},
-  {"Time source 1", F_VAL, "(none)", 0},   // named repeater used as a clock reference
-  {"Time source 2", F_VAL, "(none)", 0},
-  {"Time source 3", F_VAL, "(none)", 0},
+  {"Set time now",   F_ACTION, NULL, 0},
+  {"Sync from GPS",  F_BOOL, NULL, 1},      // when GPS has a fix, take time from it (highest priority)
+  {"Time source 1",  F_VAL, "(none)", 0},   // else named repeaters used as clock references
+  {"Time source 2",  F_VAL, "(none)", 0},
+  {"Time source 3",  F_VAL, "(none)", 0},
 };
 static const Field F_DEVICE[] = {
   {"Buzzer quiet",    F_BOOL, NULL, 0},
