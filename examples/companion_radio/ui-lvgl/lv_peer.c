@@ -140,8 +140,8 @@ void lv_peer_create(lv_obj_t* scr) {
   lv_obj_set_style_bg_opa(loc, 0, 0); lv_obj_set_style_border_width(loc, 0, 0);
   lv_obj_set_style_pad_all(loc, 0, 0);
   lv_obj_set_flex_flow(loc, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(loc, 6, 0);
-  kv_col(loc, "Latitude", "51.7960 deg");
   kv_col(loc, "Longitude", "-0.0810 deg");
+  kv_col(loc, "Latitude", "51.7960 deg");
 
   // identity: full key wraps to its own line
   kv_block(list, "Public key",
