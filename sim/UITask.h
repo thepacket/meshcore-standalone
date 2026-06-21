@@ -14,6 +14,9 @@
 #include "LastHeardScreen.h"
 #include "SignalScreen.h"
 #include "TraceRouteScreen.h"
+#include "ChatStore.h"
+#include "ChatHomeScreen.h"
+#include "ConversationScreen.h"
 #include "SimDisplay.h"
 #include <string.h>
 #include <SDL.h>
@@ -28,6 +31,9 @@ class UITask {
   LastHeardScreen* _heard;
   SignalScreen* _signal;
   TraceRouteScreen* _trace;
+  chat::ChatStore _store;
+  ChatHomeScreen* _chat;
+  ConversationScreen* _conv;
   UIScreen* _curr;
   char _alert[80];
   Uint32 _alert_expiry;
@@ -43,6 +49,8 @@ public:
     _heard = new LastHeardScreen(this);
     _signal = new SignalScreen(this);
     _trace = new TraceRouteScreen(this);
+    _chat = new ChatHomeScreen(this, &_store);
+    _conv = new ConversationScreen(this);
     _list->showRoot();
     _curr = _home;
   }
@@ -59,6 +67,19 @@ public:
   void gotoNoise()  { _curr = _noise; }
   void gotoSignal() { _signal->reset(); _curr = _signal; }
   void gotoTrace()  { _trace->beginPick(); _curr = _trace; }
+  void gotoChat()   { _chat->begin(); _curr = _chat; }
+  void openConversation(bool is_channel, int channel_idx, const uint8_t* peer6, const char* title) {
+    chat::Conv* c = is_channel ? _store.getOrCreateChannel(channel_idx, title)
+                               : _store.getOrCreateDm(peer6, title);
+    _store.markRead(c);
+    _conv->begin(c, title, /*use_osk=*/true);
+    _curr = _conv;
+  }
+  void sendChatText(chat::Conv* c, const char* text) {
+    _store.addOutgoing(c, text, 1000, 0, 0);  // sim: no radio, mark sent
+  }
+  chat::ChatStore& chatStore() { return _store; }   // sim seeder access
+  ChatHomeScreen* chatHome() { return _chat; }
   void doAdvertise() { showAlert("Advert sent", 1200); }
   void toggleBluetooth() { showAlert("Bluetooth toggled", 1000); }
   void shutdown(bool restart) { showAlert(restart ? "Rebooting" : "Shutting down", 1200); }

@@ -28,6 +28,9 @@
 #include "LastHeardScreen.h"
 #include "SignalScreen.h"
 #include "TraceRouteScreen.h"
+#include "ChatStore.h"
+#include "ChatHomeScreen.h"
+#include "ConversationScreen.h"
 
 class UITask : public AbstractUITask {
   DisplayDriver* _display;
@@ -66,8 +69,13 @@ class UITask : public AbstractUITask {
   LastHeardScreen* last_heard;
   SignalScreen* signal_scr;
   TraceRouteScreen* trace_scr;
+  chat::ChatStore chat_store;
+  ChatHomeScreen* chat_home;
+  ConversationScreen* conversation;
   unsigned long next_noise_sample = 0;
   int _last_rssi = 0;   // last received RSSI, for the home signal bars (0 = unknown)
+
+  bool composeUsesOSK() const;
 
   // touch + keyboard polling state
   unsigned long next_touch_check = 0;
@@ -107,6 +115,9 @@ public:
   void toggleBluetooth();
   uint32_t startTrace(int contact_idx);   // returns trace tag (0 = failed)
   void getHomeStatus(HomeStatus& s);
+  void gotoChat();                        // chat home (Channels/DMs tabs)
+  void openConversation(bool is_channel, int channel_idx, const uint8_t* peer6, const char* title);
+  void sendChatText(chat::Conv* c, const char* text);
   void editSetting(const Setting* s);
   void closeSettingEdit();
   DisplayDriver* getDisplay() { return _display; }
@@ -135,6 +146,10 @@ public:
   void onRawRx(float snr, float rssi, const uint8_t* raw, int len) override;
   void onTraceResult(uint32_t tag, const uint8_t* path_hashes, const uint8_t* path_snrs,
                      uint8_t path_len, uint8_t path_sz, int8_t final_snr_q) override;
+  void onTextMessage(bool is_channel, int channel_idx, const uint8_t* dm_prefix6,
+                     const char* dm_name, const char* text, uint32_t timestamp,
+                     uint8_t path_len, int8_t snr_q) override;
+  void onMsgSendConfirmed(uint32_t ack, uint32_t trip_millis) override;
   void loop() override;
 
   void shutdown(bool restart = false);

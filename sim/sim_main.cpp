@@ -116,6 +116,38 @@ static int run_shots(TTF_Font* f1, TTF_Font* f2) {
     ui.simTraceResult("Repeater-7", hashes, snrs, 3, (int8_t)(7*4)); }
   ui.render(); save_ppm(ren, "sim/shots/11_trace_result.ppm");
 
+  // ---- Chat (M2): seed channels, DMs, and threads ----
+  uint8_t peerA[6] = {0xAA, 0x01, 0x02, 0x03, 0x04, 0x05};
+  uint8_t peerB[6] = {0xBB, 0x11, 0x12, 0x13, 0x14, 0x15};
+  ui.chatHome()->addChannel(0, "Public");
+  ui.chatHome()->addChannel(1, "#london");
+  ui.chatHome()->addDm(peerA, "Andy-Mobile");
+  ui.chatHome()->addDm(peerB, "GW-Hertford");
+
+  chat::Conv* pub = ui.chatStore().getOrCreateChannel(0, "Public");
+  ui.chatStore().addIncoming(pub, "Alice", "Anyone around the north side?", NOW - 300);
+  ui.chatStore().addIncoming(pub, "Bob", "Yep, copy you 5 by 9", NOW - 200);
+  ui.chatStore().addOutgoing(pub, "Nice, strong signal here today", NOW - 60, 0, 0);
+
+  chat::Conv* dm = ui.chatStore().getOrCreateDm(peerA, "Andy-Mobile");
+  chat::Msg* a = ui.chatStore().addOutgoing(dm, "On my way over", NOW - 140, 0x1111, 0);
+  a->status = chat::ST_DELIVERED;
+  ui.chatStore().addIncoming(dm, "", "Great, see you soon", NOW - 110);
+  chat::Msg* b = ui.chatStore().addOutgoing(dm, "ETA about 10 minutes", NOW - 50, 0x2222, 0);
+  b->status = chat::ST_SENDING;
+  chat::Msg* c2 = ui.chatStore().addOutgoing(dm, "(this one failed)", NOW - 20, 0, 0);
+  c2->status = chat::ST_FAILED;
+
+  ui.gotoChat();
+  ui.render(); save_ppm(ren, "sim/shots/12_chat_home.ppm");
+  ui.onKey(KEY_ENTER);  // open the selected channel (Public)
+  ui.render(); save_ppm(ren, "sim/shots/13_chat_channel.ppm");
+  ui.openConversation(false, 0, peerA, "Andy-Mobile");  // a DM thread w/ delivery status
+  ui.render(); save_ppm(ren, "sim/shots/14_chat_dm.ppm");
+  ui.onTouch(160, 232, TouchEvent::press);              // tap the compose bar -> open OSK
+  ui.onTouch(160, 232, TouchEvent::release);
+  ui.render(); save_ppm(ren, "sim/shots/15_chat_compose.ppm");
+
   SDL_DestroyRenderer(ren);
   SDL_FreeSurface(surf);
   return 0;

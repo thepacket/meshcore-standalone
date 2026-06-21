@@ -41,6 +41,15 @@ public:
   void disableSerial() { _serial->disable(); }
   virtual void msgRead(int msgcount) = 0;
   virtual void newMsg(uint8_t path_len, const char* from_name, const char* text, int msgcount) = 0;
+  // Rich incoming-message hook for the on-device chat store. For channel messages
+  // is_channel=true and channel_idx is set (dm_* are NULL); for direct messages
+  // dm_prefix6 (6-byte pubkey prefix) and dm_name identify the sender. Default no-op.
+  virtual void onTextMessage(bool is_channel, int channel_idx, const uint8_t* dm_prefix6,
+                             const char* dm_name, const char* text, uint32_t timestamp,
+                             uint8_t path_len, int8_t snr_q) {}
+  // An outgoing message was acknowledged (delivery confirmed). ack matches the
+  // expected_ack returned when sending. Default no-op.
+  virtual void onMsgSendConfirmed(uint32_t ack, uint32_t trip_millis) {}
   virtual void notify(UIEventType t = UIEventType::none) = 0;
   // raw received packet (pre-decryption) for the on-device packet monitor; default no-op
   virtual void onRawRx(float snr, float rssi, const uint8_t* raw, int len) {}

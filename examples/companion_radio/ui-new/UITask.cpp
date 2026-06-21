@@ -239,6 +239,8 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   last_heard = new LastHeardScreen(this);
   signal_scr = new SignalScreen(this);
   trace_scr = new TraceRouteScreen(this);
+  chat_home = new ChatHomeScreen(this, &chat_store);
+  conversation = new ConversationScreen(this);
   setCurrScreen(splash);
 }
 
@@ -288,7 +290,8 @@ void UITask::newMsg(uint8_t path_len, const char* from_name, const char* text, i
   _msgcount = msgcount;
 
   ((MsgPreviewScreen *) msg_preview)->addPreview(path_len, from_name, text);
-  setCurrScreen(msg_preview);
+  // don't yank the user out of an open chat screen with the preview popup
+  if (curr != chat_home && curr != conversation) setCurrScreen(msg_preview);
 
   if (_display != NULL) {
     if (!_display->isOn() && !hasConnection()) {
@@ -461,6 +464,93 @@ void UITask::getHomeStatus(HomeStatus& s) {
   int r = _last_rssi;
   s.bars = (r == 0) ? 0 : (r >= -70 ? 4 : (r >= -85 ? 3 : (r >= -100 ? 2 : (r >= -112 ? 1 : 0))));
   s.msgcount = _msgcount;
+}
+
+bool UITask::composeUsesOSK() const {
+  bool has_phys_kb =
+#ifdef UI_HAS_KEYBOARD
+      true;
+#else
+      false;
+#endif
+  return (_display != NULL) && _display->hasTouch() && !has_phys_kb;
+}
+
+void UITask::gotoChat() {
+  chat_home->clear();
+#ifdef MAX_GROUP_CHANNELS
+  for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
+    ChannelDetails cd;
+    if (the_mesh.getChannel(i, cd) && cd.name[0]) chat_home->addChannel(i, cd.name);
+  }
+#endif
+  int nc = the_mesh.getNumContacts();
+  for (int i = 0; i < nc; i++) {
+    ContactInfo c;
+    if (!the_mesh.getContactByIdx(i, c)) continue;
+    if (c.type == ADV_TYPE_CHAT || c.type == ADV_TYPE_ROOM)
+      chat_home->addDm(c.id.pub_key, c.name);
+  }
+  chat_home->setNow(rtc_clock.getCurrentTime());
+  chat_home->begin();
+  setCurrScreen(chat_home);
+}
+
+void UITask::openConversation(bool is_channel, int channel_idx, const uint8_t* peer6, const char* title) {
+  chat::Conv* c = is_channel ? chat_store.getOrCreateChannel(channel_idx, title)
+                             : chat_store.getOrCreateDm(peer6, title);
+  chat_store.markRead(c);
+  conversation->setNow(rtc_clock.getCurrentTime());
+  conversation->begin(c, title, composeUsesOSK());
+  setCurrScreen(conversation);
+}
+
+void UITask::sendChatText(chat::Conv* c, const char* text) {
+  if (!c || !text || !text[0]) return;
+  uint32_t now = rtc_clock.getCurrentTime();
+  if (c->is_channel) {
+    bool ok = the_mesh.sendChannelText(c->channel_idx, text);
+    chat::Msg* m = chat_store.addOutgoing(c, text, now, 0, 0);
+    if (m && !ok) m->status = chat::ST_FAILED;
+  } else {
+    ContactInfo* ct = the_mesh.lookupContactByPubKey(c->peer, 6);
+    uint32_t ack = 0, to = 0;
+    bool ok = ct && the_mesh.sendTextTo(*ct, text, ack, to);
+    chat::Msg* m = chat_store.addOutgoing(c, text, now, ok ? ack : 0,
+                                          ok && to ? millis() + to : 0);
+    if (m && !ok) m->status = chat::ST_FAILED;
+  }
+  chat_store.markRead(c);
+  _next_refresh = 100;
+}
+
+void UITask::onTextMessage(bool is_channel, int channel_idx, const uint8_t* dm_prefix6,
+                           const char* dm_name, const char* text, uint32_t timestamp,
+                           uint8_t path_len, int8_t snr_q) {
+  if (is_channel) {
+    ChannelDetails cd;
+    const char* cname = the_mesh.getChannel(channel_idx, cd) ? cd.name : "Channel";
+    chat::Conv* c = chat_store.getOrCreateChannel(channel_idx, cname);
+    // channel text arrives as "sender: body" -- split it for the bubble
+    char sender[24] = {0};
+    const char* body = text;
+    const char* sep = strstr(text, ": ");
+    if (sep && (sep - text) < (int)sizeof(sender)) {
+      int n = sep - text;
+      memcpy(sender, text, n); sender[n] = 0;
+      body = sep + 2;
+    }
+    chat_store.addIncoming(c, sender, body, timestamp);
+  } else {
+    chat::Conv* c = chat_store.getOrCreateDm(dm_prefix6, dm_name ? dm_name : "");
+    chat_store.addIncoming(c, "", text, timestamp);
+  }
+  _next_refresh = 100;
+}
+
+void UITask::onMsgSendConfirmed(uint32_t ack, uint32_t trip_millis) {
+  chat_store.markDelivered(ack, trip_millis);
+  _next_refresh = 100;
 }
 
 void UITask::editSetting(const Setting* s) {
@@ -654,6 +744,9 @@ void UITask::loop() {
   last_heard->setNow(now_s);
   signal_scr->setNow(now_s);
   trace_scr->setNow(now_s);
+  chat_home->setNow(now_s);
+  conversation->setNow(now_s);
+  chat_store.expireSends(millis());
 
   // sample the RF noise floor continuously so the scope has history when opened
   if (millis() >= next_noise_sample) {

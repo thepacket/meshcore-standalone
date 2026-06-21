@@ -417,6 +417,29 @@ bool MyMesh::sendTrace(const ContactInfo& contact, uint32_t& tag) {
   return true;
 }
 
+bool MyMesh::sendTextTo(ContactInfo& recipient, const char* text,
+                        uint32_t& expected_ack, uint32_t& est_timeout) {
+  expected_ack = 0;
+  est_timeout = 0;
+  uint32_t ts = getRTCClock()->getCurrentTimeUnique();
+  int result = sendMessage(recipient, ts, 0, text, expected_ack, est_timeout);
+  if (result == MSG_SEND_FAILED) return false;
+  if (expected_ack) {   // register so processAck() -> onMsgSendConfirmed() fires on delivery
+    expected_ack_table[next_ack_idx].msg_sent = _ms->getMillis();
+    expected_ack_table[next_ack_idx].ack = expected_ack;
+    expected_ack_table[next_ack_idx].contact = &recipient;
+    next_ack_idx = (next_ack_idx + 1) % EXPECTED_ACK_TABLE_SIZE;
+  }
+  return true;
+}
+
+bool MyMesh::sendChannelText(int channel_idx, const char* text) {
+  ChannelDetails channel;
+  if (!getChannel(channel_idx, channel)) return false;
+  uint32_t ts = getRTCClock()->getCurrentTime();
+  return sendGroupMessage(ts, channel.channel, _prefs.node_name, text, strlen(text));
+}
+
 void MyMesh::onContactPathUpdated(const ContactInfo &contact) {
   out_frame[0] = PUSH_CODE_PATH_UPDATED;
   memcpy(&out_frame[1], contact.id.pub_key, PUB_KEY_SIZE);
@@ -435,6 +458,9 @@ ContactInfo*  MyMesh::processAck(const uint8_t *data) {
       memcpy(&out_frame[5], &trip_time, 4);
       _serial->writeFrame(out_frame, 9);
 
+#ifdef DISPLAY_CLASS
+      if (_ui) { uint32_t ackv; memcpy(&ackv, data, 4); _ui->onMsgSendConfirmed(ackv, trip_time); }
+#endif
       // NOTE: the same ACK can be received multiple times!
       expected_ack_table[i].ack = 0; // clear expected hash, now that we have received ACK
       return expected_ack_table[i].contact;
@@ -483,6 +509,8 @@ void MyMesh::queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packe
   bool should_display = txt_type == TXT_TYPE_PLAIN || txt_type == TXT_TYPE_SIGNED_PLAIN;
   if (should_display && _ui) {
     _ui->newMsg(path_len, from.name, text, offline_queue_len);
+    _ui->onTextMessage(false, -1, from.id.pub_key, from.name, text, sender_timestamp,
+                       path_len, (int8_t)(pkt->getSNR() * 4));
     if (!_serial->isConnected()) {
       _ui->notify(UIEventType::contactMessage);
     }
@@ -599,7 +627,11 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
   if (getChannel(channel_idx, channel_details)) {
     channel_name = channel_details.name;
   }
-  if (_ui) _ui->newMsg(path_len, channel_name, text, offline_queue_len);
+  if (_ui) {
+    _ui->newMsg(path_len, channel_name, text, offline_queue_len);
+    _ui->onTextMessage(true, channel_idx, NULL, NULL, text, timestamp, path_len,
+                       (int8_t)(pkt->getSNR() * 4));
+  }
 #endif
 }
 

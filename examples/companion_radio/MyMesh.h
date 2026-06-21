@@ -111,6 +111,13 @@ public:
   // Returns false if the contact has no known path or no packet was available.
   bool sendTrace(const ContactInfo& contact, uint32_t& tag);
 
+  // On-device chat send helpers (mirror the CMD_SEND_*_TXT_MSG frame handlers).
+  // sendTextTo registers the expected ack so onMsgSendConfirmed fires on delivery;
+  // expected_ack is 0 if none, est_timeout is the suggested delivery deadline (ms).
+  bool sendTextTo(ContactInfo& recipient, const char* text,
+                  uint32_t& expected_ack, uint32_t& est_timeout);
+  bool sendChannelText(int channel_idx, const char* text);
+
   // ---- Companion config API (shared by the frame protocol and the on-device UI) ----
   // Each performs validate -> apply-live -> persist. Setters returning bool report
   // false on an invalid argument (no side effects on failure). freq/bw are in kHz.

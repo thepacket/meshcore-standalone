@@ -15,17 +15,19 @@ Full on-device companion configuration: data-driven settings UI (Public info, Ra
 region presets, Contacts, Message, Position, Telemetry, Experimental, Device); app-style
 look; cycle-or-keyboard input; frequency-band validation. Pending on-hardware validation.
 
-## M2 — Messaging & chat (next, headline)
+## M2 — Messaging & chat  🟡 (core done; pending on-hardware validation)
 A smartphone-style chat, fully on-device.
-- ⏳ **Channels + DMs tabs** — channels-first (Public + configured), plus a DM list.
-- ⏳ **Speech-bubble threads**, scrollable, **colour-coded usernames**.
-- ⏳ **Contact-type-aware** actions (DM users; rooms post/read; — repeaters/sensors handled in M5/M3).
-- ⏳ **Delivery status** — sent/delivered/failed (red ✗), using the ACK path
-  (`expected_ack`, `PUSH_CODE_SEND_CONFIRMED`).
-- ⏳ **Compose** via keyboard/on-screen keyboard; **long-press-to-reply**.
+- ✅ **Channels + DMs tabs** — channels-first (Public + configured), plus a DM list with
+  last-message previews + unread badges (lists from live mesh enumeration).
+- ✅ **Speech-bubble threads**, scrollable, **colour-coded usernames** (hashed palette).
+- ✅ **Delivery status** — sending/sent/delivered/failed (red), via the ACK path
+  (`sendTextTo` → `expected_ack` → `onMsgSendConfirmed`); send timeout → failed.
+- ✅ **Compose** via physical keyboard + on-screen keyboard; word-wrapped bubbles.
+- ✅ Volatile in-RAM `ChatStore` (threads lost on reboot; see M7 for persistence).
+- ⏳ **Contact-type-aware** room post/read niceties (rooms currently treated as DMs).
+- ⏳ **Tap/long-press-to-reply** quoting.
 - ⏳ **Emoji** support (needs a glyph set; scope to a common subset first).
 - ⏳ **URL → QR code** on-screen (needs a small MIT QR encoder lib).
-- History is volatile in-RAM initially (see M7 for persistence).
 
 ## M3 — RF diagnostics & tools  ✅ (done; pending on-hardware validation)
 - ✅ **Packet monitor** — decoded raw packet stream + per-packet detail.
@@ -81,5 +83,6 @@ Delivered alongside M3 to host the diagnostic tiles:
 
 ## Done so far
 M1 settings, region presets, frequency validation, desktop simulator; the MeshOS-style
-cyan-on-black icon-grid launcher home with status bars; and all of M3 (packet monitor, noise
-scope, last-heard, signal meter, trace route).
+cyan-on-black icon-grid launcher home with status bars; all of M3 (packet monitor, noise
+scope, last-heard, signal meter, trace route); and the M2 chat core (Channels/DMs tabs,
+speech-bubble threads, colour-coded names, delivery status, on-screen + physical compose).
