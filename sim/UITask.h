@@ -17,6 +17,8 @@
 #include "ChatStore.h"
 #include "ChatHomeScreen.h"
 #include "ConversationScreen.h"
+#include "RepeatersScreen.h"
+#include "RepeaterDetailScreen.h"
 #include "SimDisplay.h"
 #include <string.h>
 #include <SDL.h>
@@ -34,6 +36,8 @@ class UITask {
   chat::ChatStore _store;
   ChatHomeScreen* _chat;
   ConversationScreen* _conv;
+  RepeatersScreen* _rep;
+  RepeaterDetailScreen* _repdetail;
   UIScreen* _curr;
   char _alert[80];
   Uint32 _alert_expiry;
@@ -51,6 +55,8 @@ public:
     _trace = new TraceRouteScreen(this);
     _chat = new ChatHomeScreen(this, &_store);
     _conv = new ConversationScreen(this);
+    _rep = new RepeatersScreen(this);
+    _repdetail = new RepeaterDetailScreen(this);
     _list->showRoot();
     _curr = _home;
   }
@@ -80,6 +86,32 @@ public:
   }
   chat::ChatStore& chatStore() { return _store; }   // sim seeder access
   ChatHomeScreen* chatHome() { return _chat; }
+
+  // repeater management (sim stand-ins)
+  void gotoRepeaters() { _rep->setTab(0); _curr = _rep; }
+  void gotoFinder() { _rep->setTab(1); _curr = _rep; }
+  void openRepeater(const uint8_t* pk, const char* name, uint8_t type) {
+    _repdetail->begin(pk, name, type, false, /*use_osk=*/true); _curr = _repdetail;
+  }
+  void addCandidate(const uint8_t*) { showAlert("Added", 1000); }
+  void requestStatus(const uint8_t*) {
+    uint8_t b[56]; memset(b, 0, sizeof(b));
+    auto w16 = [&](int o, uint16_t v) { b[o] = v; b[o + 1] = v >> 8; };
+    auto w32 = [&](int o, uint32_t v) { b[o] = v; b[o + 1] = v >> 8; b[o + 2] = v >> 16; b[o + 3] = v >> 24; };
+    w16(0, 4050); w16(2, 2); w16(4, (uint16_t)(int16_t)-118); w16(6, (uint16_t)(int16_t)-92);
+    w32(8, 150234); w32(12, 88291); w32(16, 4210); w32(20, 372640);
+    w32(24, 41000); w32(28, 47291); w32(32, 90000); w32(36, 60234);
+    w16(40, 3); w16(42, (uint16_t)(int16_t)(7 * 4)); w16(44, 11); w16(46, 27);
+    w32(48, 3120); w32(52, 5);
+    _repdetail->onStatus(b, 56);
+  }
+  void startLogin(const uint8_t*, const char*) { _repdetail->onLogin(true, 1); }
+  void sendTrigger(const uint8_t*, const char* cmd) {
+    _repdetail->onReply(cmd[0] == 'a' ? "OK - Advert sent" : "OK - clock set");
+  }
+  void toggleFavourite(const uint8_t*, bool) {}
+  RepeatersScreen* repeaters() { return _rep; }   // sim seeder access
+
   void doAdvertise() { showAlert("Advert sent", 1200); }
   void toggleBluetooth() { showAlert("Bluetooth toggled", 1000); }
   void shutdown(bool restart) { showAlert(restart ? "Rebooting" : "Shutting down", 1200); }

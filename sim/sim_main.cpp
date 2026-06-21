@@ -164,6 +164,24 @@ static int run_shots(TTF_Font* f1, TTF_Font* f2) {
   ui.onTouch(80, 182, TouchEvent::release);
   ui.render(); save_ppm(ren, "sim/shots/18_url_qr.ppm");
 
+  // ---- Repeater management (M5): seed saved + scan, show list + detail ----
+  uint8_t rp1[6] = {0x10, 1, 2, 3, 4, 5};
+  uint8_t rp2[6] = {0x20, 1, 2, 3, 4, 5};
+  uint8_t rm1[6] = {0x30, 1, 2, 3, 4, 5};
+  uint8_t sc1[6] = {0x40, 1, 2, 3, 4, 5};
+  uint8_t sc2[6] = {0x50, 1, 2, 3, 4, 5};
+  ui.repeaters()->addSaved(rp1, "GW-Hertford", 2 /*REPEATER*/, true);
+  ui.repeaters()->addSaved(rp2, "Hilltop-Relay", 2, false);
+  ui.repeaters()->addSaved(rm1, "Town Square", 3 /*ROOM*/, false);
+  ui.repeaters()->addScan(sc1, "New-Repeater-9", 2);
+  ui.repeaters()->addScan(sc2, "Field-Node", 2);
+  ui.gotoRepeaters();
+  ui.render(); save_ppm(ren, "sim/shots/19_repeaters.ppm");
+  ui.openRepeater(rp1, "GW-Hertford", 2);
+  ui.render(); save_ppm(ren, "sim/shots/20_repeater_detail.ppm");
+  ui.requestStatus(rp1);  // sim feeds a fake RepeaterStats
+  ui.render(); save_ppm(ren, "sim/shots/21_repeater_status.ppm");
+
   SDL_DestroyRenderer(ren);
   SDL_FreeSurface(surf);
   return 0;

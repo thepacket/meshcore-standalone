@@ -118,6 +118,16 @@ public:
                   uint32_t& expected_ack, uint32_t& est_timeout);
   bool sendChannelText(int channel_idx, const char* text);
 
+  // ---- on-device remote repeater/room management (M5) ----
+  // All take a 6-byte pubkey prefix and look the contact up internally.
+  bool uiLogin(const uint8_t* pubkey6, const char* password, uint32_t& est_timeout);
+  bool uiRequestStatus(const uint8_t* pubkey6, uint32_t& est_timeout);
+  bool uiSendCommand(const uint8_t* pubkey6, const char* cmd, uint32_t& est_timeout);
+  bool setContactFavourite(const uint8_t* pubkey6, bool fav);
+  // Recently-heard nodes NOT yet saved as contacts (for the scanner). Returns count.
+  int  getHeardCandidates(ContactInfo dest[], int max_num);
+  bool addHeardContact(const uint8_t* pubkey6);  // promote a heard candidate to a saved contact
+
   // ---- Companion config API (shared by the frame protocol and the on-device UI) ----
   // Each performs validate -> apply-live -> persist. Setters returning bool report
   // false on an invalid argument (no side effects on failure). freq/bw are in kHz.
@@ -294,6 +304,11 @@ private:
 
   #define ADVERT_PATH_TABLE_SIZE   16
   AdvertPath advert_paths[ADVERT_PATH_TABLE_SIZE]; // circular table
+
+  // recently-heard but NOT-yet-saved nodes, for the on-device scanner (full identity)
+  #define HEARD_CACHE_SIZE 8
+  ContactInfo heard_cache[HEARD_CACHE_SIZE];
+  uint32_t heard_cache_ts[HEARD_CACHE_SIZE];
 };
 
 extern MyMesh the_mesh;

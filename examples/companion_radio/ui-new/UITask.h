@@ -31,6 +31,8 @@
 #include "ChatStore.h"
 #include "ChatHomeScreen.h"
 #include "ConversationScreen.h"
+#include "RepeatersScreen.h"
+#include "RepeaterDetailScreen.h"
 
 class UITask : public AbstractUITask {
   DisplayDriver* _display;
@@ -72,6 +74,8 @@ class UITask : public AbstractUITask {
   chat::ChatStore chat_store;
   ChatHomeScreen* chat_home;
   ConversationScreen* conversation;
+  RepeatersScreen* repeaters_scr;
+  RepeaterDetailScreen* repeater_detail;
   unsigned long next_noise_sample = 0;
   int _last_rssi = 0;   // last received RSSI, for the home signal bars (0 = unknown)
 
@@ -118,6 +122,15 @@ public:
   void gotoChat();                        // chat home (Channels/DMs tabs)
   void openConversation(bool is_channel, int channel_idx, const uint8_t* peer6, const char* title);
   void sendChatText(chat::Conv* c, const char* text);
+  // repeater management (M5)
+  void gotoRepeaters();                   // saved tab
+  void gotoFinder();                      // scan tab
+  void openRepeater(const uint8_t* pubkey6, const char* name, uint8_t type);
+  void addCandidate(const uint8_t* pubkey6);
+  void requestStatus(const uint8_t* pubkey6);
+  void startLogin(const uint8_t* pubkey6, const char* pw);
+  void sendTrigger(const uint8_t* pubkey6, const char* cmd);
+  void toggleFavourite(const uint8_t* pubkey6, bool fav);
   void editSetting(const Setting* s);
   void closeSettingEdit();
   DisplayDriver* getDisplay() { return _display; }
@@ -150,6 +163,9 @@ public:
                      const char* dm_name, const char* text, uint32_t timestamp,
                      uint8_t path_len, int8_t snr_q) override;
   void onMsgSendConfirmed(uint32_t ack, uint32_t trip_millis) override;
+  void onLoginResult(const uint8_t* prefix6, bool success, uint8_t perms) override;
+  void onStatusResponse(const uint8_t* prefix6, const uint8_t* data, uint8_t len) override;
+  void onCommandReply(const uint8_t* prefix6, const char* text) override;
   void loop() override;
 
   void shutdown(bool restart = false);

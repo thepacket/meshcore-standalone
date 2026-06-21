@@ -26,6 +26,8 @@ cp "$SRC/SettingsScreen.cpp" "$SRC/SettingsScreen.h" "$SRC/SettingsModel.h" \
    "$SRC/ConversationScreen.cpp" "$SRC/ConversationScreen.h" \
    "$SRC/RichText.cpp" "$SRC/RichText.h" "$SRC/EmojiGlyphs.h" \
    "$SRC/qrcodegen.cpp" "$SRC/qrcodegen.h" \
+   "$SRC/RepeatersScreen.cpp" "$SRC/RepeatersScreen.h" \
+   "$SRC/RepeaterDetailScreen.cpp" "$SRC/RepeaterDetailScreen.h" \
    "$SRC/UIStyle.h" "$OUT/"
 cp sim/UITask.h sim/SimDisplay.h "$OUT/"
 
@@ -43,6 +45,7 @@ clang++ -std=c++17 -DSIM_BUILD -DHAVE_QRCODEGEN=1 -funsigned-char \
   "$OUT/SignalScreen.cpp" "$OUT/TraceRouteScreen.cpp" \
   "$OUT/ChatStore.cpp" "$OUT/ChatHomeScreen.cpp" "$OUT/ConversationScreen.cpp" \
   "$OUT/RichText.cpp" "$OUT/qrcodegen.cpp" \
+  "$OUT/RepeatersScreen.cpp" "$OUT/RepeaterDetailScreen.cpp" \
   sim/SimDisplay.cpp sim/sim_settings_model.cpp sim/sim_main.cpp \
   $SDL_LIBS \
   -o sim/uisim

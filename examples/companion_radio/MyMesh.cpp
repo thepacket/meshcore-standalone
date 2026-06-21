@@ -390,6 +390,21 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path
     p->gps_lon = contact.gps_lon;
   }
 
+  // remember unsaved heard nodes (full identity) so the scanner can offer to add them
+  if (lookupContactByPubKey(contact.id.pub_key, PUB_KEY_SIZE) == NULL) {
+    int slot = 0; uint32_t oldest = 0xFFFFFFFF;
+    for (int i = 0; i < HEARD_CACHE_SIZE; i++) {
+      if (heard_cache_ts[i] && memcmp(heard_cache[i].id.pub_key, contact.id.pub_key, PUB_KEY_SIZE) == 0) { slot = i; break; }
+      if (heard_cache_ts[i] < oldest) { oldest = heard_cache_ts[i]; slot = i; }
+    }
+    heard_cache[slot] = contact;
+    if (path && mesh::Packet::isValidPathLen(path_len))
+      heard_cache[slot].out_path_len = mesh::Packet::copyPath(heard_cache[slot].out_path, path, path_len);
+    else
+      heard_cache[slot].out_path_len = OUT_PATH_UNKNOWN;
+    heard_cache_ts[slot] = getRTCClock()->getCurrentTime();
+  }
+
   if (!is_new) dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY); // only schedule lazy write for contacts that are in contacts[]
 }
 
@@ -438,6 +453,61 @@ bool MyMesh::sendChannelText(int channel_idx, const char* text) {
   if (!getChannel(channel_idx, channel)) return false;
   uint32_t ts = getRTCClock()->getCurrentTime();
   return sendGroupMessage(ts, channel.channel, _prefs.node_name, text, strlen(text));
+}
+
+bool MyMesh::uiLogin(const uint8_t* pubkey6, const char* password, uint32_t& est_timeout) {
+  ContactInfo* c = lookupContactByPubKey(pubkey6, 6);
+  if (!c) return false;
+  clearPendingReqs();
+  if (sendLogin(*c, password, est_timeout) == MSG_SEND_FAILED) return false;
+  memcpy(&pending_login, c->id.pub_key, 4);   // match in onContactResponse()
+  return true;
+}
+
+bool MyMesh::uiRequestStatus(const uint8_t* pubkey6, uint32_t& est_timeout) {
+  ContactInfo* c = lookupContactByPubKey(pubkey6, 6);
+  if (!c) return false;
+  clearPendingReqs();
+  uint32_t tag;
+  if (sendRequest(*c, REQ_TYPE_GET_STATUS, tag, est_timeout) == MSG_SEND_FAILED) return false;
+  memcpy(&pending_status, c->id.pub_key, 4);
+  return true;
+}
+
+bool MyMesh::uiSendCommand(const uint8_t* pubkey6, const char* cmd, uint32_t& est_timeout) {
+  ContactInfo* c = lookupContactByPubKey(pubkey6, 6);
+  if (!c) return false;
+  uint32_t ts = getRTCClock()->getCurrentTimeUnique();
+  return sendCommandData(*c, ts, 0, cmd, est_timeout) != MSG_SEND_FAILED;
+}
+
+bool MyMesh::setContactFavourite(const uint8_t* pubkey6, bool fav) {
+  ContactInfo* c = lookupContactByPubKey(pubkey6, 6);
+  if (!c) return false;
+  if (fav) c->flags |= 0x01; else c->flags &= ~0x01;
+  saveContacts();
+  return true;
+}
+
+int MyMesh::getHeardCandidates(ContactInfo dest[], int max_num) {
+  int n = 0;
+  for (int i = 0; i < HEARD_CACHE_SIZE && n < max_num; i++) {
+    if (!heard_cache_ts[i]) continue;
+    if (lookupContactByPubKey(heard_cache[i].id.pub_key, PUB_KEY_SIZE) != NULL) continue;  // now saved
+    dest[n++] = heard_cache[i];
+  }
+  return n;
+}
+
+bool MyMesh::addHeardContact(const uint8_t* pubkey6) {
+  for (int i = 0; i < HEARD_CACHE_SIZE; i++) {
+    if (heard_cache_ts[i] && memcmp(heard_cache[i].id.pub_key, pubkey6, 6) == 0) {
+      bool ok = addContact(heard_cache[i]);
+      if (ok) saveContacts();
+      return ok;
+    }
+  }
+  return false;
 }
 
 void MyMesh::onContactPathUpdated(const ContactInfo &contact) {
@@ -514,6 +584,9 @@ void MyMesh::queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packe
     if (!_serial->isConnected()) {
       _ui->notify(UIEventType::contactMessage);
     }
+  }
+  if (txt_type == TXT_TYPE_CLI_DATA && _ui) {
+    _ui->onCommandReply(from.id.pub_key, text);  // remote CLI reply (repeater admin etc.)
   }
 #endif
 }
@@ -728,6 +801,9 @@ void MyMesh::onContactResponse(const ContactInfo &contact, const uint8_t *data, 
       out_frame[i++] = 0; // legacy: is_admin = false
       memcpy(&out_frame[i], contact.id.pub_key, 6);
       i += 6;                                     // pub_key_prefix
+#ifdef DISPLAY_CLASS
+      if (_ui) _ui->onLoginResult(contact.id.pub_key, true, 0);
+#endif
     } else if (data[4] == RESP_SERVER_LOGIN_OK) { // new login response
       uint16_t keep_alive_secs = ((uint16_t)data[5]) * 16;
       if (keep_alive_secs > 0) {
@@ -741,11 +817,17 @@ void MyMesh::onContactResponse(const ContactInfo &contact, const uint8_t *data, 
       i += 4; // NEW: include server timestamp
       out_frame[i++] = data[7]; // NEW (v7): ACL permissions
       out_frame[i++] = data[12]; // FIRMWARE_VER_LEVEL
+#ifdef DISPLAY_CLASS
+      if (_ui) _ui->onLoginResult(contact.id.pub_key, true, data[6]);
+#endif
     } else {
       out_frame[i++] = PUSH_CODE_LOGIN_FAIL;
       out_frame[i++] = 0; // reserved
       memcpy(&out_frame[i], contact.id.pub_key, 6);
       i += 6; // pub_key_prefix
+#ifdef DISPLAY_CLASS
+      if (_ui) _ui->onLoginResult(contact.id.pub_key, false, 0);
+#endif
     }
     _serial->writeFrame(out_frame, i);
   } else if (len > 4 && // check for status response
@@ -763,6 +845,9 @@ void MyMesh::onContactResponse(const ContactInfo &contact, const uint8_t *data, 
     memcpy(&out_frame[i], &data[4], len - 4);
     i += (len - 4);
     _serial->writeFrame(out_frame, i);
+#ifdef DISPLAY_CLASS
+    if (_ui) _ui->onStatusResponse(contact.id.pub_key, &data[4], len - 4);
+#endif
   } else if (len > 4 && tag == pending_telemetry) {  // check for matching response tag
     pending_telemetry = 0;
 
@@ -944,6 +1029,9 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
 
 void MyMesh::begin(bool has_display) {
   BaseChatMesh::begin();
+
+  memset(heard_cache, 0, sizeof(heard_cache));
+  memset(heard_cache_ts, 0, sizeof(heard_cache_ts));
 
   if (!_store->loadMainIdentity(self_id)) {
     self_id = radio_new_identity(); // create new random identity

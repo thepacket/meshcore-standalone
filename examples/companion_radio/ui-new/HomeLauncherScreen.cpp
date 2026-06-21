@@ -21,6 +21,8 @@ const uint8_t* TILE_ICONS[HomeLauncherScreen::A_COUNT] = {
 bool tileEnabled(int t) {
   switch (t) {
     case HomeLauncherScreen::A_CHAT:
+    case HomeLauncherScreen::A_REPEATERS:
+    case HomeLauncherScreen::A_FINDER:
     case HomeLauncherScreen::A_HEARD:
     case HomeLauncherScreen::A_ADVERTISE:
     case HomeLauncherScreen::A_SETTINGS:
@@ -188,6 +190,8 @@ int HomeLauncherScreen::render(DisplayDriver& d) {
 void HomeLauncherScreen::activate(int tile) {
   switch (tile) {
     case A_CHAT:      _task->gotoChat(); break;
+    case A_REPEATERS: _task->gotoRepeaters(); break;
+    case A_FINDER:    _task->gotoFinder(); break;
     case A_HEARD:     _task->gotoHeard(); break;
     case A_ADVERTISE: _task->doAdvertise(); break;
     case A_SETTINGS:  _task->gotoSettings(); break;

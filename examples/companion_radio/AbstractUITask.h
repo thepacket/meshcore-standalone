@@ -50,6 +50,13 @@ public:
   // An outgoing message was acknowledged (delivery confirmed). ack matches the
   // expected_ack returned when sending. Default no-op.
   virtual void onMsgSendConfirmed(uint32_t ack, uint32_t trip_millis) {}
+  // --- remote repeater/room management (M5) ---
+  // Result of a login attempt to a repeater/room. perms = permission bits (admin etc).
+  virtual void onLoginResult(const uint8_t* pubkey_prefix6, bool success, uint8_t perms) {}
+  // A status/stats response from a repeater/room (the RepeaterStats blob, len bytes).
+  virtual void onStatusResponse(const uint8_t* pubkey_prefix6, const uint8_t* data, uint8_t len) {}
+  // A CLI reply (TXT_TYPE_CLI_DATA) from a contact, e.g. the result of a remote command.
+  virtual void onCommandReply(const uint8_t* pubkey_prefix6, const char* text) {}
   virtual void notify(UIEventType t = UIEventType::none) = 0;
   // raw received packet (pre-decryption) for the on-device packet monitor; default no-op
   virtual void onRawRx(float snr, float rssi, const uint8_t* raw, int len) {}

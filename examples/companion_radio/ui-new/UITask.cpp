@@ -241,6 +241,8 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   trace_scr = new TraceRouteScreen(this);
   chat_home = new ChatHomeScreen(this, &chat_store);
   conversation = new ConversationScreen(this);
+  repeaters_scr = new RepeatersScreen(this);
+  repeater_detail = new RepeaterDetailScreen(this);
   setCurrScreen(splash);
 }
 
@@ -550,6 +552,78 @@ void UITask::onTextMessage(bool is_channel, int channel_idx, const uint8_t* dm_p
 
 void UITask::onMsgSendConfirmed(uint32_t ack, uint32_t trip_millis) {
   chat_store.markDelivered(ack, trip_millis);
+  _next_refresh = 100;
+}
+
+// ---- repeater management (M5) ----
+void UITask::gotoRepeaters() {
+  repeaters_scr->clear();
+  int nc = the_mesh.getNumContacts();
+  for (int i = 0; i < nc; i++) {
+    ContactInfo c;
+    if (!the_mesh.getContactByIdx(i, c)) continue;
+    if (c.type == ADV_TYPE_REPEATER || c.type == ADV_TYPE_ROOM)
+      repeaters_scr->addSaved(c.id.pub_key, c.name, c.type, (c.flags & 0x01) != 0);
+  }
+  ContactInfo cand[8];
+  int nh = the_mesh.getHeardCandidates(cand, 8);
+  for (int i = 0; i < nh; i++) {
+    if (cand[i].type == ADV_TYPE_REPEATER || cand[i].type == ADV_TYPE_ROOM)
+      repeaters_scr->addScan(cand[i].id.pub_key, cand[i].name, cand[i].type);
+  }
+  repeaters_scr->begin();
+  setCurrScreen(repeaters_scr);
+}
+
+void UITask::gotoFinder() { gotoRepeaters(); repeaters_scr->setTab(1); }
+
+void UITask::openRepeater(const uint8_t* pubkey6, const char* name, uint8_t type) {
+  bool fav = false;
+  ContactInfo* c = the_mesh.lookupContactByPubKey(pubkey6, 6);
+  if (c) fav = (c->flags & 0x01) != 0;
+  repeater_detail->begin(pubkey6, name, type, fav, composeUsesOSK());
+  setCurrScreen(repeater_detail);
+}
+
+void UITask::addCandidate(const uint8_t* pubkey6) {
+  showAlert(the_mesh.addHeardContact(pubkey6) ? "Added" : "Add failed", 1000);
+  gotoRepeaters();  // refresh lists (moves it from Scan to Saved)
+}
+
+void UITask::requestStatus(const uint8_t* pubkey6) {
+  uint32_t to;
+  if (!the_mesh.uiRequestStatus(pubkey6, to)) showAlert("Status req failed", 1000);
+}
+
+void UITask::startLogin(const uint8_t* pubkey6, const char* pw) {
+  uint32_t to;
+  if (!the_mesh.uiLogin(pubkey6, pw, to)) showAlert("Login send failed", 1000);
+}
+
+void UITask::sendTrigger(const uint8_t* pubkey6, const char* cmd) {
+  uint32_t to;
+  if (!the_mesh.uiSendCommand(pubkey6, cmd, to)) showAlert("Send failed", 1000);
+}
+
+void UITask::toggleFavourite(const uint8_t* pubkey6, bool fav) {
+  the_mesh.setContactFavourite(pubkey6, fav);
+}
+
+static bool prefixMatch(const uint8_t* a, const uint8_t* b) { return memcmp(a, b, 6) == 0; }
+
+void UITask::onLoginResult(const uint8_t* prefix6, bool success, uint8_t perms) {
+  if (curr == repeater_detail && prefixMatch(prefix6, repeater_detail->pubkey()))
+    repeater_detail->onLogin(success, perms);
+  _next_refresh = 100;
+}
+void UITask::onStatusResponse(const uint8_t* prefix6, const uint8_t* data, uint8_t len) {
+  if (curr == repeater_detail && prefixMatch(prefix6, repeater_detail->pubkey()))
+    repeater_detail->onStatus(data, len);
+  _next_refresh = 100;
+}
+void UITask::onCommandReply(const uint8_t* prefix6, const char* text) {
+  if (curr == repeater_detail && prefixMatch(prefix6, repeater_detail->pubkey()))
+    repeater_detail->onReply(text);
   _next_refresh = 100;
 }
 

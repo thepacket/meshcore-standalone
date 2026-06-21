@@ -55,12 +55,16 @@ Delivered alongside M3 to host the diagnostic tiles:
 - ⏳ Touch/trackball pan/zoom.
 - Requires the SD card (T-Deck Plus has one) — gate behind storage availability.
 
-## M5 — Remote infrastructure / repeater management
-- ⏳ **Remote login** (password) to repeaters/rooms → pull **stats / neighbour lists**
-  (`CMD_SEND_LOGIN`, `SEND_STATUS_REQ`, `getNeighbours`).
-- ⏳ **Repeater scanner + whitelist** filtering (build on auto-add config) to avoid
-  flooding the contact list.
-- ⏳ **Remote triggers** — force a repeater to sync clock / send an advert, over the air.
+## M5 — Remote infrastructure / repeater management  🟡 (core done; pending on-hardware validation)
+- ✅ **Remote login** (password) to repeaters/rooms → pull **stats** (parsed RepeaterStats:
+  battery, uptime, airtime tx/rx, packet counts, noise, RSSI/SNR, errors) via
+  `uiLogin`/`uiRequestStatus` + new `onLoginResult`/`onStatusResponse` hooks.
+- ✅ **Repeater scanner + whitelist** — Saved | Scan tabs; heard-but-unsaved nodes
+  (new candidate cache) can be added; favourite flag = whitelist star.
+- ✅ **Remote triggers** — send `advert` / `clock sync` CLI commands over the air; the
+  repeater's CLI reply is surfaced (`onCommandReply`).
+- ⏳ Remote neighbour-list view (repeaters don't return neighbours in the status blob;
+  would need a dedicated request).
 
 ## M6 — Terminal & system
 - ⏳ **On-device terminal** — multi-colour MeshCore CLI client (run `advert`, `sd ls`,
@@ -84,7 +88,8 @@ Delivered alongside M3 to host the diagnostic tiles:
 - New deps must be MIT-compatible (e.g. QR encoder); no GPL code pulled in.
 
 ## Done so far
-M1 settings, region presets, frequency validation, desktop simulator; the MeshOS-style
-cyan-on-black icon-grid launcher home with status bars; all of M3 (packet monitor, noise
-scope, last-heard, signal meter, trace route); and the M2 chat core (Channels/DMs tabs,
-speech-bubble threads, colour-coded names, delivery status, on-screen + physical compose).
+M1 settings; the MeshOS-style cyan-on-black icon-grid launcher home with status bars; all of
+M3 (packet monitor, noise scope, last-heard, signal meter, trace route); M2 chat (Channels/DMs
+tabs, speech-bubble threads, colour-coded names, delivery status, compose, tap-to-reply, inline
+emoji, URL→QR); the M5 core (remote login, repeater stats, scanner/whitelist, remote triggers);
+and the desktop simulator.
