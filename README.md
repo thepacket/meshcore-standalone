@@ -18,28 +18,53 @@ companion devices and faithful to MeshCore's underlying protocol.
 
 - **Standalone** — full control of the device from its own screen.
 - **Touch-first** — designed for the T-Deck Plus touchscreen, with keyboard and
-  trackball as alternatives; degrades to other input methods on other boards.
-- **Portable** — built on MeshCore's `DisplayDriver`/`UIScreen` abstraction so the
-  UI is not tied to one device.
+  trackball as alternatives.
+- **Beautiful** — a modern, colourful, widget-rich interface (built on **LVGL**),
+  not raw text on a panel.
 - **Open** — MIT licensed.
 
 ## Status
 
-- ✅ **Settings UI** — full on-device configuration (radio, contacts, message,
-  position, telemetry, device, etc.). Compiles for the T-Deck (USB/BLE) and other boards.
-- 🧪 **Desktop simulator** — exercise the real UI on your computer without hardware
-  (see [`sim/`](sim/README.md)).
-- ⏳ **On-device messaging** (channels + direct messages) — planned next milestone.
-- ⏳ **Hardware validation** on the T-Deck Plus — pending the device.
+The full feature set is built and exercised in desktop simulators; **on-device
+hardware validation is still pending** a T-Deck Plus.
 
-See [ROADMAP.md](ROADMAP.md) for what's planned (messaging → persistence → maps).
+**UI redesign on LVGL (current direction).** The standalone UI is being rebuilt on
+[LVGL](https://lvgl.io) for an Android-app-quality look — black theme, per-feature
+colour-coded icon chips, charts/gauges, and real widgets. Built so far (live in the
+LVGL desktop sim, see [`sim-lvgl/`](sim-lvgl/README.md)):
+
+- ✅ **Home launcher** — colour icon-grid, activity/noise widget cards, status bars
+- ✅ **Chat** — Channels/DMs list + speech-bubble conversation + compose keyboard
+- ✅ **Settings** — every companion config field, with switch/dropdown/slider/keyboard editors
+- ✅ **Diagnostics** — noise scope, signal coverage gauges, heard list
+- ✅ **Repeaters** — Saved/Scan list + detail (arc battery gauge, stats, login, triggers)
+- ✅ **Peer details** — tap a message or heard node to see RSSI/SNR/distance/location/key
+- ⏳ Trace / Terminal / Packet-monitor screens
+- ⏳ **T-Deck bring-up** — LVGL + LovyanGFX + GT911 touch on-device, screens bound to live data
+
+The earlier feature work (settings, messaging, RF diagnostics, repeater management) was
+first implemented in a portable bitmap UI ([`examples/companion_radio/ui-new/`](examples/companion_radio/ui-new)),
+which still builds and is the firmware's current UI until the LVGL bring-up lands;
+it also remains the lightweight option for mono/non-touch boards.
+
+See [ROADMAP.md](ROADMAP.md) for the full milestone map.
 
 ## Try it without hardware
 
+**New LVGL UI** (interactive — mouse = touch; tap tiles to navigate):
+
 ```sh
-brew install sdl2 sdl2_ttf   # macOS
+brew install sdl2          # macOS
+./sim-lvgl/build.sh        # first run fetches LVGL (cached after)
+./sim-lvgl/lvglsim
+```
+
+**Original bitmap UI** (also interactive, fully wired with demo data):
+
+```sh
+brew install sdl2 sdl2_ttf
 ./sim/build.sh
-./sim/uisim                  # mouse = touch, arrows/Enter/Esc/typing = device input
+./sim/uisim                # mouse = touch, arrows/Enter/Esc/typing = device input
 ```
 
 ## Credits & relationship to MeshCore

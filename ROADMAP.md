@@ -4,9 +4,31 @@
 
 **Goal:** feature parity with **MeshOS** (the closed/paid standalone MeshCore firmware) as
 an open, MIT alternative — a fully smartphone-independent on-device experience. We take
-MeshOS only as a *feature reference* (no code is copied; it's closed).
+MeshOS / MeshUltra only as *feature & look references* (no code is copied; they're closed).
 
 Status legend: ✅ done · 🟡 partial · ⏳ planned
+
+---
+
+## UI redesign on LVGL (current focus)
+
+The feature milestones below (M1–M8) were first built in a portable bitmap UI
+(`examples/companion_radio/ui-new/`). To reach a professional, Android-app-quality look,
+the standalone UI is being **rebuilt on [LVGL](https://lvgl.io)** (`examples/companion_radio/ui-lvgl/`,
+desktop prototype in `sim-lvgl/`): black theme, per-feature colour-coded icon chips
+(FontAwesome), charts/gauges, and real widgets (switches, sliders, dropdowns, on-screen
+keyboard, QR). Design language reference: **MeshUltra** (look only).
+
+- ✅ Shared UI kit, home launcher, chat (list + conversation), settings (full field set +
+  keyboard editors), diagnostics (noise/signal/heard), repeaters (list + detail gauges),
+  peer-details panel — all live in the LVGL desktop sim.
+- ⏳ Trace / Terminal / Packet-monitor LVGL screens.
+- ⏳ **On-device LVGL bring-up** (LVGL + LovyanGFX flush + GT911 touch + tick; screen-manager;
+  bind screens to live `MyMesh` data; replace the bitmap UI on T-Deck-class boards). The
+  bitmap UI stays as the fallback for mono / non-touch / companion boards.
+
+The protocol/firmware work from each milestone (config ops, ChatStore, RF hooks, login/
+status/candidate cache) is UI-framework-agnostic and carries straight over.
 
 ---
 
