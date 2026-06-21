@@ -184,6 +184,7 @@ int HomeLauncherScreen::render(DisplayDriver& d) {
   drawTopBar(d, s);
   drawBottomBar(d, s);
   if (_menu_open) drawMenu(d);
+  if (_advert_menu) drawAdvertMenu(d);
   return 1000;  // refresh ~1s so the clock ticks
 }
 
@@ -193,7 +194,7 @@ void HomeLauncherScreen::activate(int tile) {
     case A_REPEATERS: _task->gotoRepeaters(); break;
     case A_FINDER:    _task->gotoFinder(); break;
     case A_HEARD:     _task->gotoHeard(); break;
-    case A_ADVERTISE: _task->doAdvertise(); break;
+    case A_ADVERTISE: _advert_menu = true; _advert_sel = 1; break;  // one-hop/flood choice
     case A_SETTINGS:  _task->gotoSettings(); break;
     case A_TRACE:     _task->gotoTrace(); break;
     case A_TERMINAL:  _task->gotoPacketMonitor(); break;
@@ -204,16 +205,40 @@ void HomeLauncherScreen::activate(int tile) {
 }
 
 void HomeLauncherScreen::activateMenu(int item) {
-  _menu_open = false;
   switch (item) {
-    case 0: _task->doAdvertise(); break;
-    case 1: _task->toggleBluetooth(); break;
-    case 2: _task->shutdown(true); break;   // reboot
-    case 3: _task->shutdown(false); break;  // shutdown
+    case 0: _menu_open = false; _advert_menu = true; _advert_sel = 1; break;  // advert -> one-hop/flood
+    case 1: _menu_open = false; _task->toggleBluetooth(); break;
+    case 2: _menu_open = false; _task->shutdown(true); break;   // reboot
+    case 3: _menu_open = false; _task->shutdown(false); break;  // shutdown
+  }
+}
+
+void HomeLauncherScreen::drawAdvertMenu(DisplayDriver& d) {
+  int W = d.width(), H = d.height();
+  const char* items[2] = {"One hop", "Flood"};
+  int itemH = big(d) ? 24 : 14;
+  int boxW = W * 3 / 5, boxH = 2 * itemH + 6;
+  int bx = (W - boxW) / 2, by = (H - boxH) / 2;
+  col(d, C_CARD); d.fillRect(bx, by, boxW, boxH);
+  col(d, C_ACCENT); d.drawRect(bx, by, boxW, boxH);
+  d.setTextSize(1);
+  for (int i = 0; i < 2; i++) {
+    int iy = by + 3 + i * itemH;
+    if (i == _advert_sel) {
+      col(d, C_CARDSEL); d.fillRect(bx + 2, iy, boxW - 4, itemH - 1);
+      col(d, C_ACCENT); d.fillRect(bx + 2, iy, 3, itemH - 1);
+    }
+    col(d, C_VALUE); d.drawTextCentered(W / 2, iy + (itemH - 8) / 2, items[i]);
   }
 }
 
 bool HomeLauncherScreen::handleInput(char c) {
+  if (_advert_menu) {
+    if (c == KEY_UP || c == KEY_PREV || c == KEY_DOWN || c == KEY_NEXT) { _advert_sel ^= 1; return true; }
+    if (c == KEY_ENTER || c == KEY_SELECT) { _task->doAdvertise(_advert_sel == 1); _advert_menu = false; return true; }
+    if (c == KEY_CANCEL || c == KEY_LEFT) { _advert_menu = false; return true; }
+    return true;
+  }
   if (_menu_open) {
     if (c == KEY_UP || c == KEY_PREV) { if (_menu_sel > 0) _menu_sel--; return true; }
     if (c == KEY_DOWN || c == KEY_NEXT) { if (_menu_sel < MENU_COUNT - 1) _menu_sel++; return true; }
@@ -234,6 +259,17 @@ bool HomeLauncherScreen::handleTouch(int x, int y, TouchEvent ev) {
   DisplayDriver* d = _task->getDisplay();
   if (!d) return false;
   if (ev != TouchEvent::release) return true;  // act on tap completion
+
+  if (_advert_menu) {
+    int W = d->width(), H = d->height();
+    int itemH = big(*d) ? 24 : 14;
+    int boxW = W * 3 / 5, boxH = 2 * itemH + 6;
+    int bx = (W - boxW) / 2, by = (H - boxH) / 2;
+    if (!inRect(x, y, bx, by, boxW, boxH)) { _advert_menu = false; return true; }
+    int item = (y - (by + 3)) / itemH;
+    if (item == 0 || item == 1) { _task->doAdvertise(item == 1); _advert_menu = false; }
+    return true;
+  }
 
   if (_menu_open) {
     int W = d->width(), H = d->height();

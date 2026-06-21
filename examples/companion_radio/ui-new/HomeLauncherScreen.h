@@ -35,16 +35,21 @@ private:
   int _sel;            // selected tile (0..A_COUNT-1)
   bool _menu_open;     // hamburger menu overlay
   int _menu_sel;
+  bool _advert_menu;   // one-hop/flood advert choice overlay
+  int _advert_sel;
 
   void activate(int tile);
   void activateMenu(int item);
+  void drawAdvertMenu(DisplayDriver& d);
   int  tileAt(int x, int y);          // -1 if none
   void drawTopBar(DisplayDriver& d, const HomeStatus& s);
   void drawBottomBar(DisplayDriver& d, const HomeStatus& s);
   void drawMenu(DisplayDriver& d);
 
 public:
-  HomeLauncherScreen(UITask* task) : _task(task), _sel(A_SETTINGS), _menu_open(false), _menu_sel(0) {}
+  HomeLauncherScreen(UITask* task)
+      : _task(task), _sel(A_SETTINGS), _menu_open(false), _menu_sel(0),
+        _advert_menu(false), _advert_sel(0) {}
 
   int render(DisplayDriver& display) override;
   bool handleInput(char c) override;

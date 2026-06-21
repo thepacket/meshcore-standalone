@@ -115,7 +115,7 @@ public:
   void gotoHeard();
   void gotoSignal();
   void gotoTrace();
-  void doAdvertise();
+  void doAdvertise(bool flood);
   void toggleBluetooth();
   uint32_t startTrace(int contact_idx);   // returns trace tag (0 = failed)
   void getHomeStatus(HomeStatus& s);

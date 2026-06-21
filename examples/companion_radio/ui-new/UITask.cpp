@@ -443,9 +443,10 @@ void UITask::onTraceResult(uint32_t tag, const uint8_t* path_hashes, const uint8
   _next_refresh = 100;
 }
 
-void UITask::doAdvertise() {
+void UITask::doAdvertise(bool flood) {
   notify(UIEventType::ack);
-  showAlert(the_mesh.advert() ? "Advert sent!" : "Advert failed..", 1000);
+  bool ok = flood ? the_mesh.advertFlood() : the_mesh.advert();
+  showAlert(ok ? (flood ? "Flood advert sent" : "One-hop advert sent") : "Advert failed..", 1000);
 }
 
 void UITask::toggleBluetooth() {

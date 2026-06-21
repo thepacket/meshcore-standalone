@@ -112,7 +112,7 @@ public:
   void toggleFavourite(const uint8_t*, bool) {}
   RepeatersScreen* repeaters() { return _rep; }   // sim seeder access
 
-  void doAdvertise() { showAlert("Advert sent", 1200); }
+  void doAdvertise(bool flood) { showAlert(flood ? "Flood advert sent" : "One-hop advert sent", 1200); }
   void toggleBluetooth() { showAlert("Bluetooth toggled", 1000); }
   void shutdown(bool restart) { showAlert(restart ? "Rebooting" : "Shutting down", 1200); }
   uint32_t startTrace(int idx) { return 0xCAFEBABE; }  // sim: pretend a trace was sent

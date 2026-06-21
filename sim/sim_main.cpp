@@ -43,6 +43,71 @@ static void save_ppm(SDL_Renderer* ren, const char* path) {
   free(buf);
 }
 
+// Demo data shared by both the headless shot run and the interactive sim, so the
+// UI is fully explorable with mouse/keyboard (chat, diagnostics, repeaters...).
+static const uint32_t NOW = 1000;
+static const uint8_t peerA[6] = {0xAA, 0x01, 0x02, 0x03, 0x04, 0x05};
+static const uint8_t peerB[6] = {0xBB, 0x11, 0x12, 0x13, 0x14, 0x15};
+static const uint8_t rp1[6] = {0x10, 1, 2, 3, 4, 5};
+static const uint8_t rp2[6] = {0x20, 1, 2, 3, 4, 5};
+static const uint8_t rm1[6] = {0x30, 1, 2, 3, 4, 5};
+static const uint8_t sc1[6] = {0x40, 1, 2, 3, 4, 5};
+static const uint8_t sc2[6] = {0x50, 1, 2, 3, 4, 5};
+
+static void seed_demo(UITask& ui) {
+  // packet monitor (oldest first so newest is on top)
+  uint8_t adv[]  = {0x11, 0x00, 1,2,3,4,5,6,7,8,9,10};                 // ADVERT FLOOD, 0 hops
+  uint8_t trc[]  = {0x25, 0x04, 9,9,9,9, 1,2,3,4,5};                   // TRACE FLOOD, 4 hops
+  uint8_t ack[]  = {0x0E, 0x03, 0xA1,0xB2,0xC3, 1,2};                  // ACK DIRECT, 3 hops
+  uint8_t grp[]  = {0x14, 0x05,0x00,0x00,0x00, 0x01, 0x77, 1,2,3,4,5,6,7,8}; // GRP_TXT T-FLOOD
+  uint8_t txt[]  = {0x09, 0x02, 0x11,0x22, 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}; // TXT FLOOD
+  ui.simAddRaw(NOW - 400, 4.75f, -99, adv, sizeof(adv));
+  ui.simAddRaw(NOW - 140, 11.0f, -70, trc, sizeof(trc));
+  ui.simAddRaw(NOW - 65,  2.5f, -105, ack, sizeof(ack));
+  ui.simAddRaw(NOW - 17,  9.25f, -78, grp, sizeof(grp));
+  ui.simAddRaw(NOW - 3,   6.0f,  -92, txt, sizeof(txt));
+  ui.simSetPacketNow(NOW);
+  ui.simSetDiagNow(NOW);
+
+  for (int i = 0; i < 200; i++) ui.simNoiseSample(-103 + (int)(8 * sin(i * 0.15)) + ((i * 37) % 7) - 3);
+
+  HeardStation h1 = {"Repeater-7", 2, NOW - 12, 9 * 4, -78, 4200};
+  HeardStation h2 = {"Andy-Mobile", 0, NOW - 45, 6 * 4, -92, 850};
+  HeardStation h3 = {"GW-Hertford", 3, NOW - 600, 2 * 4, -108, -1};
+  ui.simAddHeard(h1); ui.simAddHeard(h2); ui.simAddHeard(h3);
+
+  RepeaterSignal r1 = {"Repeater-7", NOW - 12, 9 * 4, -72, true};
+  RepeaterSignal r2 = {"GW-Hertford", NOW - 600, 2 * 4, -104, true};
+  RepeaterSignal r3 = {"Hilltop-Relay", 0, 0, 0, false};
+  ui.simAddRepeater(r1); ui.simAddRepeater(r2); ui.simAddRepeater(r3);
+
+  ui.simAddTraceTarget("Repeater-7", 0);
+  ui.simAddTraceTarget("GW-Hertford", 1);
+
+  // chat
+  ui.chatHome()->addChannel(0, "Public");
+  ui.chatHome()->addChannel(1, "#london");
+  ui.chatHome()->addDm(peerA, "Andy-Mobile");
+  ui.chatHome()->addDm(peerB, "GW-Hertford");
+  chat::Conv* pub = ui.chatStore().getOrCreateChannel(0, "Public");
+  ui.chatStore().addIncoming(pub, "Alice", "Anyone around the north side? :)", NOW - 300);
+  ui.chatStore().addIncoming(pub, "Bob", "Yep, copy you 5 by 9 <3", NOW - 200);
+  ui.chatStore().addOutgoing(pub, "> Alice: Anyone around the north side?\nOn the hill now B)", NOW - 90, 0, 0);
+  ui.chatStore().addIncoming(pub, "Carol", "Map here: https://meshcore.io", NOW - 40);
+  chat::Conv* dm = ui.chatStore().getOrCreateDm(peerA, "Andy-Mobile");
+  chat::Msg* a = ui.chatStore().addOutgoing(dm, "On my way over", NOW - 140, 0x1111, 0); a->status = chat::ST_DELIVERED;
+  ui.chatStore().addIncoming(dm, "", "Great, see you soon", NOW - 110);
+  chat::Msg* b = ui.chatStore().addOutgoing(dm, "ETA about 10 minutes", NOW - 50, 0x2222, 0); b->status = chat::ST_SENDING;
+  chat::Msg* c2 = ui.chatStore().addOutgoing(dm, "(this one failed)", NOW - 20, 0, 0); c2->status = chat::ST_FAILED;
+
+  // repeaters
+  ui.repeaters()->addSaved(rp1, "GW-Hertford", 2 /*REPEATER*/, true);
+  ui.repeaters()->addSaved(rp2, "Hilltop-Relay", 2, false);
+  ui.repeaters()->addSaved(rm1, "Town Square", 3 /*ROOM*/, false);
+  ui.repeaters()->addScan(sc1, "New-Repeater-9", 2);
+  ui.repeaters()->addScan(sc2, "Field-Node", 2);
+}
+
 static int run_shots(TTF_Font* f1, TTF_Font* f2) {
   SDL_Surface* surf = SDL_CreateRGBSurfaceWithFormat(0, 320 * SCALE, 240 * SCALE, 24,
                                                      SDL_PIXELFORMAT_RGB24);
@@ -50,6 +115,7 @@ static int run_shots(TTF_Font* f1, TTF_Font* f2) {
   SDL_RenderSetLogicalSize(ren, 320, 240);
   SimDisplay disp(ren, f1, f2);
   UITask ui(&disp);
+  seed_demo(ui);
 
   ui.render(); save_ppm(ren, "sim/shots/00_home.ppm");  // MeshOS-style launcher grid
   ui.onKey(KEY_ENTER);                               // Settings tile is selected by default
@@ -57,133 +123,54 @@ static int run_shots(TTF_Font* f1, TTF_Font* f2) {
   ui.onKey(KEY_DOWN); ui.onKey(KEY_ENTER);          // open "Radio"
   ui.render(); save_ppm(ren, "sim/shots/02_radio.ppm");
   ui.onKey(KEY_ENTER);                               // tap "Preset" -> cycles in place
-  ui.render(); save_ppm(ren, "sim/shots/03_edit.ppm");  // Radio now shows the next preset applied
-  ui.onKey(KEY_DOWN); ui.onKey(KEY_ENTER);          // "Frequency (MHz)" -> keyboard entry (with '.')
+  ui.render(); save_ppm(ren, "sim/shots/03_edit.ppm");
+  ui.onKey(KEY_DOWN); ui.onKey(KEY_ENTER);          // "Frequency (MHz)" -> keyboard entry
   ui.render(); save_ppm(ren, "sim/shots/04_keyboard.ppm");
 
-  // packet monitor: seed some fake received packets (oldest first so newest is on top)
-  const uint32_t NOW = 1000;
-  uint8_t adv[]  = {0x11, 0x00, /*payload*/ 1,2,3,4,5,6,7,8,9,10};                 // ADVERT FLOOD, 0 hops
-  uint8_t trc[]  = {0x25, 0x04, 9,9,9,9, /*payload*/ 1,2,3,4,5};                   // TRACE FLOOD, 4 hops
-  uint8_t ack[]  = {0x0E, 0x03, 0xA1,0xB2,0xC3, /*payload*/ 1,2};                  // ACK DIRECT, 3 hops
-  uint8_t grp[]  = {0x14, 0x05,0x00,0x00,0x00, 0x01, 0x77, /*payload*/ 1,2,3,4,5,6,7,8}; // GRP_TXT T-FLOOD, tc, 1 hop
-  uint8_t txt[]  = {0x09, 0x02, 0x11,0x22, /*payload*/ 1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16}; // TXT FLOOD, 2 hops
-  ui.simAddRaw(NOW - 400, 4.75f, -99, adv, sizeof(adv));
-  ui.simAddRaw(NOW - 140, 11.0f, -70, trc, sizeof(trc));
-  ui.simAddRaw(NOW - 65,  2.5f, -105, ack, sizeof(ack));
-  ui.simAddRaw(NOW - 17,  9.25f, -78, grp, sizeof(grp));
-  ui.simAddRaw(NOW - 3,   6.0f,  -92, txt, sizeof(txt));
-  ui.simSetPacketNow(NOW);
   ui.gotoPacketMonitor();
   ui.render(); save_ppm(ren, "sim/shots/05_packets.ppm");
-  ui.onKey(KEY_ENTER);  // open the selected (newest) packet's detail view
+  ui.onKey(KEY_ENTER);
   ui.render(); save_ppm(ren, "sim/shots/06_packet_detail.ppm");
 
-  // ---- RF diagnostics: seed fake data and capture each screen ----
-  ui.simSetDiagNow(NOW);
-
-  // Noise scope: a wandering noise floor
-  for (int i = 0; i < 200; i++) {
-    int base = -103 + (int)(8 * sin(i * 0.15)) + ((i * 37) % 7) - 3;
-    ui.simNoiseSample(base);
-  }
-  ui.gotoNoise();
-  ui.render(); save_ppm(ren, "sim/shots/07_noise.ppm");
-
-  // Heard: a few stations, one with GPS-derived distance
-  HeardStation h1 = {"Repeater-7", 2, NOW - 12, 9 * 4, -78, 4200};
-  HeardStation h2 = {"Andy-Mobile", 0, NOW - 45, 6 * 4, -92, 850};
-  HeardStation h3 = {"GW-Hertford", 3, NOW - 600, 2 * 4, -108, -1};
-  ui.simAddHeard(h1); ui.simAddHeard(h2); ui.simAddHeard(h3);
-  ui.gotoHeard();
-  ui.render(); save_ppm(ren, "sim/shots/08_heard.ppm");
-
-  // Signal: repeaters with varying coverage
-  RepeaterSignal r1 = {"Repeater-7", NOW - 12, 9 * 4, -72, true};
-  RepeaterSignal r2 = {"GW-Hertford", NOW - 600, 2 * 4, -104, true};
-  RepeaterSignal r3 = {"Hilltop-Relay", 0, 0, 0, false};
-  ui.simAddRepeater(r1); ui.simAddRepeater(r2); ui.simAddRepeater(r3);
-  ui.gotoSignal();
-  ui.render(); save_ppm(ren, "sim/shots/09_signal.ppm");
-
-  // Trace: target list, then a result
-  ui.simAddTraceTarget("Repeater-7", 0);
-  ui.simAddTraceTarget("GW-Hertford", 1);
-  ui.gotoTrace();
-  ui.render(); save_ppm(ren, "sim/shots/10_trace_pick.ppm");
+  ui.gotoNoise();   ui.render(); save_ppm(ren, "sim/shots/07_noise.ppm");
+  ui.gotoHeard();   ui.render(); save_ppm(ren, "sim/shots/08_heard.ppm");
+  ui.gotoSignal();  ui.render(); save_ppm(ren, "sim/shots/09_signal.ppm");
+  ui.gotoTrace();   ui.render(); save_ppm(ren, "sim/shots/10_trace_pick.ppm");
   { uint8_t hashes[] = {0xA3, 0x7F, 0x12};
     uint8_t snrs[]   = {(uint8_t)(int8_t)(8*4), (uint8_t)(int8_t)(5*4), (uint8_t)(int8_t)(3*4)};
     ui.simTraceResult("Repeater-7", hashes, snrs, 3, (int8_t)(7*4)); }
   ui.render(); save_ppm(ren, "sim/shots/11_trace_result.ppm");
 
-  // ---- Chat (M2): seed channels, DMs, and threads ----
-  uint8_t peerA[6] = {0xAA, 0x01, 0x02, 0x03, 0x04, 0x05};
-  uint8_t peerB[6] = {0xBB, 0x11, 0x12, 0x13, 0x14, 0x15};
-  ui.chatHome()->addChannel(0, "Public");
-  ui.chatHome()->addChannel(1, "#london");
-  ui.chatHome()->addDm(peerA, "Andy-Mobile");
-  ui.chatHome()->addDm(peerB, "GW-Hertford");
-
-  chat::Conv* pub = ui.chatStore().getOrCreateChannel(0, "Public");
-  ui.chatStore().addIncoming(pub, "Alice", "Anyone around the north side? :)", NOW - 300);
-  ui.chatStore().addIncoming(pub, "Bob", "Yep, copy you 5 by 9 <3", NOW - 200);
-  ui.chatStore().addOutgoing(pub, "> Alice: Anyone around the north side?\nOn the hill now B)",
-                             NOW - 90, 0, 0);
-  ui.chatStore().addIncoming(pub, "Carol", "Map here: https://meshcore.io", NOW - 40);
-
-  chat::Conv* dm = ui.chatStore().getOrCreateDm(peerA, "Andy-Mobile");
-  chat::Msg* a = ui.chatStore().addOutgoing(dm, "On my way over", NOW - 140, 0x1111, 0);
-  a->status = chat::ST_DELIVERED;
-  ui.chatStore().addIncoming(dm, "", "Great, see you soon", NOW - 110);
-  chat::Msg* b = ui.chatStore().addOutgoing(dm, "ETA about 10 minutes", NOW - 50, 0x2222, 0);
-  b->status = chat::ST_SENDING;
-  chat::Msg* c2 = ui.chatStore().addOutgoing(dm, "(this one failed)", NOW - 20, 0, 0);
-  c2->status = chat::ST_FAILED;
-
   ui.gotoChat();
   ui.render(); save_ppm(ren, "sim/shots/12_chat_home.ppm");
   ui.onKey(KEY_ENTER);  // open the selected channel (Public)
   ui.render(); save_ppm(ren, "sim/shots/13_chat_channel.ppm");
-  ui.openConversation(false, 0, peerA, "Andy-Mobile");  // a DM thread w/ delivery status
+  ui.openConversation(false, 0, peerA, "Andy-Mobile");
   ui.render(); save_ppm(ren, "sim/shots/14_chat_dm.ppm");
-  ui.onTouch(160, 232, TouchEvent::press);              // tap the compose bar -> open OSK
-  ui.onTouch(160, 232, TouchEvent::release);
+  ui.onTouch(160, 232, TouchEvent::press); ui.onTouch(160, 232, TouchEvent::release);
   ui.render(); save_ppm(ren, "sim/shots/15_chat_compose.ppm");
-
-  // emoji + reply: open the Public channel (has emoji, a quote, and a URL)
   ui.openConversation(true, 0, nullptr, "Public");
   ui.render(); save_ppm(ren, "sim/shots/16_chat_emoji_reply.ppm");
-  // emoji picker overlay
-  ui.onTouch(312, 232, TouchEvent::press);              // tap the emoji button (far right of compose)
-  ui.onTouch(312, 232, TouchEvent::release);
+  ui.onTouch(312, 232, TouchEvent::press); ui.onTouch(312, 232, TouchEvent::release);
   ui.render(); save_ppm(ren, "sim/shots/17_emoji_picker.ppm");
-
-  // URL -> QR: reopen Public and tap Carol's URL message (newest, near the bottom)
   ui.openConversation(true, 0, nullptr, "Public");
-  ui.onTouch(80, 182, TouchEvent::press);   // tap Carol's URL bubble
-  ui.onTouch(80, 182, TouchEvent::release);
+  ui.onTouch(80, 182, TouchEvent::press); ui.onTouch(80, 182, TouchEvent::release);
   ui.render(); save_ppm(ren, "sim/shots/18_url_qr.ppm");
 
-  // ---- Repeater management (M5): seed saved + scan, show list + detail ----
-  uint8_t rp1[6] = {0x10, 1, 2, 3, 4, 5};
-  uint8_t rp2[6] = {0x20, 1, 2, 3, 4, 5};
-  uint8_t rm1[6] = {0x30, 1, 2, 3, 4, 5};
-  uint8_t sc1[6] = {0x40, 1, 2, 3, 4, 5};
-  uint8_t sc2[6] = {0x50, 1, 2, 3, 4, 5};
-  ui.repeaters()->addSaved(rp1, "GW-Hertford", 2 /*REPEATER*/, true);
-  ui.repeaters()->addSaved(rp2, "Hilltop-Relay", 2, false);
-  ui.repeaters()->addSaved(rm1, "Town Square", 3 /*ROOM*/, false);
-  ui.repeaters()->addScan(sc1, "New-Repeater-9", 2);
-  ui.repeaters()->addScan(sc2, "Field-Node", 2);
   ui.gotoRepeaters();
   ui.render(); save_ppm(ren, "sim/shots/19_repeaters.ppm");
   ui.openRepeater(rp1, "GW-Hertford", 2);
   ui.render(); save_ppm(ren, "sim/shots/20_repeater_detail.ppm");
-  ui.requestStatus(rp1);  // sim feeds a fake RepeaterStats
+  ui.requestStatus(rp1);
   ui.render(); save_ppm(ren, "sim/shots/21_repeater_status.ppm");
-  ui.onTouch(120, 78, TouchEvent::press);   // tap "Send advert" -> one-hop/flood choice
-  ui.onTouch(120, 78, TouchEvent::release);
+  ui.onTouch(120, 78, TouchEvent::press); ui.onTouch(120, 78, TouchEvent::release);
   ui.render(); save_ppm(ren, "sim/shots/22_advert_choice.ppm");
+
+  // launcher "Advert" tile -> same one-hop/flood chooser
+  ui.gotoHomeScreen();
+  ui.onKey(KEY_LEFT);   // Settings tile -> Advert tile
+  ui.onKey(KEY_ENTER);  // open the advert chooser
+  ui.render(); save_ppm(ren, "sim/shots/23_home_advert.ppm");
 
   SDL_DestroyRenderer(ren);
   SDL_FreeSurface(surf);
@@ -197,6 +184,7 @@ static int run_interactive(TTF_Font* f1, TTF_Font* f2) {
   SDL_RenderSetLogicalSize(ren, 320, 240);
   SimDisplay disp(ren, f1, f2);
   UITask ui(&disp);
+  seed_demo(ui);   // so chat / diagnostics / repeaters are explorable interactively
 
   SDL_StartTextInput();
   bool running = true, mdown = false;
