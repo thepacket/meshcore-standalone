@@ -20,7 +20,12 @@ static const Tile TILES[12] = {
   {ICON_SIGNAL,    UI_LIME,    true,  "signal"},
 };
 
-static void make_tile(lv_obj_t* parent, const Tile* t, int x, int y, int w, int h,
+static int g_home_sel = 7;   // last-selected tile; restored when returning home
+static void tile_clicked(lv_event_t* e) {
+  g_home_sel = (int)(intptr_t)lv_event_get_user_data(e);
+}
+
+static void make_tile(lv_obj_t* parent, const Tile* t, int idx, int x, int y, int w, int h,
                       bool selected, int badge) {
   lv_obj_t* card = lv_ui_card(parent, x, y, w, h);
   if (selected) {
@@ -33,7 +38,10 @@ static void make_tile(lv_obj_t* parent, const Tile* t, int x, int y, int w, int 
   }
   lv_obj_t* chip = lv_ui_chip(card, t->color, t->icon, 34, t->enabled);
   lv_obj_center(chip);
-  if (t->enabled && t->dest[0]) lv_ui_clickable(card, t->dest);
+  if (t->enabled && t->dest[0]) {
+    lv_ui_clickable(card, t->dest);
+    lv_obj_add_event_cb(card, tile_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
+  }
 
   if (badge > 0) {
     lv_obj_t* b = lv_obj_create(card);
@@ -164,7 +172,7 @@ void lv_home_create(lv_obj_t* scr) {
     int r = i / cols, c = i % cols;
     int x = marginX + c * (cw + gap);
     int y = gridTop + r * (rh + gap);
-    make_tile(scr, &TILES[i], x, y, cw, rh, i == 7, i == 0 ? 2 : 0);
+    make_tile(scr, &TILES[i], i, x, y, cw, rh, i == g_home_sel, i == 0 ? 2 : 0);
   }
 
   make_identitybar(scr);
