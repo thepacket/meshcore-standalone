@@ -1,5 +1,17 @@
 #include "lv_ui.h"
 
+lv_nav_fn lv_nav_cb = NULL;
+
+static void nav_event(lv_event_t* e) {
+  const char* dest = (const char*)lv_event_get_user_data(e);
+  if (lv_nav_cb && dest) lv_nav_cb(dest);
+}
+
+void lv_ui_clickable(lv_obj_t* o, const char* dest) {
+  lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(o, nav_event, LV_EVENT_CLICKED, (void*)dest);
+}
+
 void lv_ui_screen_bg(lv_obj_t* scr) {
   lv_obj_set_style_bg_color(scr, lv_color_hex(0x0a0e14), 0);
   lv_obj_set_style_bg_grad_color(scr, lv_color_hex(0x000000), 0);
@@ -84,10 +96,19 @@ lv_obj_t* lv_ui_topbar(lv_obj_t* scr, const char* title, uint32_t accent, lv_obj
   lv_obj_set_style_border_opa(bar, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(bar, 2, 0);
 
-  lv_obj_t* back = lv_label_create(bar);
-  lv_label_set_text(back, LV_SYMBOL_LEFT);
-  lv_obj_set_style_text_color(back, lv_color_hex(accent), 0);
-  lv_obj_align(back, LV_ALIGN_LEFT_MID, 8, 0);
+  // larger invisible hit area for the back chevron
+  lv_obj_t* back = lv_obj_create(bar);
+  lv_obj_remove_flag(back, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(back, 30, 30);
+  lv_obj_align(back, LV_ALIGN_LEFT_MID, 0, 0);
+  lv_obj_set_style_bg_opa(back, 0, 0);
+  lv_obj_set_style_border_width(back, 0, 0);
+  lv_obj_set_style_pad_all(back, 0, 0);
+  lv_obj_t* bl = lv_label_create(back);
+  lv_label_set_text(bl, LV_SYMBOL_LEFT);
+  lv_obj_set_style_text_color(bl, lv_color_hex(accent), 0);
+  lv_obj_center(bl);
+  lv_ui_clickable(back, "back");
   if (back_btn) *back_btn = back;
 
   lv_obj_t* t = lv_label_create(bar);

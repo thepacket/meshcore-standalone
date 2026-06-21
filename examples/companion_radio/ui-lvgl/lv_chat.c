@@ -43,6 +43,7 @@ static void add_row(lv_obj_t* list, const Row* r) {
   lv_obj_set_height(row, 54);
   lv_obj_set_style_min_height(row, 0, 0);
   lv_obj_set_style_pad_all(row, 8, 0);
+  lv_ui_clickable(row, "conv");
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 

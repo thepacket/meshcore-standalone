@@ -44,6 +44,13 @@ lv_obj_t* lv_ui_chip(lv_obj_t* parent, uint32_t color, const char* icon, int siz
 // bar; *back_btn (if non-NULL) receives the clickable back button.
 lv_obj_t* lv_ui_topbar(lv_obj_t* scr, const char* title, uint32_t accent, lv_obj_t** back_btn);
 
+// Navigation hook: screens call lv_nav_cb(dest) when a tappable element is
+// activated. The host (sim or firmware screen-manager) sets this. "back" pops.
+typedef void (*lv_nav_fn)(const char* dest);
+extern lv_nav_fn lv_nav_cb;
+// make `o` clickable so a tap routes to lv_nav_cb(dest) (dest must outlive o)
+void lv_ui_clickable(lv_obj_t* o, const char* dest);
+
 #ifdef __cplusplus
 }
 #endif

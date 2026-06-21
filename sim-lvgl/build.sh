@@ -14,7 +14,12 @@ if [ ! -d "$LVGL" ]; then
   git clone --depth 1 --branch release/v9.2 https://github.com/lvgl/lvgl.git "$LVGL"
 fi
 
-CFLAGS="-I sim-lvgl -I $LVGL -DLV_CONF_INCLUDE_SIMPLE -O2 -Wno-unused-function"
+BREW=/opt/homebrew/bin/brew
+SDL=$($BREW --prefix sdl2)
+SDL_CFLAGS="-I$SDL/include"
+SDL_LIBS="-L$SDL/lib -lSDL2"
+
+CFLAGS="-I sim-lvgl -I $LVGL -I examples/companion_radio/ui-lvgl $SDL_CFLAGS -DLV_CONF_INCLUDE_SIMPLE -O2 -Wno-unused-function"
 
 # 1. Build LVGL into a static lib once (delete sim-lvgl/build/liblvgl.a to rebuild)
 if [ ! -f "$OUT/liblvgl.a" ]; then
@@ -39,7 +44,7 @@ cc $CFLAGS \
   examples/companion_radio/ui-lvgl/lv_chat.c \
   examples/companion_radio/ui-lvgl/icons_fa.c \
   "$OUT/liblvgl.a" \
-  -lm \
+  $SDL_LIBS -lm \
   -o sim-lvgl/lvglsim
 
 echo "built sim-lvgl/lvglsim   ->  run:  ./sim-lvgl/lvglsim sim-lvgl/shots/home.ppm"

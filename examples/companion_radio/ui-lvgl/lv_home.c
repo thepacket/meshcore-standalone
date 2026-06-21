@@ -3,21 +3,21 @@
 #include "lv_ui.h"
 #include <stdio.h>
 
-typedef struct { const char* icon; uint32_t color; bool enabled; } Tile;
+typedef struct { const char* icon; uint32_t color; bool enabled; const char* dest; } Tile;
 
 static const Tile TILES[12] = {
-  {ICON_CHAT,      UI_BLUE,    true},
-  {ICON_CONTACTS,  UI_GREEN,   false},
-  {ICON_REPEATERS, UI_PURPLE,  true},
-  {ICON_FINDER,    UI_CYAN,    true},
-  {ICON_HEARD,     UI_TEAL,    true},
-  {ICON_MAP,       UI_ORANGE,  false},
-  {ICON_ADVERT,    UI_PINK,    true},
-  {ICON_SETTINGS,  UI_INDIGO,  true},
-  {ICON_TRACE,     UI_AMBER,   true},
-  {ICON_TERMINAL,  UI_EMERALD, true},
-  {ICON_NOISE,     UI_RED,     true},
-  {ICON_SIGNAL,    UI_LIME,    true},
+  {ICON_CHAT,      UI_BLUE,    true,  "chat"},
+  {ICON_CONTACTS,  UI_GREEN,   false, ""},
+  {ICON_REPEATERS, UI_PURPLE,  true,  "repeaters"},
+  {ICON_FINDER,    UI_CYAN,    true,  "repeaters"},
+  {ICON_HEARD,     UI_TEAL,    true,  "heard"},
+  {ICON_MAP,       UI_ORANGE,  false, ""},
+  {ICON_ADVERT,    UI_PINK,    true,  ""},
+  {ICON_SETTINGS,  UI_INDIGO,  true,  "settings"},
+  {ICON_TRACE,     UI_AMBER,   true,  "trace"},
+  {ICON_TERMINAL,  UI_EMERALD, true,  "terminal"},
+  {ICON_NOISE,     UI_RED,     true,  "noise"},
+  {ICON_SIGNAL,    UI_LIME,    true,  "signal"},
 };
 
 static void make_tile(lv_obj_t* parent, const Tile* t, int x, int y, int w, int h,
@@ -33,6 +33,7 @@ static void make_tile(lv_obj_t* parent, const Tile* t, int x, int y, int w, int 
   }
   lv_obj_t* chip = lv_ui_chip(card, t->color, t->icon, 34, t->enabled);
   lv_obj_center(chip);
+  if (t->enabled && t->dest[0]) lv_ui_clickable(card, t->dest);
 
   if (badge > 0) {
     lv_obj_t* b = lv_obj_create(card);
