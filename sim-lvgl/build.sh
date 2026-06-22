@@ -46,6 +46,7 @@ cc $CFLAGS \
   examples/companion_radio/ui-lvgl/lv_diag.c \
   examples/companion_radio/ui-lvgl/lv_repeaters.c \
   examples/companion_radio/ui-lvgl/lv_peer.c \
+  examples/companion_radio/ui-lvgl/lv_tools.c \
   examples/companion_radio/ui-lvgl/icons_fa.c \
   "$OUT/liblvgl.a" \
   $SDL_LIBS -lm \

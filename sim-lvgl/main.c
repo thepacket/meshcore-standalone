@@ -24,6 +24,9 @@ void lv_repeaters_create(lv_obj_t* scr);
 void lv_repeaters_set_tab(int t);
 void lv_repeater_detail_create(lv_obj_t* scr);
 void lv_peer_create(lv_obj_t* scr);
+void lv_trace_create(lv_obj_t* scr);
+void lv_terminal_create(lv_obj_t* scr);
+void lv_terminal_set_tab(int t);
 
 static uint32_t millis_cb(void) {
   struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -58,6 +61,9 @@ static void build(const char* name) {
   else if (!strcmp(name, "scan")) { lv_repeaters_set_tab(1); lv_repeaters_create(s); }
   else if (!strcmp(name, "repeater_detail")) lv_repeater_detail_create(s);
   else if (!strcmp(name, "peer")) lv_peer_create(s);
+  else if (!strcmp(name, "trace")) lv_trace_create(s);
+  else if (!strcmp(name, "terminal")) { lv_terminal_set_tab(0); lv_terminal_create(s); }
+  else if (!strcmp(name, "packets")) { lv_terminal_set_tab(1); lv_terminal_create(s); }
   else placeholder(s, name);
 }
 
