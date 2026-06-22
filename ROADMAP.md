@@ -21,8 +21,8 @@ keyboard, QR). Design language reference: **MeshUltra** (look only).
 
 - ✅ Shared UI kit, home launcher, chat (list + conversation), settings (full field set +
   keyboard editors), diagnostics (noise/signal/heard), repeaters (list + detail gauges),
-  peer-details panel — all live in the LVGL desktop sim.
-- ⏳ Trace / Terminal / Packet-monitor LVGL screens.
+  peer-details panel, trace, terminal (console + packet monitor) — all live in the LVGL
+  desktop sim. Every screen is ported.
 - ⏳ **On-device LVGL bring-up** (LVGL + LovyanGFX flush + GT911 touch + tick; screen-manager;
   bind screens to live `MyMesh` data; replace the bitmap UI on T-Deck-class boards). The
   bitmap UI stays as the fallback for mono / non-touch / companion boards.

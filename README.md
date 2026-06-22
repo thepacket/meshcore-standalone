@@ -39,7 +39,7 @@ LVGL desktop sim, see [`sim-lvgl/`](sim-lvgl/README.md)):
 - ✅ **Diagnostics** — noise scope, signal coverage gauges, heard list
 - ✅ **Repeaters** — Saved/Scan list + detail (arc battery gauge, stats, login, triggers)
 - ✅ **Peer details** — tap a message or heard node to see RSSI/SNR/distance/location/key
-- ⏳ Trace / Terminal / Packet-monitor screens
+- ✅ **Trace / Terminal / Packet monitor** — hop SNRs; colour CLI log; decoded packet stream
 - ⏳ **T-Deck bring-up** — LVGL + LovyanGFX + GT911 touch on-device, screens bound to live data
 
 The earlier feature work (settings, messaging, RF diagnostics, repeater management) was
