@@ -1,14 +1,26 @@
 #include "LGFXDisplay.h"
 
+#ifndef LGFX_COLOR_DEPTH
+  #define LGFX_COLOR_DEPTH 8
+#endif
+// Use the EXPLICIT LovyanGFX colour-depth enums (not the int overload) so the
+// sprite is guaranteed a direct/non-indexed colour format -- the int
+// setColorDepth(8) can yield a palette (indexed) sprite, which scrambles colours.
+#if LGFX_COLOR_DEPTH == 16
+  #define LGFX_CD lgfx::v1::color_depth_t::rgb565_2Byte
+#else
+  #define LGFX_CD lgfx::v1::color_depth_t::rgb332_1Byte
+#endif
+
 bool LGFXDisplay::begin() {
   turnOn();
   display->init();
   display->setRotation(1);
   display->setBrightness(64);
-  display->setColorDepth(8);
+  display->setColorDepth(LGFX_CD);
   display->setTextColor(TFT_WHITE);
 
-  buffer.setColorDepth(8);
+  buffer.setColorDepth(LGFX_CD);
   buffer.setPsram(true);
   buffer.createSprite(width(), height());
 
@@ -47,37 +59,24 @@ void LGFXDisplay::setTextSize(int sz) {
 }
 
 void LGFXDisplay::setColor(Color c) {
-  // _color = (c != 0) ? ILI9342_WHITE : ILI9342_BLACK;
+  // The draw calls interpret _color as RGB565, so build 565 values here. (Using
+  // color888() stored a 24-bit value whose low 16 bits were read as 565, dropping
+  // the red byte -- red->black, green->yellow, near-white->pink, etc.)
   switch (c) {
-    case DARK:
-      _color = TFT_BLACK;
-      break;
-    case LIGHT:
-      _color = TFT_WHITE;
-      break;
-    case RED:
-      _color = TFT_RED;
-      break;
-    case GREEN:
-      _color = TFT_GREEN;
-      break;
-    case BLUE:
-      _color = TFT_BLUE;
-      break;
-    case YELLOW:
-      _color = TFT_YELLOW;
-      break;
-    case ORANGE:
-      _color = TFT_ORANGE;
-      break;
-    default:
-      _color = TFT_WHITE;
+    case DARK:   _color = buffer.color565(0, 0, 0);       break;
+    case LIGHT:  _color = buffer.color565(255, 255, 255); break;
+    case RED:    _color = buffer.color565(255, 0, 0);     break;
+    case GREEN:  _color = buffer.color565(0, 255, 0);     break;
+    case BLUE:   _color = buffer.color565(0, 0, 255);     break;
+    case YELLOW: _color = buffer.color565(255, 255, 0);   break;
+    case ORANGE: _color = buffer.color565(255, 165, 0);   break;
+    default:     _color = buffer.color565(255, 255, 255);
   }
   buffer.setTextColor(_color);
 }
 
 void LGFXDisplay::setColorRGB(uint8_t r, uint8_t g, uint8_t b) {
-  _color = buffer.color888(r, g, b);
+  _color = buffer.color565(r, g, b);   // draw calls read _color as RGB565
   buffer.setTextColor(_color);
 }
 

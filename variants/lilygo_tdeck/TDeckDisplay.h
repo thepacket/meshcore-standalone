@@ -1,15 +1,12 @@
 #pragma once
 
-// LovyanGFX display + GT911 capacitive touch for the LilyGo T-Deck (Plus).
-// Wraps MeshCore's portable LGFXDisplay so the standalone touch UI works through
-// the normal DisplayDriver/UIScreen abstraction.
-//
-// NOTE: pin/rotation/touch-address values below match the common T-Deck wiring,
-// but some are board-revision dependent -- confirm on hardware (see plan risks):
-//   - touch I2C address (0x5D vs 0x14)
-//   - display rotation / touch offset_rotation (orientation)
-//   - SPI host shared with the LoRa radio
+// LovyanGFX display for the LilyGo T-Deck (Plus), wrapping MeshCore's portable
+// LGFXDisplay. Touch is NOT handled by LovyanGFX (its GT911 driver installs its
+// own ESP-IDF I2C driver which collides with the Arduino Wire bus the keyboard
+// and RTC use); instead TDeckDisplay::getTouch() reads the GT911 directly over
+// the shared Arduino Wire (single I2C driver -- no collision).
 
+#include <Wire.h>
 #include <helpers/ui/LGFXDisplay.h>
 
 #define LGFX_USE_V1
@@ -19,7 +16,6 @@ class LGFX_TDeck : public lgfx::LGFX_Device {
   lgfx::Panel_ST7789 _panel;
   lgfx::Bus_SPI      _bus;
   lgfx::Light_PWM    _light;
-  lgfx::Touch_GT911  _touch;
 
 public:
   LGFX_TDeck() {
@@ -66,29 +62,56 @@ public:
       _light.config(cfg);
       _panel.setLight(&_light);
     }
-    {  // GT911 capacitive touch on the shared I2C bus (SDA 18 / SCL 8)
-      auto cfg = _touch.config();
-      cfg.x_min = 0;   cfg.x_max = 319;
-      cfg.y_min = 0;   cfg.y_max = 239;
-      cfg.pin_int = -1;
-      cfg.pin_rst = -1;
-      cfg.bus_shared = true;
-      cfg.offset_rotation = 0;
-      cfg.i2c_port = 0;        // same port radio_init() uses for Wire(18,8)
-      cfg.i2c_addr = 0x5D;     // GT911 (alternative 0x14)
-      cfg.pin_sda = 18;
-      cfg.pin_scl = 8;
-      cfg.freq    = 400000;
-      _touch.config(cfg);
-      _panel.setTouch(&_touch);
-    }
     setPanel(&_panel);
   }
 };
 
+// GT911 capacitive touch read over the shared Arduino Wire bus (addr 0x5D).
 class TDeckDisplay : public LGFXDisplay {
   LGFX_TDeck _disp;
 
+  static constexpr uint8_t GT911_ADDR = 0x5D;
+
+  bool gt911_read(uint16_t reg, uint8_t* buf, uint8_t len) {
+    Wire.beginTransmission(GT911_ADDR);
+    Wire.write((uint8_t)(reg >> 8));
+    Wire.write((uint8_t)(reg & 0xFF));
+    if (Wire.endTransmission(false) != 0) return false;   // repeated-start
+    if (Wire.requestFrom(GT911_ADDR, len) != len) return false;
+    for (uint8_t i = 0; i < len; i++) buf[i] = Wire.read();
+    return true;
+  }
+  void gt911_clear_status() {
+    Wire.beginTransmission(GT911_ADDR);
+    Wire.write(0x81); Wire.write(0x4E); Wire.write((uint8_t)0x00);
+    Wire.endTransmission();
+  }
+
 public:
   TDeckDisplay() : LGFXDisplay(320, 240, _disp) {}
+
+  bool hasTouch() override { return true; }
+
+  bool getTouch(int* x, int* y) override {
+    uint8_t status;
+    if (!gt911_read(0x814E, &status, 1)) return false;
+    bool ready = status & 0x80;
+    uint8_t points = status & 0x0F;
+    bool touched = false;
+    if (ready && points > 0) {
+      uint8_t d[8];
+      if (gt911_read(0x8150, d, 8)) {
+        // GT911 reports portrait-native coords (240x320), axes swapped vs the
+        // landscape screen: native-Y -> screen-X, native-X (inverted) -> screen-Y.
+        int sx = d[2] | (d[3] << 8);
+        int sy = 240 - (d[0] | (d[1] << 8));
+        if (sx < 0) sx = 0; else if (sx > 319) sx = 319;
+        if (sy < 0) sy = 0; else if (sy > 239) sy = 239;
+        *x = sx; *y = sy;
+        touched = true;
+      }
+    }
+    if (ready) gt911_clear_status();
+    return touched;
+  }
 };

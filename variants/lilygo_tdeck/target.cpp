@@ -23,10 +23,13 @@ EnvironmentSensorManager sensors(gps);
   #if defined(UI_HAS_TRACKBALL)
     // trackball directions: active-low momentary pulses with internal pull-up.
     // GPIO numbers vary by board revision -- confirm/swap on hardware.
-    MomentaryButton trackball_up(PIN_TRACKBALL_UP, 1000, true, true);
-    MomentaryButton trackball_down(PIN_TRACKBALL_DOWN, 1000, true, true);
-    MomentaryButton trackball_left(PIN_TRACKBALL_LEFT, 1000, true, true);
-    MomentaryButton trackball_right(PIN_TRACKBALL_RIGHT, 1000, true, true);
+    // multiclick=false: the trackball emits fast pulses as it rolls; multi-click
+    // coalescing (the default) merges them into double/triple-clicks the UI drops,
+    // so each pulse must fire an immediate single CLICK instead.
+    MomentaryButton trackball_up(PIN_TRACKBALL_UP, 1000, true, true, false);
+    MomentaryButton trackball_down(PIN_TRACKBALL_DOWN, 1000, true, true, false);
+    MomentaryButton trackball_left(PIN_TRACKBALL_LEFT, 1000, true, true, false);
+    MomentaryButton trackball_right(PIN_TRACKBALL_RIGHT, 1000, true, true, false);
   #endif
   #if defined(UI_HAS_KEYBOARD)
     TDeckKeyboard tdeck_keyboard;
@@ -34,9 +37,9 @@ EnvironmentSensorManager sensors(gps);
 #endif
 
 bool radio_init() {
-  fallback_clock.begin();
+  Wire.begin(18, 8);          // shared I2C (keyboard 0x55, GT911 touch 0x5D); must
+  fallback_clock.begin();     // be begun before the RTC auto-discover probes it
   rtc_clock.begin(Wire);
-  Wire.begin(18, 8);
 
 #if defined(P_LORA_SCLK)
   return radio.std_init(&spi);

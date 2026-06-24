@@ -116,6 +116,14 @@ void setup() {
 
   board.begin();
 
+  // Initialise the radio BEFORE the display. On boards where the TFT shares the
+  // SPI bus with the LoRa radio (e.g. T-Deck), the radio's Arduino SPI.begin()
+  // re-initialises the SPI host and would clobber an already-configured display;
+  // letting the radio go first lets the shared-bus display driver own the bus.
+  if (!radio_init()) { halt(); }
+
+  fast_rng.begin(radio_driver.getRngSeed());
+
 #ifdef DISPLAY_CLASS
   DisplayDriver* disp = NULL;
   if (display.begin()) {
@@ -128,10 +136,6 @@ void setup() {
     disp->endFrame();
   }
 #endif
-
-  if (!radio_init()) { halt(); }
-
-  fast_rng.begin(radio_driver.getRngSeed());
 
 #if defined(NRF52_PLATFORM) || defined(STM32_PLATFORM)
   InternalFS.begin();
