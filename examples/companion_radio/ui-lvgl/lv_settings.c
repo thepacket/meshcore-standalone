@@ -95,6 +95,12 @@ static const Field F_CHANNELS[] = {
   {"Public",       F_INFO, "shared PSK", 0},
   {"Add channel",  F_ACTION, NULL, 0},
 };
+static const Field F_DATA[] = {
+  {"Export config",   F_ACTION, NULL, 0},   // device config as JSON (CMD-driven)
+  {"Import config",   F_ACTION, NULL, 0},
+  {"Export app data", F_ACTION, NULL, 0},   // contacts + channels + messages backup
+  {"Debug logs",      F_INFO,   "tap to view", 0},
+};
 
 #define GRP(t, col, ic, arr) {t, col, ic, arr, (int)(sizeof(arr)/sizeof(arr[0]))}
 static const Group GROUPS[] = {
@@ -109,6 +115,7 @@ static const Group GROUPS[] = {
   GRP("Time",        UI_AMBER,   ICON_CLOCK,     F_TIME),
   GRP("Device",      UI_INDIGO,  ICON_SETTINGS,  F_DEVICE),
   GRP("Channels",    UI_LIME,    ICON_CHAT,      F_CHANNELS),
+  GRP("Data",        UI_EMERALD, ICON_TERMINAL,  F_DATA),
 };
 #define N_GROUPS  ((int)(sizeof(GROUPS) / sizeof(GROUPS[0])))
 #define MAX_FIELDS 8
@@ -154,41 +161,42 @@ static lv_obj_t* scroll_list(lv_obj_t* scr) {
 void lv_settings_create(lv_obj_t* scr) {
   store_init();
   lv_ui_screen_bg(scr);
-  lv_ui_topbar(scr, "Settings", UI_INDIGO, NULL);
-  lv_obj_t* list = scroll_list(scr);
+  lv_ui_md_topbar(scr, "Settings");
+  lv_obj_t* list = lv_ui_md_scroll(scr);
+  lv_obj_set_style_pad_row(list, 8, 0);
   for (int i = 0; i < N_GROUPS; i++) {
     const Group* g = &GROUPS[i];
-    lv_obj_t* row = lv_ui_card(list, -1, 0, 0, 50);
-    lv_obj_set_width(row, lv_pct(100));
-    lv_obj_set_height(row, 48);
-    lv_obj_set_style_min_height(row, 0, 0);
-    lv_obj_set_style_pad_all(row, 7, 0);
+    lv_obj_t* row = lv_ui_md_card(list);
     lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
     lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
     lv_ui_clickable(row, SG_DEST[i]);
 
-    lv_obj_t* chip = lv_ui_chip(row, g->color, g->icon, 30, true);
-    lv_obj_set_style_margin_right(chip, 10, 0);
+    lv_obj_t* ic = lv_label_create(row);
+    lv_label_set_text(ic, g->icon);
+    lv_obj_set_style_text_font(ic, &icons_fa, 0);
+    lv_obj_set_style_text_color(ic, lv_color_hex(MD_PRIMARY), 0);
+    lv_obj_set_style_margin_right(ic, 14, 0);
 
     lv_obj_t* mid = lv_obj_create(row);
     lv_obj_remove_flag(mid, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_remove_flag(mid, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_style_bg_opa(mid, 0, 0); lv_obj_set_style_border_width(mid, 0, 0);
-    lv_obj_set_style_pad_all(mid, 0, 0); lv_obj_set_flex_grow(mid, 1); lv_obj_set_height(mid, 36);
+    lv_obj_set_style_pad_all(mid, 0, 0); lv_obj_set_flex_grow(mid, 1); lv_obj_set_height(mid, LV_SIZE_CONTENT);
     lv_obj_set_flex_flow(mid, LV_FLEX_FLOW_COLUMN);
     lv_obj_set_flex_align(mid, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+    lv_obj_set_style_pad_row(mid, 2, 0);
     lv_obj_t* t = lv_label_create(mid);
     lv_label_set_text(t, g->title);
     lv_obj_set_style_text_font(t, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(t, lv_color_hex(UI_TEXT), 0);
+    lv_obj_set_style_text_color(t, lv_color_hex(MD_ON), 0);
     lv_obj_t* s = lv_label_create(mid);
     lv_label_set_text_fmt(s, "%d settings", g->n);
     lv_obj_set_style_text_font(s, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(s, lv_color_hex(UI_MUTED), 0);
+    lv_obj_set_style_text_color(s, lv_color_hex(MD_MUTED), 0);
 
     lv_obj_t* chev = lv_label_create(row);
     lv_label_set_text(chev, LV_SYMBOL_RIGHT);
-    lv_obj_set_style_text_color(chev, lv_color_hex(UI_MUTED), 0);
+    lv_obj_set_style_text_color(chev, lv_color_hex(MD_MUTED), 0);
   }
 }
 
@@ -211,29 +219,25 @@ static void on_edit_clicked(lv_event_t* e) {
 
 // ---- per-field widgets ------------------------------------------------------
 static lv_obj_t* field_card(lv_obj_t* list, const char* label) {
-  lv_obj_t* c = lv_ui_card(list, -1, 0, 0, 44);
-  lv_obj_set_width(c, lv_pct(100));
-  lv_obj_set_height(c, 42);
-  lv_obj_set_style_min_height(c, 0, 0);
-  lv_obj_set_style_pad_hor(c, 12, 0);
+  lv_obj_t* c = lv_ui_md_card(list);
+  lv_obj_set_style_pad_ver(c, 10, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(c, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_t* l = lv_label_create(c);
   lv_label_set_text(l, label);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
-  lv_obj_set_style_text_color(l, lv_color_hex(UI_TEXT), 0);
+  lv_obj_set_style_text_color(l, lv_color_hex(MD_ON), 0);
   return c;
 }
 
 static void action_button(lv_obj_t* list, const char* label, uint32_t color) {
-  lv_obj_t* b = lv_ui_card(list, -1, 0, 0, 40);
-  lv_obj_set_width(b, lv_pct(100));
-  lv_obj_set_height(b, 38);
-  lv_obj_set_style_min_height(b, 0, 0);
+  lv_obj_t* b = lv_ui_md_card(list);
+  lv_obj_set_height(b, 40);
   lv_obj_set_style_bg_color(b, lv_color_hex(color), 0);
   lv_obj_set_style_bg_opa(b, 40, 0);
   lv_obj_set_style_border_color(b, lv_color_hex(color), 0);
   lv_obj_set_style_border_opa(b, 200, 0);
+  lv_obj_set_style_border_width(b, 1, 0);
   lv_obj_t* l = lv_label_create(b);
   lv_label_set_text(l, label);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
@@ -246,8 +250,9 @@ void lv_settings_group_create(lv_obj_t* scr, int idx) {
   if (idx < 0 || idx >= N_GROUPS) idx = 0;
   const Group* g = &GROUPS[idx];
   lv_ui_screen_bg(scr);
-  lv_ui_topbar(scr, g->title, g->color, NULL);
-  lv_obj_t* list = scroll_list(scr);
+  lv_ui_md_topbar(scr, g->title);
+  lv_obj_t* list = lv_ui_md_scroll(scr);
+  lv_obj_set_style_pad_row(list, 8, 0);
 
   for (int i = 0; i < g->n; i++) {
     const Field* f = &g->fields[i];
@@ -317,9 +322,9 @@ static void on_kb_cancel(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("bac
 
 void lv_settings_edit_create(lv_obj_t* scr) {
   const Field* f = &GROUPS[g_edit_g].fields[g_edit_f];
-  uint32_t accent = GROUPS[g_edit_g].color;
+  uint32_t accent = MD_PRIMARY;
   lv_ui_screen_bg(scr);
-  lv_ui_topbar(scr, f->label, accent, NULL);
+  lv_ui_md_topbar(scr, f->label);
 
   lv_obj_t* ta = lv_textarea_create(scr);
   lv_textarea_set_one_line(ta, true);

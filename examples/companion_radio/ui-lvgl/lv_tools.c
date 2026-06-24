@@ -15,9 +15,9 @@ static lv_obj_t* full_list(lv_obj_t* scr, int top) {
 
 // ============================ Trace route ============================
 static void hop_row(lv_obj_t* list, const char* left, const char* snr, uint32_t col) {
-  lv_obj_t* c = lv_ui_card(list, -1, 0, 0, 38);
+  lv_obj_t* c = lv_ui_md_card(list);
   lv_obj_set_width(c, lv_pct(100)); lv_obj_set_height(c, 36);
-  lv_obj_set_style_min_height(c, 0, 0); lv_obj_set_style_pad_hor(c, 12, 0);
+  lv_obj_set_style_min_height(c, 0, 0); lv_obj_set_style_pad_hor(c, 12, 0); lv_obj_set_style_pad_ver(c, 0, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(c, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_t* l = lv_label_create(c);
@@ -30,9 +30,11 @@ static void hop_row(lv_obj_t* list, const char* left, const char* snr, uint32_t 
 
 void lv_trace_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
-  lv_ui_topbar(scr, "Trace", UI_AMBER, NULL);
+  lv_ui_md_topbar(scr, "Trace");
 
-  lv_obj_t* hdr = lv_ui_card(scr, 6, 36, 320 - 12, 34);
+  lv_obj_t* hdr = lv_ui_md_card(scr);
+  lv_obj_set_pos(hdr, 12, 42); lv_obj_set_size(hdr, 320 - 24, 34);
+  lv_obj_set_style_pad_ver(hdr, 0, 0);
   lv_obj_set_flex_flow(hdr, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(hdr, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_set_style_pad_hor(hdr, 12, 0);
@@ -58,7 +60,7 @@ static void term_tab(lv_obj_t* seg, const char* txt, bool active, const char* de
   lv_obj_remove_flag(t, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_flex_grow(t, 1); lv_obj_set_height(t, lv_pct(100));
   lv_obj_set_style_radius(t, 8, 0);
-  lv_obj_set_style_bg_color(t, lv_color_hex(UI_EMERALD), 0);
+  lv_obj_set_style_bg_color(t, lv_color_hex(MD_PRIMARY), 0);
   lv_obj_set_style_bg_opa(t, active ? 200 : 0, 0);
   lv_obj_set_style_border_width(t, 0, 0); lv_obj_set_style_pad_all(t, 0, 0);
   if (!active && dest) lv_ui_clickable(t, dest);
@@ -79,9 +81,9 @@ static void log_line(lv_obj_t* list, const char* txt, uint32_t color) {
 }
 
 static void pkt_row(lv_obj_t* list, const char* type, uint32_t tcol, const char* meta) {
-  lv_obj_t* c = lv_ui_card(list, -1, 0, 0, 34);
+  lv_obj_t* c = lv_ui_md_card(list);
   lv_obj_set_width(c, lv_pct(100)); lv_obj_set_height(c, 32);
-  lv_obj_set_style_min_height(c, 0, 0); lv_obj_set_style_pad_hor(c, 8, 0);
+  lv_obj_set_style_min_height(c, 0, 0); lv_obj_set_style_pad_hor(c, 8, 0); lv_obj_set_style_pad_ver(c, 0, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_t* tag = lv_ui_pill(c, type, tcol);
@@ -94,13 +96,13 @@ static void pkt_row(lv_obj_t* list, const char* type, uint32_t tcol, const char*
 
 void lv_terminal_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
-  lv_ui_topbar(scr, "Terminal", UI_EMERALD, NULL);
+  lv_ui_md_topbar(scr, "Terminal");
 
   lv_obj_t* seg = lv_obj_create(scr);
   lv_obj_remove_flag(seg, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(seg, 320 - 16, 28); lv_obj_set_pos(seg, 8, 36);
+  lv_obj_set_size(seg, 320 - 24, 28); lv_obj_set_pos(seg, 12, 42);
   lv_obj_set_style_radius(seg, 10, 0);
-  lv_obj_set_style_bg_color(seg, lv_color_hex(UI_CARD), 0); lv_obj_set_style_bg_opa(seg, 16, 0);
+  lv_obj_set_style_bg_color(seg, lv_color_hex(MD_SURFACE), 0); lv_obj_set_style_bg_opa(seg, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(seg, 0, 0); lv_obj_set_style_pad_all(seg, 3, 0);
   lv_obj_set_flex_flow(seg, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(seg, 4, 0);
   term_tab(seg, "Console", g_term_tab == 0, "terminal");

@@ -19,13 +19,21 @@ desktop prototype in `sim-lvgl/`): black theme, per-feature colour-coded icon ch
 (FontAwesome), charts/gauges, and real widgets (switches, sliders, dropdowns, on-screen
 keyboard, QR). Design language reference: **MeshUltra** (look only).
 
-- ✅ Shared UI kit, home launcher, chat (list + conversation), settings (full field set +
-  keyboard editors), diagnostics (noise/signal/heard), repeaters (list + detail gauges),
-  peer-details panel, trace, terminal (console + packet monitor) — all live in the LVGL
-  desktop sim. Every screen is ported.
-- ⏳ **On-device LVGL bring-up** (LVGL + LovyanGFX flush + GT911 touch + tick; screen-manager;
-  bind screens to live `MyMesh` data; replace the bitmap UI on T-Deck-class boards). The
-  bitmap UI stays as the fallback for mono / non-touch / companion boards.
+- ✅ Shared UI kit, home launcher, chat (list + conversation), contacts (list + ops),
+  settings (full field set + keyboard editors + Data export/import), diagnostics
+  (noise/signal/heard), stats dashboard (telemetry/noise/radio/core/packet counters),
+  repeaters (list + detail gauges), peer-details panel (+ Share/Reset-path/Export/Remove),
+  trace, tools/discover (companions/repeaters/rooms/sensors), terminal (console + packet
+  monitor) — all live in the LVGL desktop sim. Screen set now mirrors the Android client,
+  and the feature panels share a Material panel kit (`lv_ui_md_*`: flat top app bar, solid
+  cards, titleMedium headers, label/value rows, cyan accent) matching the Android look. The
+  home launcher keeps its glass-card grid style.
+- 🟡 **On-device LVGL bring-up** — done on the T-Deck Plus (env
+  `LilyGo_TDeck_companion_radio_usb_lvgl`): LVGL 9.2 + LovyanGFX flush + GT911 touch + tick +
+  screen-manager all run on hardware (`ui-lvgl/UITask`). Screens are bound to live `MyMesh`
+  data through a C view-model bridge (`ui-lvgl/lv_data.h`); home status bar + Heard are live,
+  the rest (contacts/stats/chat/repeaters/settings) are being bound incrementally. The bitmap
+  UI stays as the fallback for mono / non-touch / companion boards.
 
 The protocol/firmware work from each milestone (config ops, ChatStore, RF hooks, login/
 status/candidate cache) is UI-framework-agnostic and carries straight over.

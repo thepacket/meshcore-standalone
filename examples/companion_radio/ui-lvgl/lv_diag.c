@@ -1,13 +1,15 @@
 // LVGL diagnostics: Noise scope (chart), Signal (coverage gauges), Heard (list).
 #include "lv_ui.h"
+#include "lv_data.h"
 #include <stdio.h>
+#include <stdint.h>
 
 void lv_chat_set_peer(const char* name);  // peer-details target (lv_chat.c)
 
 static void heard_clicked(lv_event_t* e) {
-  const char* n = (const char*)lv_event_get_user_data(e);
-  lv_chat_set_peer(n);
-  if (lv_nav_cb) lv_nav_cb("peer");
+  int i = (int)(intptr_t)lv_event_get_user_data(e);
+  lvd_heard_t s;
+  if (lvd_heard_get(i, &s)) { lv_chat_set_peer(s.name); if (lv_nav_cb) lv_nav_cb("peer"); }
 }
 
 static lv_obj_t* full_list(lv_obj_t* scr) {
@@ -41,7 +43,7 @@ static void stat_pill(lv_obj_t* parent, const char* k, const char* v, uint32_t c
 
 void lv_noise_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
-  lv_ui_topbar(scr, "Noise", UI_RED, NULL);
+  lv_ui_md_topbar(scr, "Noise");
 
   // stat row
   lv_obj_t* row = lv_obj_create(scr);
@@ -115,7 +117,7 @@ static void coverage_row(lv_obj_t* list, const Rep* r) {
 
 void lv_signal_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
-  lv_ui_topbar(scr, "Signal", UI_LIME, NULL);
+  lv_ui_md_topbar(scr, "Signal");
   lv_obj_t* list = full_list(scr);
   Rep reps[] = {
     {"GW-Hertford", -72, "12s", true},
@@ -126,56 +128,73 @@ void lv_signal_create(lv_obj_t* scr) {
   for (unsigned i = 0; i < sizeof(reps)/sizeof(reps[0]); i++) coverage_row(list, &reps[i]);
 }
 
-// ---- Heard: recent stations -------------------------------------------------
-typedef struct { const char* name; const char* meta; int bars; } Stn;
-
-static void heard_row(lv_obj_t* list, const Stn* s) {
-  lv_obj_t* row = lv_ui_card(list, -1, 0, 0, 46);
-  lv_obj_set_width(row, lv_pct(100));
-  lv_obj_set_height(row, 44);
-  lv_obj_set_style_min_height(row, 0, 0);
-  lv_obj_set_style_pad_hor(row, 10, 0);
+// ---- Heard: recent stations (Material cards, like the Android HeardRow) ------
+static void heard_row(lv_obj_t* list, const lvd_heard_t* s, int idx) {
+  lv_obj_t* row = lv_ui_md_card(list);
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_all(row, 12, 0);
   lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(row, heard_clicked, LV_EVENT_CLICKED, (void*)s->name);
+  lv_obj_add_event_cb(row, heard_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
 
-  uint32_t col = s->bars >= 3 ? UI_GREEN : (s->bars == 2 ? UI_AMBER : UI_RED);
-  lv_obj_t* dot = lv_obj_create(row);
-  lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_size(dot, 10, 10); lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+  // colour-graded signal dot: solid dot inside a translucent circle (Android style)
+  uint32_t col = s->bars >= 3 ? 0x4ade80 : (s->bars == 2 ? 0xf59e0b : 0xfb7185);
+  lv_obj_t* halo = lv_obj_create(row);
+  lv_obj_remove_flag(halo, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(halo, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(halo, 34, 34); lv_obj_set_style_radius(halo, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(halo, lv_color_hex(col), 0); lv_obj_set_style_bg_opa(halo, 50, 0);
+  lv_obj_set_style_border_width(halo, 0, 0); lv_obj_set_style_pad_all(halo, 0, 0);
+  lv_obj_set_style_margin_right(halo, 12, 0);
+  lv_obj_t* dot = lv_obj_create(halo);
+  lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(dot, 12, 12); lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
   lv_obj_set_style_bg_color(dot, lv_color_hex(col), 0);
-  lv_obj_set_style_border_width(dot, 0, 0);
-  lv_obj_set_style_shadow_color(dot, lv_color_hex(col), 0);
-  lv_obj_set_style_shadow_width(dot, 8, 0); lv_obj_set_style_shadow_opa(dot, 160, 0);
-  lv_obj_set_style_margin_right(dot, 10, 0);
+  lv_obj_set_style_border_width(dot, 0, 0); lv_obj_center(dot);
 
   lv_obj_t* mid = lv_obj_create(row);
-  lv_obj_remove_flag(mid, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_remove_flag(mid, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_remove_flag(mid, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(mid, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_style_bg_opa(mid, 0, 0); lv_obj_set_style_border_width(mid, 0, 0);
-  lv_obj_set_style_pad_all(mid, 0, 0); lv_obj_set_flex_grow(mid, 1); lv_obj_set_height(mid, 34);
+  lv_obj_set_style_pad_all(mid, 0, 0); lv_obj_set_flex_grow(mid, 1); lv_obj_set_height(mid, LV_SIZE_CONTENT);
   lv_obj_set_flex_flow(mid, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(mid, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_t* nm = lv_label_create(mid);
   lv_label_set_text(nm, s->name);
   lv_obj_set_style_text_font(nm, &lv_font_montserrat_16, 0);
-  lv_obj_set_style_text_color(nm, lv_color_hex(UI_TEXT), 0);
-  lv_obj_t* mt = lv_label_create(mid);
-  lv_label_set_text(mt, s->meta);
-  lv_obj_set_style_text_font(mt, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(mt, lv_color_hex(UI_MUTED), 0);
+  lv_obj_set_style_text_color(nm, lv_color_hex(MD_ON), 0);
+  lv_obj_t* sg = lv_label_create(mid);
+  lv_label_set_text(sg, s->meta);
+  lv_obj_set_style_text_font(sg, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(sg, lv_color_hex(MD_MUTED), 0);
+
+  lv_obj_t* rt = lv_obj_create(row);
+  lv_obj_remove_flag(rt, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(rt, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_bg_opa(rt, 0, 0); lv_obj_set_style_border_width(rt, 0, 0);
+  lv_obj_set_style_pad_all(rt, 0, 0); lv_obj_set_height(rt, LV_SIZE_CONTENT); lv_obj_set_width(rt, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(rt, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(rt, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+  lv_obj_t* ag = lv_label_create(rt);
+  lv_label_set_text(ag, s->age);
+  lv_obj_set_style_text_font(ag, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(ag, lv_color_hex(MD_MUTED), 0);
+  if (s->dist[0]) {
+    lv_obj_t* ds = lv_label_create(rt);
+    lv_label_set_text(ds, s->dist);
+    lv_obj_set_style_text_font(ds, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(ds, lv_color_hex(MD_PRIMARY), 0);
+  }
 }
 
 void lv_heard_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
-  lv_ui_topbar(scr, "Heard", UI_TEAL, NULL);
-  lv_obj_t* list = full_list(scr);
-  Stn st[] = {
-    {"Repeater-7",  "9.0 dB  -78 dBm  4.2 km  12s", 4},
-    {"Andy-Mobile", "6.0 dB  -92 dBm  0.8 km  45s", 2},
-    {"GW-Hertford", "2.0 dB  -108 dBm  10m",         1},
-  };
-  for (unsigned i = 0; i < sizeof(st)/sizeof(st[0]); i++) heard_row(list, &st[i]);
+  lv_ui_md_topbar(scr, "Heard");
+  lv_obj_t* list = lv_ui_md_scroll(scr);
+  int n = lvd_heard_count();
+  if (n <= 0) {
+    lv_obj_t* hint = lv_label_create(list);
+    lv_label_set_text(hint, "No stations heard yet");
+    lv_obj_set_style_text_color(hint, lv_color_hex(MD_MUTED), 0);
+    return;
+  }
+  lvd_heard_t s;
+  for (int i = 0; i < n; i++) if (lvd_heard_get(i, &s)) heard_row(list, &s, i);
 }

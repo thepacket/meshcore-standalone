@@ -1,22 +1,23 @@
 // LVGL home / launcher: black background, per-feature coloured icon chips,
 // Activity/Noise widget cards, status + identity bars. Uses the shared lv_ui kit.
 #include "lv_ui.h"
+#include "lv_data.h"
 #include <stdio.h>
 
 typedef struct { const char* icon; uint32_t color; bool enabled; const char* dest; } Tile;
 
 static const Tile TILES[12] = {
   {ICON_CHAT,      UI_BLUE,    true,  "chat"},
-  {ICON_CONTACTS,  UI_GREEN,   false, ""},
+  {ICON_CONTACTS,  UI_GREEN,   true,  "contacts"},
   {ICON_REPEATERS, UI_PURPLE,  true,  "repeaters"},
   {ICON_FINDER,    UI_CYAN,    true,  "scan"},
   {ICON_HEARD,     UI_TEAL,    true,  "heard"},
   {ICON_MAP,       UI_ORANGE,  false, ""},
-  {ICON_ADVERT,    UI_PINK,    true,  ""},
+  {ICON_ADVERT,    UI_PINK,    true,  "discover"},
   {ICON_SETTINGS,  UI_INDIGO,  true,  "settings"},
   {ICON_TRACE,     UI_AMBER,   true,  "trace"},
   {ICON_TERMINAL,  UI_EMERALD, true,  "terminal"},
-  {ICON_NOISE,     UI_RED,     true,  "noise"},
+  {ICON_NOISE,     UI_PURPLE,  true,  "stats"},
   {ICON_SIGNAL,    UI_LIME,    true,  "signal"},
 };
 
@@ -83,7 +84,8 @@ static void make_statusbar(lv_obj_t* scr) {
   lv_obj_align(p, LV_ALIGN_LEFT_MID, 30, 0);
 
   lv_obj_t* clock = lv_label_create(bar);
-  lv_label_set_text(clock, "15:34");
+  char tbuf[8]; lvd_clock_hhmm(tbuf, sizeof(tbuf));
+  lv_label_set_text(clock, tbuf);
   lv_obj_set_style_text_font(clock, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(clock, lv_color_hex(UI_TEXT), 0);
   lv_obj_align(clock, LV_ALIGN_RIGHT_MID, -56, 0);
@@ -93,9 +95,15 @@ static void make_statusbar(lv_obj_t* scr) {
   lv_obj_set_style_text_color(wifi, lv_color_hex(UI_CYAN), 0);
   lv_obj_align(wifi, LV_ALIGN_RIGHT_MID, -30, 0);
 
+  int bp = lvd_batt_pct();
+  const char* bsym = bp < 0   ? LV_SYMBOL_BATTERY_EMPTY :
+                     bp > 80  ? LV_SYMBOL_BATTERY_FULL  :
+                     bp > 55  ? LV_SYMBOL_BATTERY_3     :
+                     bp > 30  ? LV_SYMBOL_BATTERY_2     :
+                     bp > 10  ? LV_SYMBOL_BATTERY_1     : LV_SYMBOL_BATTERY_EMPTY;
   lv_obj_t* batt = lv_label_create(bar);
-  lv_label_set_text(batt, LV_SYMBOL_BATTERY_3);
-  lv_obj_set_style_text_color(batt, lv_color_hex(UI_GREEN), 0);
+  lv_label_set_text(batt, bsym);
+  lv_obj_set_style_text_color(batt, lv_color_hex(bp >= 0 && bp <= 20 ? UI_RED : UI_GREEN), 0);
   lv_obj_align(batt, LV_ALIGN_RIGHT_MID, -8, 0);
 }
 
@@ -148,7 +156,7 @@ static void make_hero(lv_obj_t* scr, int y, int h) {
 
 static void make_identitybar(lv_obj_t* scr) {
   lv_obj_t* who = lv_label_create(scr);
-  lv_label_set_text(who, "Andy  " LV_SYMBOL_RIGHT "  TDeck+");
+  lv_label_set_text_fmt(who, "%s  " LV_SYMBOL_RIGHT "  %s", lvd_node_name(), lvd_device_label());
   lv_obj_set_style_text_font(who, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(who, lv_color_hex(UI_MUTED), 0);
   lv_obj_align(who, LV_ALIGN_BOTTOM_LEFT, 8, -3);

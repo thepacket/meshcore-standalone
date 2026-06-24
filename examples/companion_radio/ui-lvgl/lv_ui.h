@@ -44,6 +44,27 @@ lv_obj_t* lv_ui_chip(lv_obj_t* parent, uint32_t color, const char* icon, int siz
 // bar; *back_btn (if non-NULL) receives the clickable back button.
 lv_obj_t* lv_ui_topbar(lv_obj_t* scr, const char* title, uint32_t accent, lv_obj_t** back_btn);
 
+// --- Material (Android-style) panel kit -------------------------------------
+// The feature panels mirror the Android client's Material look: a flat top app
+// bar, solid dark cards (not translucent glass), titleMedium section headers,
+// and "muted label / value" rows. The home launcher keeps the glass-card style
+// above (lv_ui_card / lv_ui_chip); these helpers are panel-only.
+#define MD_SURFACE  0x141b22   // solid card container on black
+#define MD_ON       0xe6f2f5   // onSurface text
+#define MD_MUTED    0x7d878c   // onSurface @ ~60%
+#define MD_PRIMARY  0x3fc7e8   // primary (cyan) accent — matches Android Theme.kt
+
+// flat top app bar (solid surface, plain white title, back chevron). Returns bar.
+lv_obj_t* lv_ui_md_topbar(lv_obj_t* scr, const char* title);
+// full-width vertical scroll column filling the area under the top bar
+lv_obj_t* lv_ui_md_scroll(lv_obj_t* scr);
+// a solid Material card (column flow, padded); width 100% inside an md_scroll
+lv_obj_t* lv_ui_md_card(lv_obj_t* parent);
+// md_card with a titleMedium header (accent optional, 0 = plain white); returns the card
+lv_obj_t* lv_ui_md_section(lv_obj_t* parent, const char* title, uint32_t accent);
+// a "label .......... value" row inside a card (label muted left, value right)
+void lv_ui_md_row(lv_obj_t* card, const char* label, const char* value, uint32_t value_color);
+
 // Navigation hook: screens call lv_nav_cb(dest) when a tappable element is
 // activated. The host (sim or firmware screen-manager) sets this. "back" pops.
 typedef void (*lv_nav_fn)(const char* dest);

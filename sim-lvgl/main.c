@@ -3,10 +3,31 @@
 //   ./lvglsim <screen> <out.ppm>   -> headless: render one screen to a PPM
 #include "lvgl.h"
 #include "lv_ui.h"
+#include "lv_data.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 #include <time.h>
+
+// ---- mock implementations of the live-data bridge (firmware uses MyMesh) ----
+const char* lvd_node_name(void) { return "Andy"; }
+const char* lvd_device_label(void) { return "TDeck+"; }
+void lvd_clock_hhmm(char* out, int len) { snprintf(out, len, "15:34"); }
+int lvd_batt_pct(void) { return 78; }
+int lvd_signal_bars(void) { return 4; }
+int lvd_unread_count(void) { return 2; }
+
+static const lvd_heard_t MOCK_HEARD[] = {
+  {"Repeater-7",  "SNR 9.0 dB   RSSI -78",  "12s ago", "4.2 km", 4},
+  {"Andy-Mobile", "SNR 6.0 dB   RSSI -92",  "45s ago", "0.8 km", 2},
+  {"GW-Hertford", "SNR 2.0 dB   RSSI -108", "10m ago", "",       1},
+};
+int lvd_heard_count(void) { return (int)(sizeof(MOCK_HEARD)/sizeof(MOCK_HEARD[0])); }
+bool lvd_heard_get(int i, lvd_heard_t* out) {
+  if (i < 0 || i >= lvd_heard_count()) return false;
+  *out = MOCK_HEARD[i];
+  return true;
+}
 
 #define W 320
 #define H 240
@@ -27,6 +48,9 @@ void lv_peer_create(lv_obj_t* scr);
 void lv_trace_create(lv_obj_t* scr);
 void lv_terminal_create(lv_obj_t* scr);
 void lv_terminal_set_tab(int t);
+void lv_stats_create(lv_obj_t* scr);
+void lv_discover_create(lv_obj_t* scr);
+void lv_contacts_create(lv_obj_t* scr);
 
 static uint32_t millis_cb(void) {
   struct timespec ts; clock_gettime(CLOCK_MONOTONIC, &ts);
@@ -64,6 +88,9 @@ static void build(const char* name) {
   else if (!strcmp(name, "trace")) lv_trace_create(s);
   else if (!strcmp(name, "terminal")) { lv_terminal_set_tab(0); lv_terminal_create(s); }
   else if (!strcmp(name, "packets")) { lv_terminal_set_tab(1); lv_terminal_create(s); }
+  else if (!strcmp(name, "stats")) lv_stats_create(s);
+  else if (!strcmp(name, "discover")) lv_discover_create(s);
+  else if (!strcmp(name, "contacts")) lv_contacts_create(s);
   else placeholder(s, name);
 }
 

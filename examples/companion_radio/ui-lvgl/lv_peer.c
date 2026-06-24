@@ -8,7 +8,7 @@ const char* lv_chat_active_peer(void);  // provided by lv_chat.c
 
 // stat card: label on TOP, value below
 static void stat_card(lv_obj_t* grid, const char* k, const char* v, uint32_t color) {
-  lv_obj_t* c = lv_ui_card(grid, -1, 0, 0, 0);
+  lv_obj_t* c = lv_ui_md_card(grid);
   lv_obj_set_size(c, 98, 44);
   lv_obj_set_style_pad_all(c, 5, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
@@ -25,7 +25,8 @@ static void stat_card(lv_obj_t* grid, const char* k, const char* v, uint32_t col
 
 // half-width key/value column (label on top), for side-by-side pairs
 static void kv_col(lv_obj_t* row, const char* k, const char* v) {
-  lv_obj_t* c = lv_ui_card(row, -1, 0, 0, 0);
+  lv_obj_t* c = lv_ui_md_card(row);
+  lv_obj_set_width(c, LV_SIZE_CONTENT);
   lv_obj_set_flex_grow(c, 1); lv_obj_set_height(c, LV_SIZE_CONTENT);
   lv_obj_set_style_min_height(c, 0, 0); lv_obj_set_style_pad_all(c, 8, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
@@ -43,7 +44,7 @@ static void kv_col(lv_obj_t* row, const char* k, const char* v) {
 
 // key/value block: label on TOP, value on the line below (wraps if long)
 static void kv_block(lv_obj_t* list, const char* k, const char* v, bool wrap) {
-  lv_obj_t* c = lv_ui_card(list, -1, 0, 0, 0);
+  lv_obj_t* c = lv_ui_md_card(list);
   lv_obj_set_width(c, lv_pct(100)); lv_obj_set_height(c, LV_SIZE_CONTENT);
   lv_obj_set_style_min_height(c, 0, 0); lv_obj_set_style_pad_all(c, 8, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
@@ -96,18 +97,13 @@ static void act_btn(lv_obj_t* row, const char* icon, const char* txt, uint32_t c
 void lv_peer_create(lv_obj_t* scr) {
   const char* name = lv_chat_active_peer();
   lv_ui_screen_bg(scr);
-  lv_ui_topbar(scr, name, UI_BLUE, NULL);
+  lv_ui_md_topbar(scr, name);
 
-  lv_obj_t* list = lv_obj_create(scr);
-  lv_obj_set_pos(list, 4, 34);
-  lv_obj_set_size(list, 320 - 8, 240 - 34 - 4);
-  lv_obj_set_style_bg_opa(list, 0, 0); lv_obj_set_style_border_width(list, 0, 0);
-  lv_obj_set_style_pad_all(list, 2, 0);
-  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(list, 6, 0);
+  lv_obj_t* list = lv_ui_md_scroll(scr);
+  lv_obj_set_style_pad_row(list, 8, 0);
 
   // header: avatar + name + type
-  lv_obj_t* head = lv_ui_card(list, -1, 0, 0, 56);
+  lv_obj_t* head = lv_ui_md_card(list);
   lv_obj_set_width(head, lv_pct(100)); lv_obj_set_height(head, 54);
   lv_obj_set_style_min_height(head, 0, 0); lv_obj_set_style_pad_all(head, 8, 0);
   lv_obj_set_flex_flow(head, LV_FLEX_FLOW_ROW);
@@ -136,6 +132,18 @@ void lv_peer_create(lv_obj_t* scr) {
   act_btn(acts, LV_SYMBOL_LEFT, "Message", UI_BLUE, "back");
   act_btn(acts, "", "Trace", UI_AMBER, "trace");
   fav_btn(acts, true);   // checkable: filled when favourite, toggles on tap
+
+  // contact ops row (mirrors the Android long-press menu)
+  lv_obj_t* ops = lv_obj_create(list);
+  lv_obj_remove_flag(ops, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(ops, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(ops, lv_pct(100)); lv_obj_set_height(ops, 34);
+  lv_obj_set_style_bg_opa(ops, 0, 0); lv_obj_set_style_border_width(ops, 0, 0);
+  lv_obj_set_style_pad_all(ops, 0, 0);
+  lv_obj_set_flex_flow(ops, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(ops, 5, 0);
+  act_btn(ops, LV_SYMBOL_UPLOAD,    "Share",  UI_GREEN,  NULL);   // re-advertise (CMD_SHARE_CONTACT)
+  act_btn(ops, LV_SYMBOL_REFRESH,   "Reset",  UI_CYAN,   NULL);   // forget return path (CMD_RESET_PATH)
+  act_btn(ops, LV_SYMBOL_SAVE,      "Export", UI_INDIGO, NULL);   // export contact card (CMD_EXPORT_CONTACT)
+  act_btn(ops, LV_SYMBOL_TRASH,     "Remove", UI_RED,    NULL);   // delete contact (CMD_REMOVE_CONTACT)
 
   // signal stats grid
   lv_obj_t* grid = lv_obj_create(list);

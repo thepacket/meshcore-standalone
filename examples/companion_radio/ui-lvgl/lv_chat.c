@@ -51,7 +51,7 @@ static uint32_t name_color(const char* s) {
 typedef struct { const char* name; const char* preview; const char* time; int unread; uint32_t color; bool channel; } Row;
 
 static void add_row(lv_obj_t* list, const Row* r) {
-  lv_obj_t* row = lv_ui_card(list, -1, 0, 0, 56);
+  lv_obj_t* row = lv_ui_md_card(list);
   lv_obj_set_width(row, lv_pct(100));
   lv_obj_set_height(row, 54);
   lv_obj_set_style_min_height(row, 0, 0);
@@ -115,7 +115,7 @@ static void seg_tab(lv_obj_t* parent, const char* txt, bool active) {
   lv_obj_set_flex_grow(t, 1);
   lv_obj_set_height(t, lv_pct(100));
   lv_obj_set_style_radius(t, 8, 0);
-  lv_obj_set_style_bg_color(t, lv_color_hex(UI_BLUE), 0);
+  lv_obj_set_style_bg_color(t, lv_color_hex(MD_PRIMARY), 0);
   lv_obj_set_style_bg_opa(t, active ? 200 : 0, 0);
   lv_obj_set_style_border_width(t, 0, 0);
   lv_obj_set_style_pad_all(t, 0, 0);
@@ -128,16 +128,16 @@ static void seg_tab(lv_obj_t* parent, const char* txt, bool active) {
 
 void lv_chat_list_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
-  lv_ui_topbar(scr, "Chat", UI_BLUE, NULL);
+  lv_ui_md_topbar(scr, "Chat");
 
   // segmented tabs
   lv_obj_t* seg = lv_obj_create(scr);
   lv_obj_remove_flag(seg, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(seg, 320 - 16, 28);
-  lv_obj_set_pos(seg, 8, 36);
+  lv_obj_set_size(seg, 320 - 24, 28);
+  lv_obj_set_pos(seg, 12, 42);
   lv_obj_set_style_radius(seg, 10, 0);
-  lv_obj_set_style_bg_color(seg, lv_color_hex(UI_CARD), 0);
-  lv_obj_set_style_bg_opa(seg, 16, 0);
+  lv_obj_set_style_bg_color(seg, lv_color_hex(MD_SURFACE), 0);
+  lv_obj_set_style_bg_opa(seg, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(seg, 0, 0);
   lv_obj_set_style_pad_all(seg, 3, 0);
   lv_obj_set_flex_flow(seg, LV_FLEX_FLOW_ROW);
@@ -147,13 +147,14 @@ void lv_chat_list_create(lv_obj_t* scr) {
 
   // list
   lv_obj_t* list = lv_obj_create(scr);
-  lv_obj_set_pos(list, 4, 70);
-  lv_obj_set_size(list, 320 - 8, 240 - 70 - 4);
+  lv_obj_set_pos(list, 0, 78);
+  lv_obj_set_size(list, 320, 240 - 78);
   lv_obj_set_style_bg_opa(list, 0, 0);
   lv_obj_set_style_border_width(list, 0, 0);
-  lv_obj_set_style_pad_all(list, 2, 0);
+  lv_obj_set_style_pad_hor(list, 12, 0);
+  lv_obj_set_style_pad_ver(list, 2, 0);
   lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(list, 6, 0);
+  lv_obj_set_style_pad_row(list, 8, 0);
 
   Row rows[] = {
     {"Public",      "Carol: Map here: meshcore.io", "now", 2, UI_BLUE,  true},
@@ -227,11 +228,11 @@ static void add_bubble(lv_obj_t* scroll, const char* sender, const char* text,
 
 void lv_chat_conv_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
-  lv_ui_topbar(scr, "Public", UI_BLUE, NULL);
+  lv_ui_md_topbar(scr, "Public");
 
   int composeH = 32;
   lv_obj_t* scroll = lv_obj_create(scr);
-  lv_obj_set_pos(scroll, 4, 32);
+  lv_obj_set_pos(scroll, 4, 36);
   lv_obj_set_size(scroll, 320 - 8, 240 - 32 - composeH - 4);
   lv_obj_set_style_bg_opa(scroll, 0, 0);
   lv_obj_set_style_border_width(scroll, 0, 0);

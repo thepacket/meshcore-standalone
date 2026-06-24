@@ -7,23 +7,22 @@
 typedef struct { const char* name; const char* type; bool fav; bool scan; } Node;
 
 static void rep_row(lv_obj_t* list, const Node* n) {
-  lv_obj_t* row = lv_ui_card(list, -1, 0, 0, 50);
-  lv_obj_set_width(row, lv_pct(100));
-  lv_obj_set_height(row, 48);
-  lv_obj_set_style_min_height(row, 0, 0);
-  lv_obj_set_style_pad_hor(row, 8, 0);
+  lv_obj_t* row = lv_ui_md_card(list);
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_ui_clickable(row, "repeater_detail");
 
-  lv_obj_t* chip = lv_ui_chip(row, n->scan ? UI_CYAN : UI_PURPLE, ICON_REPEATERS, 30, true);
-  lv_obj_set_style_margin_right(chip, 10, 0);
+  lv_obj_t* ic = lv_label_create(row);
+  lv_label_set_text(ic, ICON_REPEATERS);
+  lv_obj_set_style_text_font(ic, &icons_fa, 0);
+  lv_obj_set_style_text_color(ic, lv_color_hex(n->scan ? MD_PRIMARY : UI_PURPLE), 0);
+  lv_obj_set_style_margin_right(ic, 14, 0);
 
   lv_obj_t* nm = lv_label_create(row);
   lv_label_set_text(nm, n->name);
   lv_obj_set_flex_grow(nm, 1);
   lv_obj_set_style_text_font(nm, &lv_font_montserrat_16, 0);
-  lv_obj_set_style_text_color(nm, lv_color_hex(UI_TEXT), 0);
+  lv_obj_set_style_text_color(nm, lv_color_hex(MD_ON), 0);
 
   if (n->fav) {
     lv_obj_t* star = lv_label_create(row);
@@ -31,7 +30,7 @@ static void rep_row(lv_obj_t* list, const Node* n) {
     lv_obj_set_style_text_color(star, lv_color_hex(UI_AMBER), 0);
     lv_obj_set_style_margin_right(star, 8, 0);
   }
-  lv_obj_t* tp = lv_ui_pill(row, n->scan ? "+ ADD" : n->type, n->scan ? UI_CYAN : UI_PURPLE);
+  lv_obj_t* tp = lv_ui_pill(row, n->scan ? "+ ADD" : n->type, n->scan ? MD_PRIMARY : UI_PURPLE);
   (void)tp;
 }
 
@@ -43,7 +42,7 @@ static void seg_tab(lv_obj_t* parent, const char* txt, bool active, const char* 
   lv_obj_remove_flag(t, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_flex_grow(t, 1); lv_obj_set_height(t, lv_pct(100));
   lv_obj_set_style_radius(t, 8, 0);
-  lv_obj_set_style_bg_color(t, lv_color_hex(UI_PURPLE), 0);
+  lv_obj_set_style_bg_color(t, lv_color_hex(MD_PRIMARY), 0);
   lv_obj_set_style_bg_opa(t, active ? 200 : 0, 0);
   lv_obj_set_style_border_width(t, 0, 0); lv_obj_set_style_pad_all(t, 0, 0);
   if (!active && dest) lv_ui_clickable(t, dest);   // tap the other tab to switch
@@ -56,23 +55,23 @@ static void seg_tab(lv_obj_t* parent, const char* txt, bool active, const char* 
 
 void lv_repeaters_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
-  lv_ui_topbar(scr, "Repeaters", UI_PURPLE, NULL);
+  lv_ui_md_topbar(scr, "Repeaters");
 
   lv_obj_t* seg = lv_obj_create(scr);
   lv_obj_remove_flag(seg, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_size(seg, 320 - 16, 28); lv_obj_set_pos(seg, 8, 36);
+  lv_obj_set_size(seg, 320 - 24, 28); lv_obj_set_pos(seg, 12, 42);
   lv_obj_set_style_radius(seg, 10, 0);
-  lv_obj_set_style_bg_color(seg, lv_color_hex(UI_CARD), 0); lv_obj_set_style_bg_opa(seg, 16, 0);
+  lv_obj_set_style_bg_color(seg, lv_color_hex(MD_SURFACE), 0); lv_obj_set_style_bg_opa(seg, LV_OPA_COVER, 0);
   lv_obj_set_style_border_width(seg, 0, 0); lv_obj_set_style_pad_all(seg, 3, 0);
   lv_obj_set_flex_flow(seg, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(seg, 4, 0);
   seg_tab(seg, "Saved", g_rep_tab == 0, "repeaters");
   seg_tab(seg, "Scan",  g_rep_tab == 1, "scan");
 
   lv_obj_t* list = lv_obj_create(scr);
-  lv_obj_set_pos(list, 4, 70); lv_obj_set_size(list, 320 - 8, 240 - 70 - 4);
+  lv_obj_set_pos(list, 0, 78); lv_obj_set_size(list, 320, 240 - 78);
   lv_obj_set_style_bg_opa(list, 0, 0); lv_obj_set_style_border_width(list, 0, 0);
-  lv_obj_set_style_pad_all(list, 2, 0);
-  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN); lv_obj_set_style_pad_row(list, 6, 0);
+  lv_obj_set_style_pad_hor(list, 12, 0); lv_obj_set_style_pad_ver(list, 2, 0);
+  lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN); lv_obj_set_style_pad_row(list, 8, 0);
 
   if (g_rep_tab == 0) {
     Node nodes[] = {
@@ -107,7 +106,7 @@ static void action_btn(lv_obj_t* parent, const char* txt, uint32_t color) {
 }
 
 static void stat_card(lv_obj_t* grid, const char* k, const char* v, uint32_t color) {
-  lv_obj_t* c = lv_ui_card(grid, -1, 0, 0, 0);
+  lv_obj_t* c = lv_ui_md_card(grid);
   lv_obj_set_size(c, 100, 44);
   lv_obj_set_style_pad_all(c, 4, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
@@ -124,7 +123,7 @@ static void stat_card(lv_obj_t* grid, const char* k, const char* v, uint32_t col
 
 void lv_repeater_detail_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
-  lv_ui_topbar(scr, "GW-Hertford", UI_PURPLE, NULL);
+  lv_ui_md_topbar(scr, "GW-Hertford");
 
   // action buttons
   lv_obj_t* acts = lv_obj_create(scr);

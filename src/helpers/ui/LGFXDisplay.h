@@ -38,4 +38,8 @@ public:
   void endFrame() override;
   bool getTouch(int *x, int *y) override;
   bool hasTouch() override { return true; }
+
+  // Underlying LovyanGFX device, for an external renderer (e.g. an LVGL flush
+  // callback) to push pixels straight to the panel.
+  LGFX_Device* gfxDevice() { return display; }
 };
