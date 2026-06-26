@@ -946,8 +946,13 @@ extern "C" int         lvd_trace_count(void)  { return s_tr_state == 2 ? s_tr_ho
 extern "C" bool        lvd_trace_get(int i, lvd_hop_t* out) {
   if (s_tr_state != 2 || i < 0 || i > s_tr_hops) return false;
   int8_t q = (i < s_tr_hops) ? s_tr_snr[i] : s_tr_final;
-  if (i < s_tr_hops) snprintf(out->left, sizeof(out->left), "%d.  id %02X", i + 1, s_tr_hash[i]);
-  else               snprintf(out->left, sizeof(out->left), "%s  to you", LV_SYMBOL_DOWN);
+  if (i < s_tr_hops) {
+    const char* nm = contact_name_by_hash(s_tr_hash[i]);
+    if (nm) snprintf(out->left, sizeof(out->left), "%d.  %s", i + 1, nm);
+    else    snprintf(out->left, sizeof(out->left), "%d.  id %02X", i + 1, s_tr_hash[i]);
+  } else {
+    snprintf(out->left, sizeof(out->left), "%s  to you", LV_SYMBOL_DOWN);
+  }
   int v10 = q * 10 / 4, a = v10 < 0 ? -v10 : v10;
   snprintf(out->snr, sizeof(out->snr), "%s%d.%d dB", v10 < 0 ? "-" : "+", a / 10, a % 10);
   out->quality = q >= 20 ? 2 : (q >= 0 ? 1 : 0);

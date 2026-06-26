@@ -127,7 +127,7 @@ void     lvd_chat_send(const char* text);      // send to the active conversatio
 
 // ---- trace route -----------------------------------------------------------
 typedef struct {
-  char left[24];     // "1.  id A3" or "to you"
+  char left[36];     // "1.  GW-Hertford" (friendly name) or "to you"
   char snr[16];      // "+8.0 dB"
   int  quality;      // 0 = weak, 1 = ok, 2 = good (row colour)
 } lvd_hop_t;
