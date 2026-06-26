@@ -40,6 +40,8 @@ typedef struct {
 
 int  lvd_contact_count(void);
 bool lvd_contact_get(int i, lvd_contact_t* out);
+void        lvd_contact_set_filter(const char* s);  // name substring filter ("" = all)
+const char* lvd_contact_filter(void);
 
 // ---- settings / device config (Settings screens) ---------------------------
 // Bound fields are keyed by (group title, field label). lvd_cfg_get fills the

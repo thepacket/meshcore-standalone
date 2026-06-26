@@ -59,6 +59,7 @@ extern "C" {
   void lv_discover_create(lv_obj_t* scr);
   void lv_disc_create(lv_obj_t* scr);
   void lv_contacts_create(lv_obj_t* scr);
+  void lv_contact_search_create(lv_obj_t* scr);
 }
 
 // ===========================================================================
@@ -73,6 +74,7 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "conv")) lv_chat_conv_create(s);
   else if (!strcmp(name, "compose")) lv_chat_compose_create(s);
   else if (!strcmp(name, "contacts")) lv_contacts_create(s);
+  else if (!strcmp(name, "contact_search")) lv_contact_search_create(s);
   else if (!strcmp(name, "settings")) lv_settings_create(s);
   else if (!strcmp(name, "edit")) lv_settings_edit_create(s);
   else if (name[0] == 's' && name[1] == 'g') lv_settings_group_create(s, atoi(name + 2));
@@ -273,17 +275,40 @@ static int cmp_contact_idx(const void* a, const void* b) {
   the_mesh.getContactByIdx(*(const uint16_t*)b, cb);
   return ci_strcmp(ca.name, cb.name);
 }
+static char     g_cfilter[24] = "";              // contacts name filter ("" = all)
 static uint16_t g_corder[MAX_CONTACTS];
-static int      g_corder_n = -1;   // count the order was built for (-1 = none)
+static int      g_corder_n = -1;
+static int      g_corder_total = -1;             // contact count the order was built for
+static char     g_corder_filter[24] = "\x01";    // filter it was built for (impossible init)
 
-static void build_contact_order(void) {
-  int n = the_mesh.getNumContacts();
-  if (n > MAX_CONTACTS) n = MAX_CONTACTS;
-  if (n == g_corder_n) return;
-  for (int i = 0; i < n; i++) g_corder[i] = (uint16_t)i;
-  qsort(g_corder, n, sizeof(g_corder[0]), cmp_contact_idx);
-  g_corder_n = n;
+// case-insensitive "needle is a substring of hay"
+static bool ci_contains(const char* hay, const char* needle) {
+  if (!needle[0]) return true;
+  for (; *hay; hay++) {
+    const char* h = hay; const char* n = needle;
+    while (*h && *n && tolower((unsigned char)*h) == tolower((unsigned char)*n)) { h++; n++; }
+    if (!*n) return true;
+  }
+  return false;
 }
+static void build_contact_order(void) {
+  int total = the_mesh.getNumContacts();
+  if (total > MAX_CONTACTS) total = MAX_CONTACTS;
+  if (total == g_corder_total && strcmp(g_cfilter, g_corder_filter) == 0) return;   // cached
+  int m = 0;
+  for (int i = 0; i < total; i++) {
+    ContactInfo c;
+    if (the_mesh.getContactByIdx((uint32_t)i, c) && ci_contains(c.name, g_cfilter)) g_corder[m++] = (uint16_t)i;
+  }
+  qsort(g_corder, m, sizeof(g_corder[0]), cmp_contact_idx);
+  g_corder_n = m;
+  g_corder_total = total;
+  strncpy(g_corder_filter, g_cfilter, sizeof(g_corder_filter) - 1); g_corder_filter[sizeof(g_corder_filter) - 1] = 0;
+}
+extern "C" void        lvd_contact_set_filter(const char* s) {
+  strncpy(g_cfilter, s ? s : "", sizeof(g_cfilter) - 1); g_cfilter[sizeof(g_cfilter) - 1] = 0;
+}
+extern "C" const char* lvd_contact_filter(void) { return g_cfilter; }
 
 extern "C" int lvd_contact_count(void) {
   build_contact_order();

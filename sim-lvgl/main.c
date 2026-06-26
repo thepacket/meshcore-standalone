@@ -42,6 +42,9 @@ bool lvd_contact_get(int i, lvd_contact_t* out) {
   *out = MOCK_CONTACTS[i];
   return true;
 }
+static char g_cfilter[24] = "";
+void lvd_contact_set_filter(const char* s) { g_cfilter[0] = 0; if (s) { int i = 0; for (; s[i] && i < 23; i++) g_cfilter[i] = s[i]; g_cfilter[i] = 0; } }
+const char* lvd_contact_filter(void) { return g_cfilter; }
 
 // settings bridge: sim keeps prototype defaults (get returns unbound)
 bool lvd_cfg_get(const char* group, const char* label, char* val, int len, int* sel) {
