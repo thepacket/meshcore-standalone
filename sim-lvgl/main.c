@@ -89,6 +89,7 @@ int lvd_stats_noise_history(int* out, int max) {
   return n;
 }
 int lvd_noise_floor(void) { return -104; }
+int lvd_rf_rssi(void) { static int p = -104; p += (rand() % 9) - 4; if (p < -118) p = -118; if (p > -30) p = -30; return p; }
 unsigned lvd_pkt_recv(void) { static unsigned r = 1900; return r += 2; }
 unsigned lvd_pkt_sent(void) { static unsigned s = 230; return s += 1; }
 unsigned lvd_pkt_recv_err(void) { return 7; }

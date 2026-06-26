@@ -74,6 +74,7 @@ int  lvd_stats_noise_history(int* out, int max);   // oldest..newest; returns co
 
 // ---- home hero widgets -----------------------------------------------------
 int      lvd_noise_floor(void);   // current noise floor, dBm (0 = unknown)
+int      lvd_rf_rssi(void);       // instantaneous RF level on the listening freq, dBm
 unsigned lvd_pkt_recv(void);      // total packets received (drives the activity rate)
 unsigned lvd_pkt_sent(void);      // total packets transmitted
 unsigned lvd_pkt_recv_err(void);  // total receive errors

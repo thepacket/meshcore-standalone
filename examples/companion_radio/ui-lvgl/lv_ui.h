@@ -81,6 +81,11 @@ void lv_ui_toast(const char* msg);
 lv_group_t* lv_ui_kbd_group(void);
 void        lv_ui_kbd_focus(lv_obj_t* ta);
 
+// RF scope scale, shared by the home card and the full scope so they match
+#define RF_MIN_DBM (-120)            // fixed bottom of the RF plots (below the noise floor)
+int  lv_ui_rf_max(void);             // max displayed RSSI (dBm), set by the scope slider (-105..-30)
+void lv_ui_rf_set_max(int dbm);
+
 // Periodic refresh hook for live screens. A screen that shows live data registers
 // a callback via lv_ui_set_refresh() at the end of its create fn; the host calls
 // it on a ~1s timer to update widgets in place. The screen manager clears the

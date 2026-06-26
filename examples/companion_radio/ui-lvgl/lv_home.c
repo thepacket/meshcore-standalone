@@ -72,10 +72,11 @@ static void make_tile(lv_obj_t* parent, const Tile* t, int idx, int x, int y, in
 static lv_obj_t* s_clock = NULL;
 static lv_obj_t* s_batt  = NULL;
 static lv_obj_t* s_rxtx  = NULL;   // "rx N  tx M" packet counters
-// live hero widgets (Latest = last-RX RSSI/SNR + strength bar, Noise = noise trend)
-static lv_obj_t* s_latest;      static lv_obj_t* s_strength;
-static lv_obj_t* s_noise_chart; static lv_chart_series_t* s_noise_s;
-static lv_obj_t* s_noise_val;
+// live hero widgets (Latest = last-RX RSSI/SNR + strength bar, RF = live channel
+// RSSI scope sampled fast on its own timer)
+static lv_obj_t* s_latest;   static lv_obj_t* s_strength;
+static lv_obj_t* s_rf_chart; static lv_chart_series_t* s_rf_s;
+static lv_obj_t* s_rf_val;   static lv_timer_t* s_rf_timer = NULL;
 
 static const char* batt_symbol(int bp) {
   return bp < 0  ? LV_SYMBOL_BATTERY_EMPTY :
@@ -92,11 +93,6 @@ static void home_tick(void) {
   if (s_clock) { char t[8]; lvd_clock_hhmm(t, sizeof(t)); lv_label_set_text(s_clock, t); }
   if (s_batt)  apply_batt(s_batt, lvd_batt_pct());
   if (s_rxtx)  { char b[48]; snprintf(b, sizeof(b), "RX %u  RE %u  TX %u  CT %d", lvd_pkt_recv(), lvd_pkt_recv_err(), lvd_pkt_sent(), lvd_contact_total()); lv_label_set_text(s_rxtx, b); }
-  if (s_noise_val) {
-    int nf = lvd_noise_floor();
-    char b[12]; snprintf(b, sizeof(b), "%d", nf); lv_label_set_text(s_noise_val, b);
-    lv_chart_set_next_value(s_noise_chart, s_noise_s, nf ? nf : LV_CHART_POINT_NONE);
-  }
   if (s_latest) {
     if (lvd_pkt_recv() == 0) {
       lv_label_set_text(s_latest, "RSSI --  SNR --");
@@ -155,6 +151,26 @@ static lv_obj_t* widget_card(lv_obj_t* scr, int x, int y, int w, int h, const ch
   return c;
 }
 
+// Fast RF scope: sample the instantaneous channel RSSI and shift it onto the
+// chart ~7x/s, so real RF energy (packets, interference) shows as live spikes.
+// Uses the same fixed scale as the full scope (RF_MIN_DBM .. lv_ui_rf_max()) so
+// the two match; idle noise sits near the floor, signals rise toward the max.
+static void rf_tick(lv_timer_t* t) {
+  (void)t;
+  if (!s_rf_chart) return;
+  int rssi = lvd_rf_rssi();
+  lv_chart_set_next_value(s_rf_chart, s_rf_s, rssi);
+  lv_chart_set_range(s_rf_chart, LV_CHART_AXIS_PRIMARY_Y, RF_MIN_DBM, lv_ui_rf_max());
+  if (s_rf_val) { char b[12]; snprintf(b, sizeof(b), "%d", rssi); lv_label_set_text(s_rf_val, b); }
+}
+// when the chart is destroyed (leaving home / rebuild), kill its sampler so it
+// never pushes into a freed object
+static void rf_chart_deleted(lv_event_t* e) {
+  (void)e;
+  if (s_rf_timer) { lv_timer_del(s_rf_timer); s_rf_timer = NULL; }
+  s_rf_chart = NULL;
+}
+
 static void make_hero(lv_obj_t* scr, int y, int h) {
   int w = (320 - 8 * 2 - 8) / 2;
 
@@ -173,23 +189,32 @@ static void make_hero(lv_obj_t* scr, int y, int h) {
   lv_bar_set_range(s_strength, 0, 100);
   lv_bar_set_value(s_strength, 0, LV_ANIM_OFF);
 
-  lv_obj_t* n = widget_card(scr, 8 + w + 8, y, w, h, "Noise", UI_GREEN);
-  s_noise_val = lv_label_create(n);
-  lv_label_set_text(s_noise_val, "--");
-  lv_obj_set_style_text_font(s_noise_val, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(s_noise_val, lv_color_hex(UI_GREEN), 0);
-  lv_obj_align(s_noise_val, LV_ALIGN_TOP_RIGHT, -2, 0);
-  s_noise_chart = lv_chart_create(n);
-  lv_obj_set_size(s_noise_chart, w - 18, h - 24);
-  lv_obj_align(s_noise_chart, LV_ALIGN_BOTTOM_MID, 0, 2);
-  lv_obj_set_style_bg_opa(s_noise_chart, 0, 0); lv_obj_set_style_border_width(s_noise_chart, 0, 0);
-  lv_obj_set_style_size(s_noise_chart, 0, 0, LV_PART_INDICATOR);
-  lv_chart_set_div_line_count(s_noise_chart, 0, 0);
-  lv_chart_set_type(s_noise_chart, LV_CHART_TYPE_LINE);
-  lv_chart_set_point_count(s_noise_chart, 28);
-  lv_chart_set_range(s_noise_chart, LV_CHART_AXIS_PRIMARY_Y, -120, -40);
-  s_noise_s = lv_chart_add_series(s_noise_chart, lv_color_hex(UI_GREEN), LV_CHART_AXIS_PRIMARY_Y);
-  lv_obj_set_style_line_width(s_noise_chart, 2, LV_PART_ITEMS);
+  // RF card: no title/value labels -- the plot fills the whole panel
+  lv_obj_t* n = lv_ui_card(scr, 8 + w + 8, y, w, h);
+  lv_obj_set_style_pad_all(n, 3, 0);
+  s_rf_val = NULL;
+  s_rf_chart = lv_chart_create(n);
+  lv_obj_set_size(s_rf_chart, w - 8, h - 8);
+  lv_obj_center(s_rf_chart);
+  lv_obj_remove_flag(s_rf_chart, LV_OBJ_FLAG_CLICKABLE);   // let taps reach the card (opens scope)
+  lv_obj_remove_flag(s_rf_chart, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_style_bg_opa(s_rf_chart, 0, 0); lv_obj_set_style_border_width(s_rf_chart, 0, 0);
+  lv_obj_set_style_size(s_rf_chart, 0, 0, LV_PART_INDICATOR);
+  lv_chart_set_div_line_count(s_rf_chart, 0, 0);
+  lv_chart_set_type(s_rf_chart, LV_CHART_TYPE_LINE);
+  lv_chart_set_point_count(s_rf_chart, 40);
+  lv_chart_set_range(s_rf_chart, LV_CHART_AXIS_PRIMARY_Y, RF_MIN_DBM, lv_ui_rf_max());  // same scale as the scope
+  s_rf_s = lv_chart_add_series(s_rf_chart, lv_color_hex(UI_GREEN), LV_CHART_AXIS_PRIMARY_Y);
+  lv_obj_set_style_line_width(s_rf_chart, 2, LV_PART_ITEMS);
+
+  // drive the scope from its own fast timer; tear it down with the chart
+  lv_obj_add_event_cb(s_rf_chart, rf_chart_deleted, LV_EVENT_DELETE, NULL);
+  if (s_rf_timer) lv_timer_del(s_rf_timer);
+  s_rf_timer = lv_timer_create(rf_tick, 150, NULL);
+
+  // tap the card -> full RF scope with a manual scale slider
+  lv_obj_add_flag(n, LV_OBJ_FLAG_CLICKABLE);
+  lv_ui_clickable(n, "rfscope");
 }
 
 static void make_identitybar(lv_obj_t* scr) {

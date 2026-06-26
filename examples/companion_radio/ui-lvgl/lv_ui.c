@@ -25,6 +25,11 @@ void lv_ui_kbd_focus(lv_obj_t* ta) {
   lv_group_focus_obj(ta);
 }
 
+// shared RF-plot max (home card + scope use the same scale); default -105 dBm
+static int g_rf_max = -105;
+int  lv_ui_rf_max(void) { return g_rf_max; }
+void lv_ui_rf_set_max(int dbm) { g_rf_max = dbm; }
+
 // give a tappable object an obvious pressed look (dim + sink) so every tap is
 // visibly acknowledged, even when the action itself produces no screen change.
 void lv_ui_press_fx(lv_obj_t* o) {

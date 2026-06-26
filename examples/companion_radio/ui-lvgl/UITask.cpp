@@ -57,6 +57,7 @@ extern "C" {
   void lv_channels_create(lv_obj_t* scr);
   void lv_chan_detail_create(lv_obj_t* scr);
   void lv_chan_add_create(lv_obj_t* scr);
+  void lv_rfscope_create(lv_obj_t* scr);
   void lv_trace_create(lv_obj_t* scr);
   void lv_trace_rep_search_create(lv_obj_t* scr);
   void lv_terminal_create(lv_obj_t* scr);
@@ -99,6 +100,7 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "channels")) lv_channels_create(s);
   else if (!strcmp(name, "chan_detail")) lv_chan_detail_create(s);
   else if (!strcmp(name, "chan_add")) lv_chan_add_create(s);
+  else if (!strcmp(name, "rfscope")) lv_rfscope_create(s);
   else if (!strcmp(name, "trace")) lv_trace_create(s);
   else if (!strcmp(name, "tr_rep_search")) lv_trace_rep_search_create(s);
   else if (!strcmp(name, "terminal")) lv_terminal_create(s);
@@ -631,6 +633,7 @@ extern "C" int lvd_stats_noise_history(int* out, int max) {
 }
 
 extern "C" int      lvd_noise_floor(void) { return radio_driver.getNoiseFloor(); }
+extern "C" int      lvd_rf_rssi(void)     { return (int)radio_driver.getCurrentRSSI(); }  // instantaneous channel RSSI
 extern "C" unsigned lvd_pkt_recv(void)    { return radio_driver.getPacketsRecv(); }
 extern "C" unsigned lvd_pkt_sent(void)    { return radio_driver.getPacketsSent(); }
 extern "C" unsigned lvd_pkt_recv_err(void) { return radio_driver.getPacketsRecvErrors(); }
