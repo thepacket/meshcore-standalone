@@ -877,15 +877,19 @@ extern "C" void lvd_chat_send(const char* text) {
 }
 
 // ---- trace route -----------------------------------------------------------
+static bool rep_nth(int scan, int i, ContactInfo& c);   // defined below (repeaters)
 #define TRACE_MAX 16
 static int      s_tr_state = 0;          // 0 idle, 1 tracing, 2 done, 3 no-path
-static char     s_tr_target[24] = "";
+static char     s_tr_target[64] = "";
 static uint32_t s_tr_tag = 0;
 static int      s_tr_hops = 0;           // intermediate hops
 static uint8_t  s_tr_hash[TRACE_MAX];
 static int8_t   s_tr_snr[TRACE_MAX];
 static int8_t   s_tr_final = 0;
 static unsigned s_tr_seq = 0;
+// trace path being built (chain of node hashes = each repeater's pub_key[0])
+static uint8_t  s_tpath[TRACE_MAX];
+static int      s_tpath_n = 0;
 
 void ui_store_trace(uint32_t tag, const uint8_t* hashes, const uint8_t* snrs,
                     uint8_t path_len, uint8_t path_sz, int8_t final_snr_q) {
@@ -899,14 +903,38 @@ void ui_store_trace(uint32_t tag, const uint8_t* hashes, const uint8_t* snrs,
   s_tr_seq++;
 }
 
-extern "C" void lvd_trace_start(const char* contact_name) {
-  s_tr_seq++;
+// ---- trace path builder ----
+extern "C" void lvd_trace_path_clear(void) { s_tpath_n = 0; s_tr_state = 0; s_tr_seq++; }
+extern "C" void lvd_trace_path_add(int i) {   // i = index in the saved repeater/room list
+  if (s_tpath_n >= TRACE_MAX) return;
   ContactInfo c;
-  if (!find_contact_by_name(contact_name, c)) { s_tr_state = 3; s_tr_target[0] = 0; return; }
-  strncpy(s_tr_target, c.name, sizeof(s_tr_target) - 1); s_tr_target[sizeof(s_tr_target) - 1] = 0;
+  if (rep_nth(0, i, c)) { s_tpath[s_tpath_n++] = c.id.pub_key[0]; }
+}
+extern "C" void lvd_trace_path_add_name(const char* name) {   // add a contact by name
+  if (s_tpath_n >= TRACE_MAX) return;
+  ContactInfo c;
+  if (find_contact_by_name(name, c)) { s_tpath[s_tpath_n++] = c.id.pub_key[0]; }
+}
+extern "C" int  lvd_trace_path_len(void) { return s_tpath_n; }
+extern "C" const char* lvd_trace_path_str(void) {
+  static char b[80]; int k = 0; b[0] = 0;
+  for (int j = 0; j < s_tpath_n; j++) {
+    const char* nm = contact_name_by_hash(s_tpath[j]);
+    const char* sep = (j == 0) ? "" : " > ";
+    if (nm) k += snprintf(b + k, sizeof(b) - k, "%s%s", sep, nm);
+    else    k += snprintf(b + k, sizeof(b) - k, "%s%02X", sep, s_tpath[j]);
+    if (k >= (int)sizeof(b) - 8) { snprintf(b + k, sizeof(b) - k, " .."); break; }
+  }
+  return b;
+}
+extern "C" void lvd_trace_go(void) {
+  if (s_tpath_n == 0) return;
+  strncpy(s_tr_target, lvd_trace_path_str(), sizeof(s_tr_target) - 1); s_tr_target[sizeof(s_tr_target) - 1] = 0;
+  s_tr_hops = 0;
   uint32_t tag;
-  if (the_mesh.sendTrace(c, tag)) { s_tr_tag = tag; s_tr_hops = 0; s_tr_state = 1; }
-  else { s_tr_state = 3; }   // no known path
+  if (the_mesh.sendTracePath(s_tpath, (uint8_t)s_tpath_n, tag)) { s_tr_tag = tag; s_tr_state = 1; }
+  else s_tr_state = 3;
+  s_tr_seq++;
 }
 extern "C" int         lvd_trace_state(void)  { return s_tr_state; }
 extern "C" const char* lvd_trace_target(void) { return s_tr_target; }

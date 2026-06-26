@@ -110,6 +110,9 @@ public:
   // random tag (returned via `tag`) used to match the later onTraceResult().
   // Returns false if the contact has no known path or no packet was available.
   bool sendTrace(const ContactInfo& contact, uint32_t& tag);
+  // Trace an explicit path (chain of 1-byte node hashes), independent of any
+  // contact's learned out_path. Generates the tag; flags=0 (1 SNR byte per hop).
+  bool sendTracePath(const uint8_t* path, uint8_t path_len, uint32_t& tag);
 
   // On-device chat send helpers (mirror the CMD_SEND_*_TXT_MSG frame handlers).
   // sendTextTo registers the expected ack so onMsgSendConfirmed fires on delivery;

@@ -30,8 +30,8 @@ static void hop_row(lv_obj_t* list, const char* left, const char* snr, uint32_t 
   (void)p;
 }
 
-static lv_obj_t* s_trace_list = NULL;
-static unsigned  s_trace_seq = 0;
+static unsigned s_trace_seq = 0;
+static void trace_build(lv_obj_t* scr);   // fwd
 
 static void trace_note(lv_obj_t* list, const char* txt) {
   lv_obj_t* l = lv_label_create(list);
@@ -41,37 +41,108 @@ static void trace_note(lv_obj_t* list, const char* txt) {
   lv_obj_set_style_text_color(l, lv_color_hex(MD_MUTED), 0);
 }
 
-static void trace_fill(lv_obj_t* list) {
+// rebuild the whole screen safely after a tap (deferred so we don't free the
+// tapped object mid-event)
+static void trace_rebuild_cb(void* p) { (void)p; lv_obj_t* s = lv_screen_active(); lv_obj_clean(s); trace_build(s); }
+static void trace_rebuild(void) { lv_async_call(trace_rebuild_cb, NULL); }
+
+static void tr_add_clicked(lv_event_t* e)  { lvd_trace_path_add((int)(intptr_t)lv_event_get_user_data(e)); trace_rebuild(); }
+static void tr_send_clicked(lv_event_t* e) { (void)e; lvd_trace_go();        trace_rebuild(); }
+static void tr_clear_clicked(lv_event_t* e){ (void)e; lvd_trace_path_clear(); trace_rebuild(); }
+
+static lv_obj_t* tr_btn(lv_obj_t* parent, const char* txt, uint32_t color) {
+  lv_obj_t* b = lv_ui_card(parent, -1, 0, 0, 0);
+  lv_obj_set_height(b, 34); lv_obj_set_flex_grow(b, 1); lv_obj_set_style_min_height(b, 0, 0);
+  lv_obj_set_style_pad_all(b, 0, 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(color), 0); lv_obj_set_style_bg_opa(b, 48, 0);
+  lv_obj_set_style_border_color(b, lv_color_hex(color), 0); lv_obj_set_style_border_opa(b, 200, 0);
+  lv_obj_set_style_border_width(b, 1, 0);
+  lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_t* l = lv_label_create(b);
+  lv_label_set_text(l, txt);
+  lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(l, lv_color_hex(0xffffff), 0);
+  lv_obj_center(l);
+  return b;
+}
+
+// a tappable repeater row in the builder (name + "+")
+static void tr_rep_row(lv_obj_t* list, int i, const char* name) {
+  lv_obj_t* c = lv_ui_md_card(list);
+  lv_obj_set_width(c, lv_pct(100)); lv_obj_set_height(c, 40); lv_obj_set_style_min_height(c, 0, 0);
+  lv_obj_set_flex_flow(c, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(c, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(c, tr_add_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+  lv_obj_t* nm = lv_label_create(c);
+  lv_label_set_text(nm, name);
+  lv_obj_set_style_text_font(nm, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_color(nm, lv_color_hex(MD_ON), 0);
+  lv_obj_t* pl = lv_label_create(c);
+  lv_label_set_text(pl, LV_SYMBOL_PLUS);
+  lv_obj_set_style_text_color(pl, lv_color_hex(MD_PRIMARY), 0);
+}
+
+static void trace_build(lv_obj_t* scr) {
   s_trace_seq = lvd_trace_seq();
+  lv_ui_screen_bg(scr);
+  lv_ui_md_topbar(scr, "Trace");
+  lv_obj_t* list = full_list(scr, 42);
   int st = lvd_trace_state();
-  const char* tgt = lvd_trace_target();
-  if (st == 0) { trace_note(list, "Open a contact's details and tap Trace to map the route."); return; }
-  if (st == 3) { char b[80]; snprintf(b, sizeof(b), "No known path to %s.\nTrace needs a direct (multi-hop) route.", tgt[0] ? tgt : "that node"); trace_note(list, b); return; }
-  if (st == 1) { char b[48]; snprintf(b, sizeof(b), "Tracing %s ...", tgt); trace_note(list, b); return; }
 
-  char hdr[64]; snprintf(hdr, sizeof(hdr), "%s  -  %d hop%s", tgt, lvd_trace_count() - 1,
-                         (lvd_trace_count() - 1) == 1 ? "" : "s");
-  lv_obj_t* h = lv_label_create(list);
-  lv_label_set_text(h, hdr);
-  lv_obj_set_style_text_color(h, lv_color_hex(UI_AMBER), 0);
-  lv_obj_set_style_text_font(h, &lv_font_montserrat_16, 0);
+  if (st == 1) {   // tracing in progress
+    char b[100]; snprintf(b, sizeof(b), "Tracing %s ...", lvd_trace_path_str());
+    trace_note(list, b);
+    return;
+  }
+  if (st == 2) {   // result
+    lv_obj_t* h = lv_label_create(list);
+    lv_label_set_text(h, lvd_trace_target());
+    lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP); lv_obj_set_width(h, lv_pct(100));
+    lv_obj_set_style_text_color(h, lv_color_hex(UI_AMBER), 0);
+    lv_obj_set_style_text_font(h, &lv_font_montserrat_16, 0);
+    int n = lvd_trace_count();
+    lvd_hop_t hop;
+    for (int i = 0; i < n; i++)
+      if (lvd_trace_get(i, &hop))
+        hop_row(list, hop.left, hop.snr, hop.quality == 2 ? UI_GREEN : hop.quality == 1 ? UI_AMBER : UI_RED);
+    lv_obj_add_event_cb(tr_btn(list, "New trace", UI_BLUE), tr_clear_clicked, LV_EVENT_CLICKED, NULL);
+    return;
+  }
 
-  int n = lvd_trace_count();
-  lvd_hop_t hop;
-  for (int i = 0; i < n; i++)
-    if (lvd_trace_get(i, &hop))
-      hop_row(list, hop.left, hop.snr, hop.quality == 2 ? UI_GREEN : hop.quality == 1 ? UI_AMBER : UI_RED);
+  // build mode (st 0, or 3 = previous send failed)
+  if (st == 3) trace_note(list, "Trace send failed (busy or path too long).");
+
+  lv_obj_t* pc = lv_ui_md_card(list);
+  lv_obj_set_flex_flow(pc, LV_FLEX_FLOW_COLUMN); lv_obj_set_style_pad_row(pc, 8, 0);
+  int plen = lvd_trace_path_len();
+  lv_obj_t* pl = lv_label_create(pc);
+  if (plen == 0) lv_label_set_text(pl, "Build a path: tap repeaters below");
+  else { char b[100]; snprintf(b, sizeof(b), "Path: %s", lvd_trace_path_str()); lv_label_set_text(pl, b); }
+  lv_label_set_long_mode(pl, LV_LABEL_LONG_WRAP); lv_obj_set_width(pl, lv_pct(100));
+  lv_obj_set_style_text_color(pl, lv_color_hex(plen ? MD_ON : MD_MUTED), 0);
+  if (plen > 0) {
+    lv_obj_t* br = lv_obj_create(pc);
+    lv_obj_remove_flag(br, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_width(br, lv_pct(100)); lv_obj_set_height(br, 34);
+    lv_obj_set_style_bg_opa(br, 0, 0); lv_obj_set_style_border_width(br, 0, 0); lv_obj_set_style_pad_all(br, 0, 0);
+    lv_obj_set_flex_flow(br, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(br, 6, 0);
+    lv_obj_add_event_cb(tr_btn(br, "Send", UI_GREEN), tr_send_clicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(tr_btn(br, "Clear", UI_RED), tr_clear_clicked, LV_EVENT_CLICKED, NULL);
+  }
+
+  int rn = lvd_rep_count(0);
+  if (rn == 0) { trace_note(list, "No repeaters or rooms saved to build a path."); return; }
+  lvd_replist_t r;
+  for (int i = 0; i < rn; i++) if (lvd_rep_get(0, i, &r)) tr_rep_row(list, i, r.name);
 }
 
 static void trace_tick(void) {
-  if (s_trace_list && lvd_trace_seq() != s_trace_seq) { lv_obj_clean(s_trace_list); trace_fill(s_trace_list); }
+  if (lvd_trace_seq() != s_trace_seq) { lv_obj_t* s = lv_screen_active(); lv_obj_clean(s); trace_build(s); }
 }
 
 void lv_trace_create(lv_obj_t* scr) {
-  lv_ui_screen_bg(scr);
-  lv_ui_md_topbar(scr, "Trace");
-  s_trace_list = full_list(scr, 42);
-  trace_fill(s_trace_list);
+  trace_build(scr);
   lv_ui_set_refresh(trace_tick);
 }
 

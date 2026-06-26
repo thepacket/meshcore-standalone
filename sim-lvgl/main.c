@@ -143,7 +143,12 @@ static const lvd_hop_t MOCK_HOPS[] = {
   {"1.  id A3", "+8.0 dB", 2}, {"2.  id 7F", "+5.0 dB", 2},
   {"3.  id 12", "+3.0 dB", 1}, {"to you",     "+7.0 dB", 2},
 };
-void lvd_trace_start(const char* contact_name) { (void)contact_name; }
+void lvd_trace_path_clear(void) {}
+void lvd_trace_path_add(int i) { (void)i; }
+void lvd_trace_path_add_name(const char* name) { (void)name; }
+int lvd_trace_path_len(void) { return 2; }
+const char* lvd_trace_path_str(void) { return "GW-Hertford > Hilltop-Relay"; }
+void lvd_trace_go(void) {}
 int lvd_trace_state(void) { return 2; }
 const char* lvd_trace_target(void) { return "Repeater-7"; }
 int lvd_trace_count(void) { return (int)(sizeof(MOCK_HOPS)/sizeof(MOCK_HOPS[0])); }

@@ -132,8 +132,15 @@ typedef struct {
   int  quality;      // 0 = weak, 1 = ok, 2 = good (row colour)
 } lvd_hop_t;
 
-void        lvd_trace_start(const char* contact_name);  // begin a trace to this contact
-int         lvd_trace_state(void);    // 0 idle, 1 tracing, 2 done, 3 no-path/contact
+// build a path (chain of repeaters) then trace through it
+void        lvd_trace_path_clear(void);
+void        lvd_trace_path_add(int i);          // add saved repeater/room i (from lvd_rep_get(0,i))
+void        lvd_trace_path_add_name(const char* name);   // add a contact by name
+int         lvd_trace_path_len(void);
+const char* lvd_trace_path_str(void);           // "A > B" chain being built
+void        lvd_trace_go(void);                 // send the trace along the built path
+
+int         lvd_trace_state(void);    // 0 idle, 1 tracing, 2 done, 3 failed
 const char* lvd_trace_target(void);
 int         lvd_trace_count(void);    // hop rows (intermediate hops + final "to you")
 bool        lvd_trace_get(int i, lvd_hop_t* out);

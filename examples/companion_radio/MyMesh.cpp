@@ -432,6 +432,15 @@ bool MyMesh::sendTrace(const ContactInfo& contact, uint32_t& tag) {
   return true;
 }
 
+bool MyMesh::sendTracePath(const uint8_t* path, uint8_t path_len, uint32_t& tag) {
+  if (path_len == 0 || path_len > MAX_PATH_SIZE) return false;
+  getRNG()->random((uint8_t*)&tag, 4);
+  auto pkt = createTrace(tag, 0, 0);  // flags=0 -> path_sz=0 (one SNR byte per hop)
+  if (!pkt) return false;
+  sendDirect(pkt, path, path_len);
+  return true;
+}
+
 bool MyMesh::sendTextTo(ContactInfo& recipient, const char* text,
                         uint32_t& expected_ack, uint32_t& est_timeout) {
   expected_ack = 0;

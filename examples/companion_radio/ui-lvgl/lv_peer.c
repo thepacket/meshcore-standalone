@@ -13,10 +13,11 @@ static void message_clicked(lv_event_t* e) {
   lvd_chat_open_dm(lv_chat_active_peer());
   if (lv_nav_cb) lv_nav_cb("conv");
 }
-// "Trace" -> start a trace-route to this contact, then show the trace screen
+// "Trace" -> seed the trace path with this contact, then open the path builder
 static void trace_clicked(lv_event_t* e) {
   (void)e;
-  lvd_trace_start(lv_chat_active_peer());
+  lvd_trace_path_clear();
+  lvd_trace_path_add_name(lv_chat_active_peer());
   if (lv_nav_cb) lv_nav_cb("trace");
 }
 
