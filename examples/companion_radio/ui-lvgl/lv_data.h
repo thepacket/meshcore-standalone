@@ -41,6 +41,15 @@ typedef struct {
 int  lvd_contact_count(void);
 bool lvd_contact_get(int i, lvd_contact_t* out);
 
+// ---- settings / device config (Settings screens) ---------------------------
+// Bound fields are keyed by (group title, field label). lvd_cfg_get fills the
+// live value (val for VAL/INFO, *sel for ENUM/BOOL) and returns true; an unbound
+// field returns false and keeps its prototype default. lvd_cfg_set applies an
+// edit (validate + apply-live + persist); lvd_cfg_action fires an action field.
+bool lvd_cfg_get(const char* group, const char* label, char* val, int val_len, int* sel);
+void lvd_cfg_set(const char* group, const char* label, const char* val, int sel);
+void lvd_cfg_action(const char* group, const char* label);
+
 #ifdef __cplusplus
 }
 #endif

@@ -43,6 +43,15 @@ bool lvd_contact_get(int i, lvd_contact_t* out) {
   return true;
 }
 
+// settings bridge: sim keeps prototype defaults (get returns unbound)
+bool lvd_cfg_get(const char* group, const char* label, char* val, int len, int* sel) {
+  (void)group; (void)label; (void)val; (void)len; (void)sel; return false;
+}
+void lvd_cfg_set(const char* group, const char* label, const char* val, int sel) {
+  (void)group; (void)label; (void)val; (void)sel;
+}
+void lvd_cfg_action(const char* group, const char* label) { (void)group; (void)label; }
+
 #define W 320
 #define H 240
 

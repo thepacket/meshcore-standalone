@@ -4,6 +4,7 @@
 // value fields. Edits persist in an in-memory overlay (prototype); the firmware
 // build binds the same rows to the SettingsModel forwarders.
 #include "lv_ui.h"
+#include "lv_data.h"
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -204,17 +205,25 @@ void lv_settings_create(lv_obj_t* scr) {
 static void on_enum_changed(lv_event_t* e) {
   int ud = (int)(intptr_t)lv_event_get_user_data(e);
   lv_obj_t* dd = (lv_obj_t*)lv_event_get_target(e);
-  g_sel[ud >> 8][ud & 0xff] = lv_dropdown_get_selected(dd);
+  int g = ud >> 8, f = ud & 0xff;
+  g_sel[g][f] = lv_dropdown_get_selected(dd);
+  lvd_cfg_set(GROUPS[g].title, GROUPS[g].fields[f].label, NULL, g_sel[g][f]);
 }
 static void on_bool_changed(lv_event_t* e) {
   int ud = (int)(intptr_t)lv_event_get_user_data(e);
   lv_obj_t* sw = (lv_obj_t*)lv_event_get_target(e);
-  g_sel[ud >> 8][ud & 0xff] = lv_obj_has_state(sw, LV_STATE_CHECKED) ? 1 : 0;
+  int g = ud >> 8, f = ud & 0xff;
+  g_sel[g][f] = lv_obj_has_state(sw, LV_STATE_CHECKED) ? 1 : 0;
+  lvd_cfg_set(GROUPS[g].title, GROUPS[g].fields[f].label, NULL, g_sel[g][f]);
 }
 static void on_edit_clicked(lv_event_t* e) {
   int ud = (int)(intptr_t)lv_event_get_user_data(e);
   g_edit_g = ud >> 8; g_edit_f = ud & 0xff;
   if (lv_nav_cb) lv_nav_cb("edit");
+}
+static void on_action_clicked(lv_event_t* e) {
+  int ud = (int)(intptr_t)lv_event_get_user_data(e);
+  lvd_cfg_action(GROUPS[ud >> 8].title, GROUPS[ud >> 8].fields[ud & 0xff].label);
 }
 
 // ---- per-field widgets ------------------------------------------------------
@@ -230,7 +239,7 @@ static lv_obj_t* field_card(lv_obj_t* list, const char* label) {
   return c;
 }
 
-static void action_button(lv_obj_t* list, const char* label, uint32_t color) {
+static void action_button(lv_obj_t* list, const char* label, uint32_t color, int ud) {
   lv_obj_t* b = lv_ui_md_card(list);
   lv_obj_set_height(b, 40);
   lv_obj_set_style_bg_color(b, lv_color_hex(color), 0);
@@ -238,6 +247,8 @@ static void action_button(lv_obj_t* list, const char* label, uint32_t color) {
   lv_obj_set_style_border_color(b, lv_color_hex(color), 0);
   lv_obj_set_style_border_opa(b, 200, 0);
   lv_obj_set_style_border_width(b, 1, 0);
+  lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(b, on_action_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)ud);
   lv_obj_t* l = lv_label_create(b);
   lv_label_set_text(l, label);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
@@ -257,9 +268,16 @@ void lv_settings_group_create(lv_obj_t* scr, int idx) {
   for (int i = 0; i < g->n; i++) {
     const Field* f = &g->fields[i];
     int ud = (idx << 8) | i;
+    // overlay live config onto the prototype default for any bound field
+    { char lv[28]; int ls = g_sel[idx][i];
+      if (lvd_cfg_get(g->title, f->label, lv, sizeof(lv), &ls)) {
+        strncpy(g_val[idx][i], lv, sizeof(g_val[0][0]) - 1);
+        g_val[idx][i][sizeof(g_val[0][0]) - 1] = 0;
+        g_sel[idx][i] = ls;
+      } }
     switch (f->type) {
-      case F_ACTION:      action_button(list, f->label, g->color); break;
-      case F_ACTION_WARN: action_button(list, f->label, UI_RED);   break;
+      case F_ACTION:      action_button(list, f->label, g->color, ud); break;
+      case F_ACTION_WARN: action_button(list, f->label, UI_RED,   ud); break;
       case F_BOOL: {
         lv_obj_t* c = field_card(list, f->label);
         lv_obj_t* sw = lv_switch_create(c);
@@ -315,6 +333,8 @@ static void on_kb_ready(lv_event_t* e) {
     const char* txt = lv_textarea_get_text(s_edit_ta);
     strncpy(g_val[g_edit_g][g_edit_f], txt, sizeof(g_val[0][0]) - 1);
     g_val[g_edit_g][g_edit_f][sizeof(g_val[0][0]) - 1] = 0;
+    lvd_cfg_set(GROUPS[g_edit_g].title, GROUPS[g_edit_g].fields[g_edit_f].label,
+                g_val[g_edit_g][g_edit_f], 0);
   }
   if (lv_nav_cb) lv_nav_cb("back");
 }

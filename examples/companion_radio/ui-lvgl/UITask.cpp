@@ -264,3 +264,44 @@ extern "C" bool lvd_contact_get(int i, lvd_contact_t* out) {
     snprintf(out->subtitle, sizeof(out->subtitle), "%s / %u hops", t, (unsigned)c.out_path_len);
   return true;
 }
+
+// ---- settings / device config ----------------------------------------------
+// Only the fields bound here are live; the Settings screen keeps prototype
+// values for everything else. Keyed by (group title, field label) so the C
+// screen and this map stay decoupled from field ordering.
+static bool eq(const char* a, const char* b) { return strcmp(a, b) == 0; }
+
+extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int len, int* sel) {
+  NodePrefs* p = the_mesh.getNodePrefs();
+  if (eq(group, "Public info")) {
+    if (eq(label, "Node name"))       { strncpy(val, p->node_name, len - 1); val[len - 1] = 0; return true; }
+    if (eq(label, "Location policy")) { *sel = p->advert_loc_policy ? 1 : 0; return true; }
+  } else if (eq(group, "Radio")) {
+    if (eq(label, "TX power"))        { snprintf(val, len, "%d", p->tx_power_dbm); return true; }
+  } else if (eq(group, "Device")) {
+    if (eq(label, "Battery/storage")) {
+      uint16_t mv; uint32_t used, total; the_mesh.getBattAndStorage(mv, used, total);
+      snprintf(val, len, "%u mV  %u/%u KB", (unsigned)mv, (unsigned)used, (unsigned)total);
+      return true;
+    }
+    if (eq(label, "Firmware")) { strncpy(val, FIRMWARE_VERSION, len - 1); val[len - 1] = 0; return true; }
+    if (eq(label, "Device"))   { strncpy(val, board.getManufacturerName(), len - 1); val[len - 1] = 0; return true; }
+  }
+  return false;
+}
+
+extern "C" void lvd_cfg_set(const char* group, const char* label, const char* val, int sel) {
+  if (eq(group, "Public info")) {
+    if (eq(label, "Node name") && val)  { the_mesh.setAdvertName(val); return; }
+    if (eq(label, "Location policy"))   { the_mesh.setAdvertLocPolicy((uint8_t)sel); return; }
+  } else if (eq(group, "Radio")) {
+    if (eq(label, "TX power") && val)   { the_mesh.setTxPower((int8_t)atoi(val)); return; }
+  }
+}
+
+extern "C" void lvd_cfg_action(const char* group, const char* label) {
+  if (eq(group, "Public info")) {
+    if (eq(label, "Send advert"))         { the_mesh.advert();      return; }
+    if (eq(label, "Send advert (flood)")) { the_mesh.advertFlood(); return; }
+  }
+}
