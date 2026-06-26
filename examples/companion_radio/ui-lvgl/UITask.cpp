@@ -890,25 +890,33 @@ extern "C" bool lvd_peer_get(const char* name, lvd_peer_t* out) {
   return true;
 }
 
-// ---- signal coverage (per saved repeater/room, from the heard table) --------
-extern "C" int lvd_signal_count(void) { rep_build(0); return g_replist_n; }
+// ---- signal coverage (saved repeaters/rooms we've actually heard) ----------
+// Only include repeaters with a recent heard advert (skip stale ones). Keep a
+// filtered index into the sorted g_replist, rebuilt on each count.
+static uint16_t g_sigidx[REPLIST_MAX];
+static int      g_sigidx_n = 0;
+
+static void sig_build(void) {
+  rep_build(0);
+  g_sigidx_n = 0;
+  for (int i = 0; i < g_replist_n; i++) {
+    AdvertPath h;
+    if (find_heard_by_pubkey(g_replist[i].id.pub_key, h) && h.rssi) g_sigidx[g_sigidx_n++] = (uint16_t)i;
+  }
+}
+extern "C" int lvd_signal_count(void) { sig_build(); return g_sigidx_n; }
 extern "C" bool lvd_signal_get(int i, lvd_sig_t* out) {
-  if (g_replist_scan != 0) rep_build(0);
-  if (i < 0 || i >= g_replist_n) return false;
-  ContactInfo& c = g_replist[i];
+  if (i < 0 || i >= g_sigidx_n) return false;
+  ContactInfo& c = g_replist[g_sigidx[i]];
   strncpy(out->name, c.name, sizeof(out->name) - 1); out->name[sizeof(out->name) - 1] = 0;
 
   AdvertPath h;
-  if (find_heard_by_pubkey(c.id.pub_key, h) && h.rssi) {
-    out->rssi = h.rssi; out->heard = 1;
-    uint32_t now = rtc_clock.getCurrentTime();
-    uint32_t age = now > h.recv_timestamp ? now - h.recv_timestamp : 0;
-    if (age < 60)        snprintf(out->age, sizeof(out->age), "%us", (unsigned)age);
-    else if (age < 3600) snprintf(out->age, sizeof(out->age), "%um", (unsigned)(age / 60));
-    else                 snprintf(out->age, sizeof(out->age), "%uh", (unsigned)(age / 3600));
-  } else {
-    out->rssi = 0; out->heard = 0;
-    snprintf(out->age, sizeof(out->age), "stale");
-  }
+  find_heard_by_pubkey(c.id.pub_key, h);   // present (filtered in sig_build)
+  out->rssi = h.rssi; out->heard = 1;
+  uint32_t now = rtc_clock.getCurrentTime();
+  uint32_t age = now > h.recv_timestamp ? now - h.recv_timestamp : 0;
+  if (age < 60)        snprintf(out->age, sizeof(out->age), "%us", (unsigned)age);
+  else if (age < 3600) snprintf(out->age, sizeof(out->age), "%um", (unsigned)(age / 60));
+  else                 snprintf(out->age, sizeof(out->age), "%uh", (unsigned)(age / 3600));
   return true;
 }

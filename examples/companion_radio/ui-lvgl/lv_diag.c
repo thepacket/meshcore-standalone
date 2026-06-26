@@ -121,7 +121,7 @@ static void sig_fill(lv_obj_t* list) {
   s_sig_last = n;
   if (n <= 0) {
     lv_obj_t* h = lv_label_create(list);
-    lv_label_set_text(h, "No repeaters or rooms saved");
+    lv_label_set_text(h, "No repeaters heard recently");
     lv_obj_set_style_text_color(h, lv_color_hex(MD_MUTED), 0);
     return;
   }
