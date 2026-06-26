@@ -52,3 +52,17 @@ mesh::LocalIdentity radio_new_identity() {
   RadioNoiseListener rng(radio);
   return mesh::LocalIdentity(&rng); // create new random identity
 }
+
+// Hand the shared SPI output pins back to the LoRa radio. On the T-Deck the radio
+// (Arduino SPI HAL on SPI2) and the LovyanGFX TFT (ESP-IDF spi_master on SPI3)
+// run on separate hosts but share the physical SCLK/MOSI pins; each display flush
+// leaves those pins routed to the display, so this re-asserts the radio's SPI2
+// bus afterwards. Only touches SPI2 -- harmless to the SPI3 display bus. The
+// SX1262 receives autonomously between commands, so it only needs the pins at the
+// moments it issues/reads SPI.
+void radio_spi_claim() {
+#if defined(P_LORA_SCLK)
+  spi.end();
+  spi.begin(P_LORA_SCLK, P_LORA_MISO, P_LORA_MOSI);
+#endif
+}

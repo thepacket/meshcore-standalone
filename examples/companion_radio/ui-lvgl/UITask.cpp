@@ -95,6 +95,11 @@ static DisplayDriver* g_disp = nullptr;  // for getTouch
 
 static uint32_t tick_cb(void) { return millis(); }
 
+// Defined in the T-Deck target: re-asserts the shared SPI output pins for the
+// LoRa radio (SPI2) after the display (SPI3) has driven them during a flush.
+// Safe now that the display is on its own host -- this only resets SPI2.
+extern void radio_spi_claim();
+
 static void flush_cb(lv_display_t* d, const lv_area_t* area, uint8_t* px_map) {
   if (g_gfx) {
     int w = area->x2 - area->x1 + 1;
@@ -102,6 +107,7 @@ static void flush_cb(lv_display_t* d, const lv_area_t* area, uint8_t* px_map) {
     g_gfx->startWrite();
     g_gfx->pushImage(area->x1, area->y1, w, h, (lgfx::rgb565_t*)px_map);
     g_gfx->endWrite();
+    radio_spi_claim();   // hand the shared output pins back to the radio
   }
   lv_display_flush_ready(d);
 }

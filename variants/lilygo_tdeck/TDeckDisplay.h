@@ -19,9 +19,12 @@ class LGFX_TDeck : public lgfx::LGFX_Device {
 
 public:
   LGFX_TDeck() {
-    {  // SPI bus (shared with the LoRa radio; LovyanGFX manages the TFT CS)
+    {  // SPI bus -- shares the physical SCLK/MOSI pins with the LoRa radio but
+       // uses a SEPARATE SPI host (SPI3) so the display's ESP-IDF spi_master
+       // driver never tears down the radio's Arduino-HAL bus on SPI2. The two
+       // only contend for the shared output pins, handed off per flush.
       auto cfg = _bus.config();
-      cfg.spi_host   = SPI2_HOST;
+      cfg.spi_host   = SPI3_HOST;
       cfg.spi_mode   = 0;
       cfg.freq_write = 40000000;
       cfg.freq_read  = 16000000;

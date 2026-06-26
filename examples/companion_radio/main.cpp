@@ -116,10 +116,10 @@ void setup() {
 
   board.begin();
 
-  // Initialise the radio BEFORE the display. On boards where the TFT shares the
-  // SPI bus with the LoRa radio (e.g. T-Deck), the radio's Arduino SPI.begin()
-  // re-initialises the SPI host and would clobber an already-configured display;
-  // letting the radio go first lets the shared-bus display driver own the bus.
+  // Initialise the radio before the display. On the T-Deck the TFT shares the
+  // physical SCLK/MOSI pins with the LoRa radio; the radio uses Arduino SPI on
+  // SPI2 while the LovyanGFX display runs on its own host (SPI3), so going first
+  // lets the radio establish its bus before the display claims the shared pins.
   if (!radio_init()) { halt(); }
 
   fast_rng.begin(radio_driver.getRngSeed());

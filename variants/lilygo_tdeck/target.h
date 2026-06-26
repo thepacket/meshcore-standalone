@@ -44,3 +44,8 @@ extern EnvironmentSensorManager sensors;
 
 bool radio_init();
 mesh::LocalIdentity radio_new_identity();
+
+// Hand the shared SPI output pins back to the LoRa radio (call after each display
+// flush). See target.cpp -- the radio (SPI2) and LovyanGFX display (SPI3) share
+// the physical SCLK/MOSI pins on the T-Deck.
+void radio_spi_claim();

@@ -1015,6 +1015,9 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _prefs.bw = LORA_BW;
   _prefs.cr = LORA_CR;
   _prefs.tx_power_dbm = LORA_TX_POWER;
+#ifdef LORA_PATH_HASH_MODE
+  _prefs.path_hash_mode = LORA_PATH_HASH_MODE;   // network-specific default (e.g. T-Deck = 2)
+#endif
   _prefs.gps_enabled = 0;       // GPS disabled by default
   _prefs.gps_interval = 0;      // No automatic GPS updates by default
   //_prefs.rx_delay_base = 10.0f;  enable once new algo fixed
