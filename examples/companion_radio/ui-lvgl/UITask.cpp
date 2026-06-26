@@ -85,8 +85,8 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "rep_cli")) lv_rep_cli_create(s);
   else if (!strcmp(name, "peer")) lv_peer_create(s);
   else if (!strcmp(name, "trace")) lv_trace_create(s);
-  else if (!strcmp(name, "terminal")) { lv_terminal_set_tab(0); lv_terminal_create(s); }
-  else if (!strcmp(name, "packets")) { lv_terminal_set_tab(1); lv_terminal_create(s); }
+  else if (!strcmp(name, "terminal")) lv_terminal_create(s);
+  else if (!strcmp(name, "packets")) lv_terminal_create(s);
   else if (!strcmp(name, "stats")) lv_stats_create(s);
   else if (!strcmp(name, "discover")) lv_discover_create(s);
   else if (!strcmp(name, "disc")) lv_disc_create(s);
@@ -887,5 +887,28 @@ extern "C" bool lvd_peer_get(const char* name, lvd_peer_t* out) {
     else if (age < 3600) snprintf(out->lastheard, sizeof(out->lastheard), "%um", (unsigned)(age / 60));
     else snprintf(out->lastheard, sizeof(out->lastheard), "%uh", (unsigned)(age / 3600));
   } else snprintf(out->lastheard, sizeof(out->lastheard), "--");
+  return true;
+}
+
+// ---- signal coverage (per saved repeater/room, from the heard table) --------
+extern "C" int lvd_signal_count(void) { rep_build(0); return g_replist_n; }
+extern "C" bool lvd_signal_get(int i, lvd_sig_t* out) {
+  if (g_replist_scan != 0) rep_build(0);
+  if (i < 0 || i >= g_replist_n) return false;
+  ContactInfo& c = g_replist[i];
+  strncpy(out->name, c.name, sizeof(out->name) - 1); out->name[sizeof(out->name) - 1] = 0;
+
+  AdvertPath h;
+  if (find_heard_by_pubkey(c.id.pub_key, h) && h.rssi) {
+    out->rssi = h.rssi; out->heard = 1;
+    uint32_t now = rtc_clock.getCurrentTime();
+    uint32_t age = now > h.recv_timestamp ? now - h.recv_timestamp : 0;
+    if (age < 60)        snprintf(out->age, sizeof(out->age), "%us", (unsigned)age);
+    else if (age < 3600) snprintf(out->age, sizeof(out->age), "%um", (unsigned)(age / 60));
+    else                 snprintf(out->age, sizeof(out->age), "%uh", (unsigned)(age / 3600));
+  } else {
+    out->rssi = 0; out->heard = 0;
+    snprintf(out->age, sizeof(out->age), "stale");
+  }
   return true;
 }

@@ -169,6 +169,19 @@ bool lvd_peer_get(const char* name, lvd_peer_t* out) {
   return true;
 }
 
+static const lvd_sig_t MOCK_SIG[] = {
+  {"GW-Hertford",  -72, "12s",   1},
+  {"Hilltop-Relay",-96, "2m",    1},
+  {"Town Square",  -110,"30m",   1},
+  {"Field-Node",    0,  "stale", 0},
+};
+int lvd_signal_count(void) { return (int)(sizeof(MOCK_SIG)/sizeof(MOCK_SIG[0])); }
+bool lvd_signal_get(int i, lvd_sig_t* out) {
+  if (i < 0 || i >= lvd_signal_count()) return false;
+  *out = MOCK_SIG[i];
+  return true;
+}
+
 #define W 320
 #define H 240
 

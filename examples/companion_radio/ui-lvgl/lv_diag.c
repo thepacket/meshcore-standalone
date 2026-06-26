@@ -74,10 +74,8 @@ void lv_noise_create(lv_obj_t* scr) {
   lv_obj_set_style_line_width(chart, 2, LV_PART_ITEMS);
 }
 
-// ---- Signal: per-repeater coverage gauges -----------------------------------
-typedef struct { const char* name; int rssi; const char* age; bool heard; } Rep;
-
-static void coverage_row(lv_obj_t* list, const Rep* r) {
+// ---- Signal: per-repeater coverage gauges (live, from the heard table) ------
+static void coverage_row(lv_obj_t* list, const lvd_sig_t* r) {
   lv_obj_t* row = lv_ui_card(list, -1, 0, 0, 52);
   lv_obj_set_width(row, lv_pct(100));
   lv_obj_set_height(row, 50);
@@ -115,17 +113,34 @@ static void coverage_row(lv_obj_t* list, const Rep* r) {
   lv_bar_set_value(bar, pct, LV_ANIM_OFF);
 }
 
+static lv_obj_t* s_sig_list = NULL;
+static int       s_sig_last = -1, s_sig_ticks = 0;
+
+static void sig_fill(lv_obj_t* list) {
+  int n = lvd_signal_count();
+  s_sig_last = n;
+  if (n <= 0) {
+    lv_obj_t* h = lv_label_create(list);
+    lv_label_set_text(h, "No repeaters or rooms saved");
+    lv_obj_set_style_text_color(h, lv_color_hex(MD_MUTED), 0);
+    return;
+  }
+  lvd_sig_t s;
+  for (int i = 0; i < n; i++) if (lvd_signal_get(i, &s)) coverage_row(list, &s);
+}
+static void sig_tick(void) {
+  if (!s_sig_list) return;
+  int n = lvd_signal_count();
+  if (n != s_sig_last || (++s_sig_ticks % 5) == 0) { lv_obj_clean(s_sig_list); sig_fill(s_sig_list); }
+}
+
 void lv_signal_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
   lv_ui_md_topbar(scr, "Signal");
-  lv_obj_t* list = full_list(scr);
-  Rep reps[] = {
-    {"GW-Hertford", -72, "12s", true},
-    {"Hilltop-Relay", -96, "2m", true},
-    {"Town Square", -110, "30m", true},
-    {"Field-Node", 0, "stale", false},
-  };
-  for (unsigned i = 0; i < sizeof(reps)/sizeof(reps[0]); i++) coverage_row(list, &reps[i]);
+  s_sig_list = full_list(scr);
+  s_sig_ticks = 0;
+  sig_fill(s_sig_list);
+  lv_ui_set_refresh(sig_tick);
 }
 
 // ---- Heard: recent stations (Material cards, like the Android HeardRow) ------
