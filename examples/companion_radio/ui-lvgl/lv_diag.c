@@ -184,11 +184,14 @@ static void heard_row(lv_obj_t* list, const lvd_heard_t* s, int idx) {
   }
 }
 
-void lv_heard_create(lv_obj_t* scr) {
-  lv_ui_screen_bg(scr);
-  lv_ui_md_topbar(scr, "Heard");
-  lv_obj_t* list = lv_ui_md_scroll(scr);
+// live-refresh state for the Heard list (valid only while the screen is active)
+static lv_obj_t* s_heard_list  = NULL;
+static int       s_heard_last  = -1;
+static int       s_heard_ticks = 0;
+
+static void heard_fill(lv_obj_t* list) {
   int n = lvd_heard_count();
+  s_heard_last = n;
   if (n <= 0) {
     lv_obj_t* hint = lv_label_create(list);
     lv_label_set_text(hint, "No stations heard yet");
@@ -197,4 +200,24 @@ void lv_heard_create(lv_obj_t* scr) {
   }
   lvd_heard_t s;
   for (int i = 0; i < n; i++) if (lvd_heard_get(i, &s)) heard_row(list, &s, i);
+}
+
+// Rebuild the list when a new station appears (count changed), and every ~5s to
+// refresh the age labels. Cheap (the list is <=16 rows); scroll resets on rebuild.
+static void heard_tick(void) {
+  if (!s_heard_list) return;
+  int n = lvd_heard_count();
+  if (n != s_heard_last || (++s_heard_ticks % 5) == 0) {
+    lv_obj_clean(s_heard_list);
+    heard_fill(s_heard_list);
+  }
+}
+
+void lv_heard_create(lv_obj_t* scr) {
+  lv_ui_screen_bg(scr);
+  lv_ui_md_topbar(scr, "Heard");
+  s_heard_list  = lv_ui_md_scroll(scr);
+  s_heard_ticks = 0;
+  heard_fill(s_heard_list);
+  lv_ui_set_refresh(heard_tick);
 }

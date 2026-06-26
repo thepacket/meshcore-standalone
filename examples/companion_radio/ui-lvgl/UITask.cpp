@@ -50,6 +50,7 @@ extern "C" {
 // ===========================================================================
 static void build_screen(const char* name) {
   lv_obj_t* s = lv_screen_active();
+  lv_ui_set_refresh(NULL);   // drop the previous screen's live-refresh hook
   lv_obj_clean(s);
   if (!strcmp(name, "home")) lv_home_create(s);
   else if (!strcmp(name, "chat")) lv_chat_list_create(s);
@@ -129,6 +130,12 @@ static void touch_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
 static uint8_t g_buf1[320 * LV_BUF_LINES * 2];
 static uint8_t g_buf2[320 * LV_BUF_LINES * 2];
 
+// LVGL timer: tick the active screen's registered live-refresh hook (if any).
+static void refresh_timer_cb(lv_timer_t*) {
+  lv_refresh_fn f = lv_ui_get_refresh();
+  if (f) f();
+}
+
 void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* node_prefs) {
   _display = display;
   _sensors = sensors;
@@ -152,6 +159,9 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   lv_nav_cb = nav;       // screens route taps through here
   g_nav_sp = 0;
   nav("home");
+
+  // drive live screens: every 1s, call the active screen's refresh hook (if any)
+  lv_timer_create(refresh_timer_cb, 1000, nullptr);
 
   _lvgl_ready = true;
 }

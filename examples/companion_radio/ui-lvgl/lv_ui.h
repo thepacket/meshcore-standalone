@@ -72,6 +72,15 @@ extern lv_nav_fn lv_nav_cb;
 // make `o` clickable so a tap routes to lv_nav_cb(dest) (dest must outlive o)
 void lv_ui_clickable(lv_obj_t* o, const char* dest);
 
+// Periodic refresh hook for live screens. A screen that shows live data registers
+// a callback via lv_ui_set_refresh() at the end of its create fn; the host calls
+// it on a ~1s timer to update widgets in place. The screen manager clears the
+// hook (lv_ui_set_refresh(NULL)) before building each screen, so a registered fn
+// only ever runs while its own screen is active -- never against freed objects.
+typedef void (*lv_refresh_fn)(void);
+void          lv_ui_set_refresh(lv_refresh_fn fn);
+lv_refresh_fn lv_ui_get_refresh(void);
+
 #ifdef __cplusplus
 }
 #endif

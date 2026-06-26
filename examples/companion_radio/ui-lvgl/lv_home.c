@@ -66,6 +66,27 @@ static void make_tile(lv_obj_t* parent, const Tile* t, int idx, int x, int y, in
   }
 }
 
+// live status-bar widgets, updated in place by home_tick() (registered as the
+// screen's refresh hook). Valid only while the home screen is active.
+static lv_obj_t* s_clock = NULL;
+static lv_obj_t* s_batt  = NULL;
+
+static const char* batt_symbol(int bp) {
+  return bp < 0  ? LV_SYMBOL_BATTERY_EMPTY :
+         bp > 80 ? LV_SYMBOL_BATTERY_FULL  :
+         bp > 55 ? LV_SYMBOL_BATTERY_3     :
+         bp > 30 ? LV_SYMBOL_BATTERY_2     :
+         bp > 10 ? LV_SYMBOL_BATTERY_1     : LV_SYMBOL_BATTERY_EMPTY;
+}
+static void apply_batt(lv_obj_t* b, int bp) {
+  lv_label_set_text(b, batt_symbol(bp));
+  lv_obj_set_style_text_color(b, lv_color_hex(bp >= 0 && bp <= 20 ? UI_RED : UI_GREEN), 0);
+}
+static void home_tick(void) {
+  if (s_clock) { char t[8]; lvd_clock_hhmm(t, sizeof(t)); lv_label_set_text(s_clock, t); }
+  if (s_batt)  apply_batt(s_batt, lvd_batt_pct());
+}
+
 static void make_statusbar(lv_obj_t* scr) {
   lv_obj_t* bar = lv_obj_create(scr);
   lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
@@ -89,22 +110,17 @@ static void make_statusbar(lv_obj_t* scr) {
   lv_obj_set_style_text_font(clock, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(clock, lv_color_hex(UI_TEXT), 0);
   lv_obj_align(clock, LV_ALIGN_RIGHT_MID, -56, 0);
+  s_clock = clock;
 
   lv_obj_t* wifi = lv_label_create(bar);
   lv_label_set_text(wifi, LV_SYMBOL_WIFI);
   lv_obj_set_style_text_color(wifi, lv_color_hex(UI_CYAN), 0);
   lv_obj_align(wifi, LV_ALIGN_RIGHT_MID, -30, 0);
 
-  int bp = lvd_batt_pct();
-  const char* bsym = bp < 0   ? LV_SYMBOL_BATTERY_EMPTY :
-                     bp > 80  ? LV_SYMBOL_BATTERY_FULL  :
-                     bp > 55  ? LV_SYMBOL_BATTERY_3     :
-                     bp > 30  ? LV_SYMBOL_BATTERY_2     :
-                     bp > 10  ? LV_SYMBOL_BATTERY_1     : LV_SYMBOL_BATTERY_EMPTY;
   lv_obj_t* batt = lv_label_create(bar);
-  lv_label_set_text(batt, bsym);
-  lv_obj_set_style_text_color(batt, lv_color_hex(bp >= 0 && bp <= 20 ? UI_RED : UI_GREEN), 0);
+  apply_batt(batt, lvd_batt_pct());
   lv_obj_align(batt, LV_ALIGN_RIGHT_MID, -8, 0);
+  s_batt = batt;
 }
 
 static lv_obj_t* widget_card(lv_obj_t* scr, int x, int y, int w, int h, const char* title, uint32_t accent) {
@@ -187,4 +203,6 @@ void lv_home_create(lv_obj_t* scr) {
   }
 
   make_identitybar(scr);
+
+  lv_ui_set_refresh(home_tick);   // live status bar (clock + battery) while home is up
 }

@@ -2,6 +2,10 @@
 
 lv_nav_fn lv_nav_cb = NULL;
 
+static lv_refresh_fn g_refresh = NULL;
+void          lv_ui_set_refresh(lv_refresh_fn fn) { g_refresh = fn; }
+lv_refresh_fn lv_ui_get_refresh(void) { return g_refresh; }
+
 static void nav_event(lv_event_t* e) {
   const char* dest = (const char*)lv_event_get_user_data(e);
   if (lv_nav_cb && dest) lv_nav_cb(dest);
