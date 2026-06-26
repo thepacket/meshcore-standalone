@@ -90,7 +90,7 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "rep_cli")) lv_rep_cli_create(s);
   else if (!strcmp(name, "peer")) lv_peer_create(s);
   else if (!strcmp(name, "trace")) lv_trace_create(s);
-  else if (!strcmp(name, "trace_rep_search")) lv_trace_rep_search_create(s);
+  else if (!strcmp(name, "tr_rep_search")) lv_trace_rep_search_create(s);
   else if (!strcmp(name, "terminal")) lv_terminal_create(s);
   else if (!strcmp(name, "packets")) lv_terminal_create(s);
   else if (!strcmp(name, "pktdetail")) lv_pkt_detail_create(s);
@@ -101,15 +101,16 @@ static void build_screen(const char* name) {
   else lv_home_create(s);
 }
 
-static char g_nav_stack[16][16];
+#define NAV_NAME_MAX 24
+static char g_nav_stack[16][NAV_NAME_MAX];
 static int  g_nav_sp = 0;
 
 static void nav(const char* dest) {
   if (!strcmp(dest, "back")) {
     if (g_nav_sp > 1) g_nav_sp--;
   } else if (g_nav_sp < 16) {
-    strncpy(g_nav_stack[g_nav_sp], dest, 15);
-    g_nav_stack[g_nav_sp][15] = 0;
+    strncpy(g_nav_stack[g_nav_sp], dest, NAV_NAME_MAX - 1);
+    g_nav_stack[g_nav_sp][NAV_NAME_MAX - 1] = 0;
     g_nav_sp++;
   }
   build_screen(g_nav_stack[g_nav_sp - 1]);

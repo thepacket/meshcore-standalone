@@ -62,7 +62,7 @@ static int tr_ci_contains(const char* hay, const char* needle) {
   }
   return 0;
 }
-static void tr_repsearch_open(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("trace_rep_search"); }
+static void tr_repsearch_open(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("tr_rep_search"); }
 static void tr_repfilter_clear(lv_event_t* e) { (void)e; s_tr_repfilter[0] = 0; trace_rebuild(); }
 
 static lv_obj_t* tr_btn(lv_obj_t* parent, const char* txt, uint32_t color) {
