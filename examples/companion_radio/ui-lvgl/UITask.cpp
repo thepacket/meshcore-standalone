@@ -502,6 +502,8 @@ extern "C" int      lvd_noise_floor(void) { return radio_driver.getNoiseFloor();
 extern "C" unsigned lvd_pkt_recv(void)    { return radio_driver.getPacketsRecv(); }
 extern "C" unsigned lvd_pkt_sent(void)    { return radio_driver.getPacketsSent(); }
 extern "C" unsigned lvd_pkt_recv_err(void) { return radio_driver.getPacketsRecvErrors(); }
+extern "C" int      lvd_last_rssi(void)    { return (int)radio_driver.getLastRSSI(); }
+extern "C" int      lvd_last_snr_q(void)   { return (int)(radio_driver.getLastSNR() * 4.0f); }
 
 // ---- packet monitor --------------------------------------------------------
 #define PKT_LOG 32

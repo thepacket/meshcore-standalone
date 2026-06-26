@@ -71,6 +71,8 @@ int      lvd_noise_floor(void);   // current noise floor, dBm (0 = unknown)
 unsigned lvd_pkt_recv(void);      // total packets received (drives the activity rate)
 unsigned lvd_pkt_sent(void);      // total packets transmitted
 unsigned lvd_pkt_recv_err(void);  // total receive errors
+int      lvd_last_rssi(void);     // dBm of the last received packet
+int      lvd_last_snr_q(void);    // SNR*4 of the last received packet
 
 // ---- packet monitor (Terminal > Packets) -----------------------------------
 typedef struct {

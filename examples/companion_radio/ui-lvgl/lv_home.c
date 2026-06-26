@@ -71,11 +71,10 @@ static void make_tile(lv_obj_t* parent, const Tile* t, int idx, int x, int y, in
 static lv_obj_t* s_clock = NULL;
 static lv_obj_t* s_batt  = NULL;
 static lv_obj_t* s_rxtx  = NULL;   // "rx N  tx M" packet counters
-// live hero widgets (Activity = RX packets/sec, Noise = noise-floor trend)
-static lv_obj_t* s_act_chart;   static lv_chart_series_t* s_act_s;
+// live hero widgets (Latest = last-RX RSSI/SNR + strength bar, Noise = noise trend)
+static lv_obj_t* s_latest;      static lv_obj_t* s_strength;
 static lv_obj_t* s_noise_chart; static lv_chart_series_t* s_noise_s;
 static lv_obj_t* s_noise_val;
-static unsigned  s_last_recv;
 
 static const char* batt_symbol(int bp) {
   return bp < 0  ? LV_SYMBOL_BATTERY_EMPTY :
@@ -97,11 +96,20 @@ static void home_tick(void) {
     char b[12]; snprintf(b, sizeof(b), "%d", nf); lv_label_set_text(s_noise_val, b);
     lv_chart_set_next_value(s_noise_chart, s_noise_s, nf ? nf : LV_CHART_POINT_NONE);
   }
-  if (s_act_chart) {
-    unsigned r = lvd_pkt_recv();
-    int d = (int)(r - s_last_recv); if (d < 0) d = 0; else if (d > 10) d = 10;
-    s_last_recv = r;
-    lv_chart_set_next_value(s_act_chart, s_act_s, d);
+  if (s_latest) {
+    if (lvd_pkt_recv() == 0) {
+      lv_label_set_text(s_latest, "RSSI --  SNR --");
+      lv_bar_set_value(s_strength, 0, LV_ANIM_OFF);
+    } else {
+      int rssi = lvd_last_rssi();
+      int v10 = lvd_last_snr_q() * 10 / 4, a = v10 < 0 ? -v10 : v10;
+      char b[40]; snprintf(b, sizeof(b), "RSSI %d  SNR %s%d.%d", rssi, v10 < 0 ? "-" : "", a / 10, a % 10);
+      lv_label_set_text(s_latest, b);
+      int pct = (rssi + 120) * 100 / 70; if (pct < 0) pct = 0; else if (pct > 100) pct = 100;
+      lv_bar_set_value(s_strength, pct, LV_ANIM_OFF);   // min left, max right
+      uint32_t col = pct > 66 ? UI_GREEN : (pct > 33 ? UI_AMBER : UI_RED);
+      lv_obj_set_style_bg_color(s_strength, lv_color_hex(col), LV_PART_INDICATOR);
+    }
   }
 }
 
@@ -149,16 +157,20 @@ static lv_obj_t* widget_card(lv_obj_t* scr, int x, int y, int w, int h, const ch
 static void make_hero(lv_obj_t* scr, int y, int h) {
   int w = (320 - 8 * 2 - 8) / 2;
 
-  lv_obj_t* a = widget_card(scr, 8, y, w, h, "Activity", UI_PURPLE);
-  s_act_chart = lv_chart_create(a);
-  lv_obj_set_size(s_act_chart, w - 18, h - 24);
-  lv_obj_align(s_act_chart, LV_ALIGN_BOTTOM_MID, 0, 2);
-  lv_obj_set_style_bg_opa(s_act_chart, 0, 0); lv_obj_set_style_border_width(s_act_chart, 0, 0);
-  lv_chart_set_div_line_count(s_act_chart, 0, 0);
-  lv_chart_set_type(s_act_chart, LV_CHART_TYPE_BAR);
-  lv_chart_set_point_count(s_act_chart, 12);
-  lv_chart_set_range(s_act_chart, LV_CHART_AXIS_PRIMARY_Y, 0, 10);   // packets/sec
-  s_act_s = lv_chart_add_series(s_act_chart, lv_color_hex(UI_PURPLE), LV_CHART_AXIS_PRIMARY_Y);
+  lv_obj_t* a = widget_card(scr, 8, y, w, h, "Latest", UI_PURPLE);
+  s_latest = lv_label_create(a);
+  lv_label_set_text(s_latest, "RSSI --  SNR --");
+  lv_obj_set_style_text_font(s_latest, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(s_latest, lv_color_hex(UI_TEXT), 0);
+  lv_obj_align(s_latest, LV_ALIGN_TOP_LEFT, 2, 16);
+  s_strength = lv_bar_create(a);                 // strength meter: min left, max right
+  lv_obj_set_size(s_strength, w - 18, 6);
+  lv_obj_align(s_strength, LV_ALIGN_BOTTOM_MID, 0, -2);
+  lv_obj_set_style_bg_color(s_strength, lv_color_hex(0x2a3343), LV_PART_MAIN);
+  lv_obj_set_style_radius(s_strength, 3, LV_PART_MAIN);
+  lv_obj_set_style_radius(s_strength, 3, LV_PART_INDICATOR);
+  lv_bar_set_range(s_strength, 0, 100);
+  lv_bar_set_value(s_strength, 0, LV_ANIM_OFF);
 
   lv_obj_t* n = widget_card(scr, 8 + w + 8, y, w, h, "Noise", UI_GREEN);
   s_noise_val = lv_label_create(n);
@@ -205,8 +217,6 @@ void lv_home_create(lv_obj_t* scr) {
     int y = gridTop + r * (rh + gap);
     make_tile(scr, &TILES[i], i, x, y, cw, rh, i == g_home_sel, i == 0 ? lvd_unread_count() : 0);
   }
-
-  s_last_recv = lvd_pkt_recv();   // baseline so the first activity bar isn't a huge delta
 
   make_identitybar(scr);
 
