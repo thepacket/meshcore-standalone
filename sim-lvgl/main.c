@@ -46,6 +46,24 @@ static char g_cfilter[24] = "";
 void lvd_contact_set_filter(const char* s) { g_cfilter[0] = 0; if (s) { int i = 0; for (; s[i] && i < 23; i++) g_cfilter[i] = s[i]; g_cfilter[i] = 0; } }
 const char* lvd_contact_filter(void) { return g_cfilter; }
 int lvd_contact_total(void) { return lvd_contact_count(); }
+bool lvd_name_match(const char* hay, const char* needle) {
+  if (!needle || !needle[0]) return true;
+  const char* p = needle; bool saw = false;
+  while (*p) {
+    while (*p == ' ') p++;
+    if (!*p) break;
+    const char* s = p; while (*p && *p != ' ') p++;
+    int len = (int)(p - s); if (len > 31) len = 31;
+    char tok[32]; for (int i = 0; i < len; i++) { char a = s[i]; tok[i] = (a >= 'A' && a <= 'Z') ? a + 32 : a; } tok[len] = 0;
+    saw = true;
+    for (const char* h = hay; *h; h++) {
+      const char* hh = h; const char* nn = tok;
+      while (*hh && *nn) { char a = *hh, b = *nn; if (a >= 'A' && a <= 'Z') a += 32; if (a != b) break; hh++; nn++; }
+      if (!*nn) return true;
+    }
+  }
+  return !saw;
+}
 
 // settings bridge: sim keeps prototype defaults (get returns unbound)
 bool lvd_cfg_get(const char* group, const char* label, char* val, int len, int* sel) {

@@ -43,6 +43,8 @@ bool lvd_contact_get(int i, lvd_contact_t* out);
 void        lvd_contact_set_filter(const char* s);  // name substring filter ("" = all)
 const char* lvd_contact_filter(void);
 int         lvd_contact_total(void);                // total contacts (ignores the filter)
+// match a name against space-separated OR tokens ("sky hull" => sky OR hull)
+bool        lvd_name_match(const char* hay, const char* needle);
 
 // ---- settings / device config (Settings screens) ---------------------------
 // Bound fields are keyed by (group title, field label). lvd_cfg_get fills the

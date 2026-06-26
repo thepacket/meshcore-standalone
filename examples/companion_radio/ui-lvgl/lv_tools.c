@@ -3,7 +3,6 @@
 #include "lv_data.h"
 #include <stdio.h>
 #include <string.h>
-#include <ctype.h>
 
 static lv_obj_t* full_list(lv_obj_t* scr, int top) {
   lv_obj_t* list = lv_obj_create(scr);
@@ -53,15 +52,6 @@ static void tr_clear_clicked(lv_event_t* e){ (void)e; lvd_trace_path_clear(); tr
 
 // repeater-name filter for the builder list (this screen only)
 static char s_tr_repfilter[24] = "";
-static int tr_ci_contains(const char* hay, const char* needle) {
-  if (!needle[0]) return 1;
-  for (; *hay; hay++) {
-    const char* h = hay; const char* n = needle;
-    while (*h && *n && tolower((unsigned char)*h) == tolower((unsigned char)*n)) { h++; n++; }
-    if (!*n) return 1;
-  }
-  return 0;
-}
 static void tr_repsearch_open(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("tr_rep_search"); }
 static void tr_repfilter_clear(lv_event_t* e) { (void)e; s_tr_repfilter[0] = 0; trace_rebuild(); }
 
@@ -179,7 +169,7 @@ static void trace_build(lv_obj_t* scr) {
   int shown = 0;
   for (int i = 0; i < rn; i++) {
     if (!lvd_rep_get(0, i, &r)) continue;
-    if (fa && !tr_ci_contains(r.name, s_tr_repfilter)) continue;
+    if (fa && !lvd_name_match(r.name, s_tr_repfilter)) continue;
     tr_rep_row(list, i, r.name);   // i = original index (for lvd_trace_path_add)
     shown++;
   }

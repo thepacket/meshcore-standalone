@@ -296,6 +296,24 @@ static bool ci_contains(const char* hay, const char* needle) {
   }
   return false;
 }
+// match `hay` against a search string of space-separated tokens, OR-combined
+// (e.g. "sky hull" matches names containing "sky" OR "hull"). Empty => match all.
+extern "C" bool lvd_name_match(const char* hay, const char* needle) {
+  if (!needle || !needle[0]) return true;
+  const char* p = needle;
+  bool saw_token = false;
+  while (*p) {
+    while (*p == ' ') p++;
+    if (!*p) break;
+    const char* s = p;
+    while (*p && *p != ' ') p++;
+    int len = (int)(p - s); if (len > 31) len = 31;
+    char tok[32]; memcpy(tok, s, len); tok[len] = 0;
+    saw_token = true;
+    if (ci_contains(hay, tok)) return true;
+  }
+  return !saw_token;   // an all-spaces query matches everything
+}
 static void build_contact_order(void) {
   int total = the_mesh.getNumContacts();
   if (total > MAX_CONTACTS) total = MAX_CONTACTS;
@@ -303,7 +321,7 @@ static void build_contact_order(void) {
   int m = 0;
   for (int i = 0; i < total; i++) {
     ContactInfo c;
-    if (the_mesh.getContactByIdx((uint32_t)i, c) && ci_contains(c.name, g_cfilter)) g_corder[m++] = (uint16_t)i;
+    if (the_mesh.getContactByIdx((uint32_t)i, c) && lvd_name_match(c.name, g_cfilter)) g_corder[m++] = (uint16_t)i;
   }
   qsort(g_corder, m, sizeof(g_corder[0]), cmp_contact_idx);
   g_corder_n = m;
@@ -576,7 +594,7 @@ static void pkt_build_filter(void) {
     int idx = (s_pkt_head - 1 - i + PKT_LOG * 2) % PKT_LOG;   // newest first
     if (g_pkt_filter[0]) {
       char path[96]; packet_path_str(s_pkt[idx], path, sizeof(path));
-      if (!ci_contains(path, g_pkt_filter)) continue;
+      if (!lvd_name_match(path, g_pkt_filter)) continue;
     }
     g_pktidx[g_pktidx_n++] = idx;
   }
