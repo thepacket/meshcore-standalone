@@ -1,9 +1,5 @@
 # meshcore-standalone
 
-> ⚠️ **Early development.** An independent derivative under active development —
-> expect rough edges and breaking changes. Now **hardware-validated on the LilyGo
-> T-Deck Plus** (LoRa RX/TX working, UI bound to live data). Use at your own risk.
-
 A standalone, **on-device UI** for [MeshCore](https://github.com/meshcore-dev/MeshCore)
 companion devices — starting with the **LilyGo T-Deck Plus** — so the radio can be
 operated directly on the device, **without a phone or web app**.
