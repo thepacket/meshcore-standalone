@@ -157,6 +157,7 @@ static void heard_row(lv_obj_t* list, const lvd_heard_t* s, int idx) {
   lv_obj_set_style_pad_all(row, 12, 0);
   lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(row, heard_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
+  lv_ui_press_fx(row);
 
   // colour-graded signal dot: solid dot inside a translucent circle (Android style)
   uint32_t col = s->bars >= 3 ? 0x4ade80 : (s->bars == 2 ? 0xf59e0b : 0xfb7185);

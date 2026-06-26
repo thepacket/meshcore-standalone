@@ -441,6 +441,36 @@ bool MyMesh::sendTracePath(const uint8_t* path, uint8_t path_len, uint32_t& tag)
   return true;
 }
 
+bool MyMesh::uiShareContact(const uint8_t* pubkey) {
+  ContactInfo* c = lookupContactByPubKey(pubkey, PUB_KEY_SIZE);
+  return c ? shareContactZeroHop(*c) : false;
+}
+bool MyMesh::uiResetPath(const uint8_t* pubkey) {
+  ContactInfo* c = lookupContactByPubKey(pubkey, PUB_KEY_SIZE);
+  if (!c) return false;
+  c->out_path_len = OUT_PATH_UNKNOWN;
+  dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
+  return true;
+}
+bool MyMesh::uiRemoveContact(const uint8_t* pubkey) {
+  ContactInfo* c = lookupContactByPubKey(pubkey, PUB_KEY_SIZE);
+  if (!c) return false;
+  uint8_t pk[PUB_KEY_SIZE]; memcpy(pk, pubkey, PUB_KEY_SIZE);
+  if (!removeContact(*c)) return false;
+  _store->deleteBlobByKey(pk, PUB_KEY_SIZE);
+  dirty_contacts_expiry = futureMillis(LAZY_CONTACTS_WRITE_DELAY);
+  return true;
+}
+int MyMesh::uiExportContact(const uint8_t* pubkey, uint8_t* out, int max) {
+  ContactInfo* c = lookupContactByPubKey(pubkey, PUB_KEY_SIZE);
+  if (!c) return 0;
+  uint8_t tmp[256];
+  uint8_t n = exportContact(*c, tmp);
+  if (n == 0 || (int)n > max) return 0;
+  memcpy(out, tmp, n);
+  return n;
+}
+
 bool MyMesh::sendTextTo(ContactInfo& recipient, const char* text,
                         uint32_t& expected_ack, uint32_t& est_timeout) {
   expected_ack = 0;
@@ -917,6 +947,38 @@ void MyMesh::onControlDataRecv(mesh::Packet *packet) {
   if (packet->payload_len + 4 > sizeof(out_frame)) {
     MESH_DEBUG_PRINTLN("onControlDataRecv(), payload_len too long: %d", packet->payload_len);
     return;
+  }
+  // active-discovery reply (NODE_DISCOVER_RESP, high nibble 0x90): record the
+  // responder (full key + node type + the inbound SNR it reports) for the on-device
+  // Discover list -- upsert by key, evict oldest when full. Falls through so a
+  // connected app still receives the raw control-data frame below.
+  if ((packet->payload[0] & 0xF0) == 0x90 && packet->payload_len >= 6 + PUB_KEY_SIZE) {
+    uint8_t        node_type = packet->payload[0] & 0x0F;
+    int8_t         snr_q     = (int8_t)packet->payload[1];
+    const uint8_t* pk        = &packet->payload[6];
+    int slot = -1;
+    for (int k = 0; k < disc_nodes_n; k++)
+      if (memcmp(disc_nodes[k].pub_key, pk, PUB_KEY_SIZE) == 0) { slot = k; break; }
+    if (slot < 0) {
+      if (disc_nodes_n < DISC_NODES_MAX) slot = disc_nodes_n++;
+      else { uint32_t oldest = 0xFFFFFFFF; slot = 0;
+             for (int k = 0; k < disc_nodes_n; k++) if (disc_nodes[k].ts < oldest) { oldest = disc_nodes[k].ts; slot = k; } }
+    }
+    memcpy(disc_nodes[slot].pub_key, pk, PUB_KEY_SIZE);
+    disc_nodes[slot].type  = node_type;
+    disc_nodes[slot].snr_q = snr_q;
+    disc_nodes[slot].ts    = getRTCClock()->getCurrentTime();
+    // auto-add the responder as a contact (placeholder hex name until its advert
+    // arrives and onAdvertRecv() fills in the real name).
+    if (lookupContactByPubKey(pk, PUB_KEY_SIZE) == NULL) {
+      ContactInfo c; memset(&c, 0, sizeof(c));
+      memcpy(c.id.pub_key, pk, PUB_KEY_SIZE);
+      c.type = node_type;
+      c.out_path_len = OUT_PATH_UNKNOWN;
+      snprintf(c.name, sizeof(c.name), "%02X%02X%02X%02X", pk[0], pk[1], pk[2], pk[3]);
+      c.lastmod = getRTCClock()->getCurrentTime();
+      addContact(c);
+    }
   }
   int i = 0;
   out_frame[i++] = PUSH_CODE_CONTROL_DATA;
@@ -2534,6 +2596,28 @@ bool MyMesh::advert() {
     return false;
   }
 }
+
+// ---- active node discovery -------------------------------------------------
+// Broadcast a zero-hop NODE_DISCOVER_REQ asking every node type to identify
+// itself; responders reply with NODE_DISCOVER_RESP into onControlDataRecv().
+void MyMesh::sendNodeDiscoverReq() {
+  uint8_t data[6];
+  data[0] = 0x80;   // CTL_TYPE_NODE_DISCOVER_REQ, prefix_only=0 -> full keys (so we can add them)
+  data[1] = (1 << ADV_TYPE_CHAT) | (1 << ADV_TYPE_REPEATER) |
+            (1 << ADV_TYPE_ROOM) | (1 << ADV_TYPE_SENSOR);   // every node type
+  uint32_t tag; getRNG()->random((uint8_t*)&tag, 4);         // correlation tag (replies echo it)
+  memcpy(&data[2], &tag, 4);
+  auto pkt = createControlData(data, sizeof(data));
+  if (pkt) sendZeroHop(pkt);
+}
+
+int MyMesh::getDiscoveredNodes(DiscNode* out, int max) {
+  int n = disc_nodes_n < max ? disc_nodes_n : max;
+  for (int i = 0; i < n; i++) out[i] = disc_nodes[i];
+  return n;
+}
+
+void MyMesh::clearDiscoveredNodes() { disc_nodes_n = 0; }
 
 // To check if there is pending work
 bool MyMesh::hasPendingWork() const {

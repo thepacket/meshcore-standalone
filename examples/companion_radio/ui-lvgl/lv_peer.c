@@ -6,6 +6,14 @@
 #include <string.h>
 
 const char* lv_chat_active_peer(void);  // provided by lv_chat.c
+void lv_peer_create(lv_obj_t* scr);     // fwd (for rebuild after an op)
+
+static void peer_rebuild_cb(void* p) { (void)p; lv_obj_t* s = lv_screen_active(); lv_obj_clean(s); lv_peer_create(s); }
+static void op_share(lv_event_t* e)  { (void)e; bool ok = lvd_peer_share(lv_chat_active_peer());      lv_ui_toast(ok ? "Contact shared" : "Share failed");      lv_async_call(peer_rebuild_cb, NULL); }
+static void op_reset(lv_event_t* e)  { (void)e; bool ok = lvd_peer_reset_path(lv_chat_active_peer()); lv_ui_toast(ok ? "Path reset" : "Reset failed");          lv_async_call(peer_rebuild_cb, NULL); }
+static void op_remove(lv_event_t* e) { (void)e; bool ok = lvd_peer_remove(lv_chat_active_peer());      lv_ui_toast(ok ? "Contact removed" : "Remove failed");    if (ok && lv_nav_cb) lv_nav_cb("back"); }
+static void op_export(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("peer_export"); }
+static void wire(lv_obj_t* b, lv_event_cb_t cb) { lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE); lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, NULL); lv_ui_press_fx(b); }
 
 // "Message" -> open a DM conversation with this contact, then show it
 static void message_clicked(lv_event_t* e) {
@@ -80,6 +88,7 @@ static void fav_btn(lv_obj_t* row, bool is_fav) {
   lv_obj_set_style_border_color(b, lv_color_hex(UI_GREEN), 0);
   lv_obj_set_style_border_opa(b, 200, 0);
   lv_obj_add_flag(b, LV_OBJ_FLAG_CHECKABLE);               // LVGL toggles LV_STATE_CHECKED
+  lv_ui_press_fx(b);
   if (is_fav) lv_obj_add_state(b, LV_STATE_CHECKED);
   lv_obj_t* l = lv_label_create(b);
   lv_label_set_text(l, LV_SYMBOL_OK "  Favourite");
@@ -96,7 +105,8 @@ static lv_obj_t* act_btn(lv_obj_t* row, const char* icon, const char* txt, uint3
   lv_obj_set_style_pad_all(b, 0, 0);
   if (dest) lv_ui_clickable(b, dest);
   lv_obj_t* l = lv_label_create(b);
-  lv_label_set_text_fmt(l, "%s  %s", icon, txt);
+  if (icon) lv_label_set_text_fmt(l, "%s  %s", icon, txt);
+  else      lv_label_set_text(l, txt);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(l, lv_color_hex(0xffffff), 0);
   lv_obj_center(l);
@@ -151,6 +161,7 @@ void lv_peer_create(lv_obj_t* scr) {
   lv_obj_t* msg_btn = act_btn(acts, LV_SYMBOL_RIGHT, "Message", UI_BLUE, NULL);
   lv_obj_add_flag(msg_btn, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(msg_btn, message_clicked, LV_EVENT_CLICKED, NULL);
+  lv_ui_press_fx(msg_btn);
   fav_btn(acts, true);   // checkable: filled when favourite, toggles on tap
 
   // contact ops row (mirrors the Android long-press menu)
@@ -160,10 +171,10 @@ void lv_peer_create(lv_obj_t* scr) {
   lv_obj_set_style_bg_opa(ops, 0, 0); lv_obj_set_style_border_width(ops, 0, 0);
   lv_obj_set_style_pad_all(ops, 0, 0);
   lv_obj_set_flex_flow(ops, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(ops, 5, 0);
-  act_btn(ops, LV_SYMBOL_UPLOAD,    "Share",  UI_GREEN,  NULL);   // re-advertise (CMD_SHARE_CONTACT)
-  act_btn(ops, LV_SYMBOL_REFRESH,   "Reset",  UI_CYAN,   NULL);   // forget return path (CMD_RESET_PATH)
-  act_btn(ops, LV_SYMBOL_SAVE,      "Export", UI_INDIGO, NULL);   // export contact card (CMD_EXPORT_CONTACT)
-  act_btn(ops, LV_SYMBOL_TRASH,     "Remove", UI_RED,    NULL);   // delete contact (CMD_REMOVE_CONTACT)
+  wire(act_btn(ops, NULL, "Share",  UI_GREEN,  NULL), op_share);   // re-advertise zero-hop
+  wire(act_btn(ops, NULL, "Reset",  UI_CYAN,   NULL), op_reset);   // forget return path
+  wire(act_btn(ops, NULL, "Export", UI_INDIGO, NULL), op_export);  // QR of the advert card
+  wire(act_btn(ops, NULL, "Remove", UI_RED,    NULL), op_remove);  // delete contact
 
   // signal stats grid
   lv_obj_t* grid = lv_obj_create(list);
@@ -195,4 +206,33 @@ void lv_peer_create(lv_obj_t* scr) {
 
   // identity: full key wraps to its own line
   kv_block(list, "Public key", p.pubkey, true);
+}
+
+// ---- export: show the contact's advert card as a scannable QR --------------
+void lv_peer_export_create(lv_obj_t* scr) {
+  lv_ui_screen_bg(scr);
+  lv_ui_md_topbar(scr, "Export contact");
+  const char* hex = lvd_peer_export_hex(lv_chat_active_peer());
+  if (!hex || !hex[0]) {
+    lv_obj_t* h = lv_label_create(scr);
+    lv_label_set_text(h, "Nothing to export for this contact.");
+    lv_obj_set_style_text_color(h, lv_color_hex(MD_MUTED), 0);
+    lv_obj_align(h, LV_ALIGN_TOP_LEFT, 10, 48);
+    return;
+  }
+  lv_obj_t* qr = lv_qrcode_create(scr);
+  lv_qrcode_set_size(qr, 188);
+  lv_qrcode_set_dark_color(qr, lv_color_black());
+  lv_qrcode_set_light_color(qr, lv_color_white());
+  lv_qrcode_update(qr, hex, (uint32_t)strlen(hex));
+  lv_obj_align(qr, LV_ALIGN_TOP_MID, 0, 40);
+  lv_obj_set_style_bg_color(qr, lv_color_white(), 0);
+  lv_obj_set_style_bg_opa(qr, LV_OPA_COVER, 0);
+  lv_obj_set_style_pad_all(qr, 6, 0);   // quiet zone so it scans
+
+  lv_obj_t* cap = lv_label_create(scr);
+  lv_label_set_text(cap, "Scan to import this contact");
+  lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(cap, lv_color_hex(MD_MUTED), 0);
+  lv_obj_align(cap, LV_ALIGN_BOTTOM_MID, 0, -6);
 }

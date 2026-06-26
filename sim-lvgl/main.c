@@ -136,8 +136,10 @@ bool lvd_disc_get(int i, lvd_disc_t* out) {
   *out = MOCK_DISC[i];
   return true;
 }
-void lvd_disc_add(int i) { (void)i; }
+int lvd_disc_request(void) { return 0; }
+void lvd_disc_clear(void) {}
 void lvd_disc_announce(void) {}
+void lvd_disc_announce_flood(void) {}
 
 static const lvd_msg_t MOCK_MSGS[] = {
   {"Alice", "Anyone around the north side?", 0},
@@ -218,6 +220,13 @@ bool lvd_peer_get(const char* name, lvd_peer_t* out) {
   snprintf(out->lon, sizeof(out->lon), "-0.0810");
   snprintf(out->pubkey, sizeof(out->pubkey), "a37f12c49b0e5d612f8a44d3b7e190ca");
   return true;
+}
+bool lvd_peer_share(const char* name)      { (void)name; return true; }
+bool lvd_peer_reset_path(const char* name) { (void)name; return true; }
+bool lvd_peer_remove(const char* name)     { (void)name; return true; }
+const char* lvd_peer_export_hex(const char* name) {
+  (void)name;
+  return "01a37f12c49b0e5d612f8a44d3b7e190ca0742696c6c79426f74";
 }
 
 static const lvd_sig_t MOCK_SIG[] = {

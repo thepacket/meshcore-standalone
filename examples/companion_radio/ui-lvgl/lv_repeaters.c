@@ -26,6 +26,7 @@ static void rep_row(lv_obj_t* list, int scan, int idx, const lvd_replist_t* n) {
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(row, rep_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)((scan << 16) | idx));
+  lv_ui_press_fx(row);
 
   lv_obj_t* ic = lv_label_create(row);
   lv_label_set_text(ic, ICON_REPEATERS);
@@ -110,6 +111,7 @@ static lv_obj_t* act_btn(lv_obj_t* row, const char* txt, uint32_t color) {
   lv_obj_set_style_bg_color(b, lv_color_hex(color), 0); lv_obj_set_style_bg_opa(b, 48, 0);
   lv_obj_set_style_border_color(b, lv_color_hex(color), 0); lv_obj_set_style_border_opa(b, 200, 0);
   lv_obj_set_style_border_width(b, 1, 0);
+  lv_ui_press_fx(b);
   lv_obj_t* l = lv_label_create(b);
   lv_label_set_text(l, txt);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);

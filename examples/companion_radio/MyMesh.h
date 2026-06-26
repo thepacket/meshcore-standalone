@@ -131,6 +131,18 @@ public:
   int  getHeardCandidates(ContactInfo dest[], int max_num);
   bool addHeardContact(const uint8_t* pubkey6);  // promote a heard candidate to a saved contact
 
+  // ---- active node discovery (zero-hop NODE_DISCOVER_REQ; neighbours reply) ----
+  struct DiscNode { uint8_t pub_key[PUB_KEY_SIZE]; uint8_t type; int8_t snr_q; uint32_t ts; };
+  void sendNodeDiscoverReq();                       // broadcast a discovery request
+  int  getDiscoveredNodes(DiscNode* out, int max);  // responders, newest-first; returns count
+  void clearDiscoveredNodes();                      // (responders are auto-added on receipt)
+
+  // ---- on-device contact ops (take the full 32-byte pubkey) ----
+  bool uiShareContact(const uint8_t* pubkey);    // re-advertise this contact (zero-hop)
+  bool uiResetPath(const uint8_t* pubkey);       // forget the learned return path
+  bool uiRemoveContact(const uint8_t* pubkey);   // delete the contact + its stored blob
+  int  uiExportContact(const uint8_t* pubkey, uint8_t* out, int max);  // raw advert card; returns len
+
   // ---- Companion config API (shared by the frame protocol and the on-device UI) ----
   // Each performs validate -> apply-live -> persist. Setters returning bool report
   // false on an invalid argument (no side effects on failure). freq/bw are in kHz.
@@ -312,6 +324,11 @@ private:
   #define HEARD_CACHE_SIZE 8
   ContactInfo heard_cache[HEARD_CACHE_SIZE];
   uint32_t heard_cache_ts[HEARD_CACHE_SIZE];
+
+  // responders to our NODE_DISCOVER_REQ (full key + type + inbound SNR), upsert-by-key
+  #define DISC_NODES_MAX 16
+  DiscNode disc_nodes[DISC_NODES_MAX];
+  int      disc_nodes_n = 0;
 };
 
 extern MyMesh the_mesh;

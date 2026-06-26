@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <stdio.h>
 #include <ctype.h>
+#include <math.h>
 
 extern MyMesh the_mesh;   // global mesh instance (main.cpp)
 
@@ -51,6 +52,7 @@ extern "C" {
   void lv_rep_login_create(lv_obj_t* scr);
   void lv_rep_cli_create(lv_obj_t* scr);
   void lv_peer_create(lv_obj_t* scr);
+  void lv_peer_export_create(lv_obj_t* scr);
   void lv_trace_create(lv_obj_t* scr);
   void lv_trace_rep_search_create(lv_obj_t* scr);
   void lv_terminal_create(lv_obj_t* scr);
@@ -89,6 +91,7 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "rep_login")) lv_rep_login_create(s);
   else if (!strcmp(name, "rep_cli")) lv_rep_cli_create(s);
   else if (!strcmp(name, "peer")) lv_peer_create(s);
+  else if (!strcmp(name, "peer_export")) lv_peer_export_create(s);
   else if (!strcmp(name, "trace")) lv_trace_create(s);
   else if (!strcmp(name, "tr_rep_search")) lv_trace_rep_search_create(s);
   else if (!strcmp(name, "terminal")) lv_terminal_create(s);
@@ -129,6 +132,12 @@ static uint32_t tick_cb(void) { return millis(); }
 // Safe now that the display is on its own host -- this only resets SPI2.
 extern void radio_spi_claim();
 
+// Set when a flush drove the display this loop, so we re-claim the shared SPI
+// pins for the radio exactly once per frame (after lv_timer_handler) instead of
+// on every partial tile -- spi.end()/begin() is expensive and the radio doesn't
+// touch the bus until the_mesh.loop() runs, after the whole frame is flushed.
+static volatile bool g_disp_drew = false;
+
 static void flush_cb(lv_display_t* d, const lv_area_t* area, uint8_t* px_map) {
   if (g_gfx) {
     int w = area->x2 - area->x1 + 1;
@@ -136,7 +145,7 @@ static void flush_cb(lv_display_t* d, const lv_area_t* area, uint8_t* px_map) {
     g_gfx->startWrite();
     g_gfx->pushImage(area->x1, area->y1, w, h, (lgfx::rgb565_t*)px_map);
     g_gfx->endWrite();
-    radio_spi_claim();   // hand the shared output pins back to the radio
+    g_disp_drew = true;
   }
   lv_display_flush_ready(d);
 }
@@ -195,7 +204,12 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 }
 
 void UITask::loop() {
-  if (_lvgl_ready) lv_timer_handler();
+  if (!_lvgl_ready) return;
+  lv_timer_handler();
+  if (g_disp_drew) {       // the frame is fully flushed: give the bus back once
+    g_disp_drew = false;
+    radio_spi_claim();
+  }
 }
 
 // ===========================================================================
@@ -779,25 +793,59 @@ static const char* adv_type_name(int t) {
          t == ADV_TYPE_SENSOR   ? "Sensor"    : "Node";
 }
 
-static ContactInfo g_disc[16];
-static int         g_disc_n = 0;
+// Discover = responders to our active NODE_DISCOVER_REQ (not passive adverts).
+static MyMesh::DiscNode g_disc[16];
+static int              g_disc_n = 0;
+
+static int cmp_disc_snr(const void* a, const void* b) {   // strongest first
+  return ((const MyMesh::DiscNode*)b)->snr_q - ((const MyMesh::DiscNode*)a)->snr_q;
+}
+// best-effort label: the saved contact's name for this key, else its hex prefix
+static void disc_label(const uint8_t* pk, char* out, int len) {
+  int n = the_mesh.getNumContacts();
+  for (int k = 0; k < n; k++) {
+    ContactInfo c;
+    if (the_mesh.getContactByIdx((uint32_t)k, c) &&
+        memcmp(c.id.pub_key, pk, PUB_KEY_SIZE) == 0 && c.name[0]) {
+      strncpy(out, c.name, len - 1); out[len - 1] = 0; return;
+    }
+  }
+  snprintf(out, len, "%02X%02X%02X%02X", pk[0], pk[1], pk[2], pk[3]);
+}
 
 extern "C" int lvd_disc_count(void) {
-  g_disc_n = the_mesh.getHeardCandidates(g_disc, 16);
+  g_disc_n = the_mesh.getDiscoveredNodes(g_disc, 16);
+  qsort(g_disc, g_disc_n, sizeof(g_disc[0]), cmp_disc_snr);
   return g_disc_n;
 }
 extern "C" bool lvd_disc_get(int i, lvd_disc_t* out) {
   if (i < 0 || i >= g_disc_n) return false;
-  ContactInfo& c = g_disc[i];
-  strncpy(out->name, c.name, sizeof(out->name) - 1); out->name[sizeof(out->name) - 1] = 0;
-  out->type = c.type;
-  snprintf(out->subtitle, sizeof(out->subtitle), "%s  -  tap to add", adv_type_name(c.type));
+  MyMesh::DiscNode& d = g_disc[i];
+  disc_label(d.pub_key, out->name, sizeof(out->name));
+  out->type = d.type;
+  int v10 = d.snr_q * 10 / 4, a = v10 < 0 ? -v10 : v10;
+  snprintf(out->subtitle, sizeof(out->subtitle), "%s - SNR %s%d.%d dB",
+           adv_type_name(d.type), v10 < 0 ? "-" : "", a / 10, a % 10);
   return true;
 }
-extern "C" void lvd_disc_add(int i) {
-  if (i >= 0 && i < g_disc_n) the_mesh.addHeardContact(g_disc[i].id.pub_key);
+// Paced active discovery: repeaters rate-limit and will ignore us if we ask too
+// often, so enforce a single global 60s minimum between requests regardless of
+// caller (screen entry, the 60s auto-poll, or the manual button). Returns 0 when
+// a request was actually sent, else the seconds remaining until the next is allowed.
+#define DISC_REQ_MIN_MS 60000UL
+extern "C" int lvd_disc_request(void) {
+  static uint32_t last_ms = 0;
+  static bool     ever    = false;
+  uint32_t now = millis();
+  if (ever && (now - last_ms) < DISC_REQ_MIN_MS)
+    return (int)((DISC_REQ_MIN_MS - (now - last_ms) + 999) / 1000);
+  the_mesh.sendNodeDiscoverReq();
+  last_ms = now; ever = true;
+  return 0;
 }
-extern "C" void lvd_disc_announce(void) { the_mesh.advert(); }
+extern "C" void lvd_disc_clear(void)   { the_mesh.clearDiscoveredNodes(); }
+extern "C" void lvd_disc_announce(void) { the_mesh.advert(); }            // zero-hop self-advert
+extern "C" void lvd_disc_announce_flood(void) { the_mesh.advertFlood(); } // flood-routed self-advert
 
 // ---- chat store (Public channel + DMs) -------------------------------------
 #define MSG_LOG 32
@@ -1157,16 +1205,58 @@ extern "C" bool lvd_peer_get(const char* name, lvd_peer_t* out) {
   if (hh && h.rssi)  snprintf(out->rssi, sizeof(out->rssi), "%d dBm", h.rssi); else snprintf(out->rssi, sizeof(out->rssi), "--");
   if (hh && h.snr_q) { int v10 = h.snr_q * 10 / 4, a = v10 < 0 ? -v10 : v10; snprintf(out->snr, sizeof(out->snr), "%s%d.%d dB", v10 < 0 ? "-" : "", a / 10, a % 10); }
   else snprintf(out->snr, sizeof(out->snr), "--");
-  snprintf(out->dist, sizeof(out->dist), "--");   // needs local GPS
+  // Distance = great-circle (haversine) between our position and the peer's.
+  // Needs both a peer fix (lat/lon above) and our own position (sensors.node_*,
+  // from GPS or the manual lat/lon in Settings); otherwise "--".
+  bool peer_loc = !(lat == 0 && lon == 0);
+  bool self_loc = !(sensors.node_lat == 0.0 && sensors.node_lon == 0.0);
+  if (peer_loc && self_loc) {
+    const double R = 6371000.0, D2R = M_PI / 180.0;
+    double la1 = sensors.node_lat * D2R, la2 = (lat / 1e6) * D2R;
+    double dla = la2 - la1;
+    double dlo = ((lon / 1e6) - sensors.node_lon) * D2R;
+    double a = sin(dla / 2) * sin(dla / 2) + cos(la1) * cos(la2) * sin(dlo / 2) * sin(dlo / 2);
+    double m = R * 2.0 * atan2(sqrt(a), sqrt(1.0 - a));
+    if (m < 1000.0)       snprintf(out->dist, sizeof(out->dist), "%d m", (int)(m + 0.5));
+    else if (m < 10000.0) snprintf(out->dist, sizeof(out->dist), "%.1f km", m / 1000.0);
+    else                  snprintf(out->dist, sizeof(out->dist), "%d km", (int)(m / 1000.0 + 0.5));
+  } else snprintf(out->dist, sizeof(out->dist), "--");
 
-  if (hh && h.recv_timestamp) {
+  // Prefer the live heard-ring timestamp (this session), else fall back to the
+  // contact's persisted lastmod -- updated on every advert, even multi-hop, and
+  // survives reboots -- so a saved repeater still shows when we last heard it.
+  uint32_t hts = (hh && h.recv_timestamp) ? h.recv_timestamp : c.lastmod;
+  if (hts) {
     uint32_t now = rtc_clock.getCurrentTime();
-    uint32_t age = now > h.recv_timestamp ? now - h.recv_timestamp : 0;
+    uint32_t age = now > hts ? now - hts : 0;
     if (age < 60) snprintf(out->lastheard, sizeof(out->lastheard), "%us", (unsigned)age);
     else if (age < 3600) snprintf(out->lastheard, sizeof(out->lastheard), "%um", (unsigned)(age / 60));
-    else snprintf(out->lastheard, sizeof(out->lastheard), "%uh", (unsigned)(age / 3600));
+    else if (age < 86400) snprintf(out->lastheard, sizeof(out->lastheard), "%uh", (unsigned)(age / 3600));
+    else snprintf(out->lastheard, sizeof(out->lastheard), "%ud", (unsigned)(age / 86400));
   } else snprintf(out->lastheard, sizeof(out->lastheard), "--");
   return true;
+}
+
+// ---- contact ops (peer details) --------------------------------------------
+extern "C" bool lvd_peer_share(const char* name) {
+  ContactInfo c; return find_contact_by_name(name, c) && the_mesh.uiShareContact(c.id.pub_key);
+}
+extern "C" bool lvd_peer_reset_path(const char* name) {
+  ContactInfo c; return find_contact_by_name(name, c) && the_mesh.uiResetPath(c.id.pub_key);
+}
+extern "C" bool lvd_peer_remove(const char* name) {
+  ContactInfo c; return find_contact_by_name(name, c) && the_mesh.uiRemoveContact(c.id.pub_key);
+}
+extern "C" const char* lvd_peer_export_hex(const char* name) {
+  static char hex[540];
+  hex[0] = 0;
+  ContactInfo c;
+  if (!find_contact_by_name(name, c)) return hex;
+  uint8_t blob[256];
+  int n = the_mesh.uiExportContact(c.id.pub_key, blob, sizeof(blob));
+  int k = 0;
+  for (int i = 0; i < n && k < (int)sizeof(hex) - 3; i++) k += snprintf(hex + k, sizeof(hex) - k, "%02X", blob[i]);
+  return hex;
 }
 
 // ---- signal coverage (saved repeaters/rooms we've actually heard) ----------

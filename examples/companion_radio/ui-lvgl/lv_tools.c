@@ -63,6 +63,7 @@ static lv_obj_t* tr_btn(lv_obj_t* parent, const char* txt, uint32_t color) {
   lv_obj_set_style_border_color(b, lv_color_hex(color), 0); lv_obj_set_style_border_opa(b, 200, 0);
   lv_obj_set_style_border_width(b, 1, 0);
   lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+  lv_ui_press_fx(b);
   lv_obj_t* l = lv_label_create(b);
   lv_label_set_text(l, txt);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
@@ -79,6 +80,7 @@ static void tr_rep_row(lv_obj_t* list, int i, const char* name) {
   lv_obj_set_flex_align(c, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(c, tr_add_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+  lv_ui_press_fx(c);
   lv_obj_t* nm = lv_label_create(c);
   lv_label_set_text(nm, name);
   lv_obj_set_style_text_font(nm, &lv_font_montserrat_16, 0);
@@ -147,6 +149,7 @@ static void trace_build(lv_obj_t* scr) {
   lv_obj_set_flex_align(sf, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_add_flag(sf, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(sf, tr_repsearch_open, LV_EVENT_CLICKED, NULL);
+  lv_ui_press_fx(sf);
   lv_obj_t* si = lv_label_create(sf);
   lv_label_set_text(si, ICON_FINDER);
   lv_obj_set_style_text_font(si, &icons_fa, 0);
@@ -163,6 +166,7 @@ static void trace_build(lv_obj_t* scr) {
     lv_obj_add_flag(cl, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_ext_click_area(cl, 10);
     lv_obj_add_event_cb(cl, tr_repfilter_clear, LV_EVENT_CLICKED, NULL);
+    lv_ui_press_fx(cl);
   }
 
   lvd_replist_t r;
@@ -240,6 +244,7 @@ static void pkt_row(lv_obj_t* list, int idx, const char* type, uint32_t tcol, co
   lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(c, pkt_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
+  lv_ui_press_fx(c);
   lv_obj_t* tag = lv_ui_pill(c, type, tcol);
   lv_obj_set_style_margin_right(tag, 8, 0);
   lv_obj_t* m = lv_label_create(c);
@@ -295,6 +300,7 @@ void lv_terminal_create(lv_obj_t* scr) {
   lv_obj_set_flex_align(sf, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_add_flag(sf, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(sf, pkt_open_search, LV_EVENT_CLICKED, NULL);
+  lv_ui_press_fx(sf);
   lv_obj_t* ic = lv_label_create(sf);
   lv_label_set_text(ic, ICON_FINDER);
   lv_obj_set_style_text_font(ic, &icons_fa, 0);
@@ -311,6 +317,7 @@ void lv_terminal_create(lv_obj_t* scr) {
     lv_obj_add_flag(cl, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_ext_click_area(cl, 10);
     lv_obj_add_event_cb(cl, pkt_clear_search, LV_EVENT_CLICKED, NULL);
+    lv_ui_press_fx(cl);
   }
 
   s_pkt_list = full_list(scr, 74);

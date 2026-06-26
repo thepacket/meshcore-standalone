@@ -29,6 +29,7 @@ static void contact_row(lv_obj_t* list, const lvd_contact_t* ct, int idx) {
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(row, contact_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
+  lv_ui_press_fx(row);
 
   lv_obj_t* ic = lv_label_create(row);
   lv_label_set_text(ic, type_icon(ct->type));
@@ -77,6 +78,7 @@ static void search_field(lv_obj_t* list) {
   lv_obj_set_flex_align(sf, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_add_flag(sf, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(sf, open_search, LV_EVENT_CLICKED, NULL);
+  lv_ui_press_fx(sf);
 
   lv_obj_t* ic = lv_label_create(sf);
   lv_label_set_text(ic, ICON_FINDER);
@@ -97,6 +99,7 @@ static void search_field(lv_obj_t* list) {
     lv_obj_add_flag(cl, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_set_ext_click_area(cl, 10);
     lv_obj_add_event_cb(cl, clear_search, LV_EVENT_CLICKED, NULL);
+    lv_ui_press_fx(cl);
   }
 }
 

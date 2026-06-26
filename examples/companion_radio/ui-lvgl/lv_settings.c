@@ -249,6 +249,7 @@ static void action_button(lv_obj_t* list, const char* label, uint32_t color, int
   lv_obj_set_style_border_width(b, 1, 0);
   lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(b, on_action_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)ud);
+  lv_ui_press_fx(b);
   lv_obj_t* l = lv_label_create(b);
   lv_label_set_text(l, label);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
@@ -306,6 +307,7 @@ void lv_settings_group_create(lv_obj_t* scr, int idx) {
         lv_ui_pill(c, g_val[idx][i], g->color);
         lv_ui_clickable(c, NULL);   // make the row tappable
         lv_obj_add_event_cb(c, on_edit_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)ud);
+        lv_ui_press_fx(c);
         // a faint pencil hint
         lv_obj_t* pen = lv_label_create(c);
         lv_label_set_text(pen, LV_SYMBOL_EDIT);

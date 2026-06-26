@@ -103,10 +103,12 @@ typedef struct {
   int  type;           // ADV_TYPE_*
 } lvd_disc_t;
 
-int  lvd_disc_count(void);
-bool lvd_disc_get(int i, lvd_disc_t* out);
-void lvd_disc_add(int i);       // promote candidate i to a saved contact
-void lvd_disc_announce(void);   // zero-hop self-advert to prompt neighbours to respond
+int  lvd_disc_count(void);      // responders to the last discovery request (SNR-sorted)
+bool lvd_disc_get(int i, lvd_disc_t* out);  // responders are auto-added as contacts
+int  lvd_disc_request(void);    // send a zero-hop discovery request (paced; 0=sent, else secs left)
+void lvd_disc_clear(void);      // empty the discovered-nodes list
+void lvd_disc_announce(void);       // zero-hop self-advert to prompt neighbours to respond
+void lvd_disc_announce_flood(void); // flood-routed self-advert (reaches beyond direct range)
 
 // ---- chat: Public channel conversation (v1) --------------------------------
 typedef struct {
@@ -179,6 +181,11 @@ typedef struct {
   char lat[16], lon[16], pubkey[72];
 } lvd_peer_t;
 bool lvd_peer_get(const char* name, lvd_peer_t* out);   // false if not a saved contact
+// contact ops (by name)
+bool        lvd_peer_share(const char* name);       // re-advertise the contact (zero-hop)
+bool        lvd_peer_reset_path(const char* name);  // forget the learned return path
+bool        lvd_peer_remove(const char* name);      // delete the contact
+const char* lvd_peer_export_hex(const char* name);  // advert card as hex (for QR + display)
 
 // ---- signal coverage (per repeater/room) -----------------------------------
 typedef struct {

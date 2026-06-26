@@ -67,6 +67,7 @@ static void add_row(lv_obj_t* list, const Row* r) {
   lv_obj_set_style_pad_all(row, 8, 0);
   lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(row, open_public_conv, LV_EVENT_CLICKED, NULL);
+  lv_ui_press_fx(row);
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
@@ -217,6 +218,7 @@ static void add_bubble(lv_obj_t* scroll, const char* sender, const char* text,
     // tap an incoming bubble to see everything known about the sender
     lv_obj_add_flag(bub, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(bub, peer_clicked, LV_EVENT_CLICKED, (void*)(sender ? sender : "Peer"));
+    lv_ui_press_fx(bub);
   }
   if (!outgoing && sender) {
     lv_obj_t* s = lv_label_create(bub);

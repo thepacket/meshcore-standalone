@@ -73,6 +73,10 @@ typedef void (*lv_nav_fn)(const char* dest);
 extern lv_nav_fn lv_nav_cb;
 // make `o` clickable so a tap routes to lv_nav_cb(dest) (dest must outlive o)
 void lv_ui_clickable(lv_obj_t* o, const char* dest);
+// add a pressed look (dim + sink) to any clickable object for tap feedback
+void lv_ui_press_fx(lv_obj_t* o);
+// transient bottom toast on the active screen (auto-removes); confirms an action
+void lv_ui_toast(const char* msg);
 
 // Periodic refresh hook for live screens. A screen that shows live data registers
 // a callback via lv_ui_set_refresh() at the end of its create fn; the host calls

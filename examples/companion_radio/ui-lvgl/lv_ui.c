@@ -11,9 +11,50 @@ static void nav_event(lv_event_t* e) {
   if (lv_nav_cb && dest) lv_nav_cb(dest);
 }
 
+// give a tappable object an obvious pressed look (dim + sink) so every tap is
+// visibly acknowledged, even when the action itself produces no screen change.
+void lv_ui_press_fx(lv_obj_t* o) {
+  lv_obj_set_style_opa(o, 150, LV_STATE_PRESSED);
+  lv_obj_set_style_translate_y(o, 1, LV_STATE_PRESSED);
+  lv_obj_set_style_transform_width(o, -2, LV_STATE_PRESSED);
+  lv_obj_set_style_transform_height(o, -2, LV_STATE_PRESSED);
+}
+
 void lv_ui_clickable(lv_obj_t* o, const char* dest) {
   lv_obj_add_flag(o, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(o, nav_event, LV_EVENT_CLICKED, (void*)dest);
+  lv_ui_press_fx(o);
+}
+
+// transient toast, auto-removes after ~1.4s. Parented to the display top layer
+// (not the active screen) so a screen rebuild/clean or nav can't free it out
+// from under the timer; the validity check is a belt-and-braces guard.
+static void toast_del_cb(lv_timer_t* t) {
+  lv_obj_t* o = (lv_obj_t*)lv_timer_get_user_data(t);
+  if (o && lv_obj_is_valid(o)) lv_obj_del(o);
+  lv_timer_del(t);
+}
+void lv_ui_toast(const char* msg) {
+  lv_obj_t* top = lv_layer_top();
+  if (!top || !msg) return;
+  lv_obj_t* t = lv_label_create(top);
+  lv_label_set_text(t, msg);
+  lv_obj_set_style_text_font(t, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(t, lv_color_hex(0xffffff), 0);
+  lv_obj_set_style_bg_color(t, lv_color_hex(MD_SURFACE), 0);
+  lv_obj_set_style_bg_opa(t, 245, 0);
+  lv_obj_set_style_radius(t, 10, 0);
+  lv_obj_set_style_pad_hor(t, 14, 0);
+  lv_obj_set_style_pad_ver(t, 9, 0);
+  lv_obj_set_style_border_color(t, lv_color_hex(MD_PRIMARY), 0);
+  lv_obj_set_style_border_opa(t, 160, 0);
+  lv_obj_set_style_border_width(t, 1, 0);
+  lv_obj_set_style_shadow_width(t, 16, 0);
+  lv_obj_set_style_shadow_color(t, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_shadow_opa(t, 120, 0);
+  lv_obj_align(t, LV_ALIGN_BOTTOM_MID, 0, -14);
+  lv_obj_move_foreground(t);
+  lv_timer_create(toast_del_cb, 1400, t);
 }
 
 void lv_ui_screen_bg(lv_obj_t* scr) {

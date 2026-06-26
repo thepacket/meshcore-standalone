@@ -16,7 +16,7 @@ static const Tile TILES[12] = {
   {ICON_ADVERT,    UI_PINK,    true,  "discover"},
   {ICON_SETTINGS,  UI_INDIGO,  true,  "settings"},
   {ICON_TRACE,     UI_AMBER,   true,  "trace"},
-  {ICON_TERMINAL,  UI_EMERALD, true,  "terminal"},
+  {ICON_PACKETS,   UI_EMERALD, true,  "terminal"},
   {ICON_NOISE,     UI_PURPLE,  true,  "stats"},
   {ICON_SIGNAL,    UI_LIME,    true,  "signal"},
 };
@@ -45,6 +45,7 @@ static void make_tile(lv_obj_t* parent, const Tile* t, int idx, int x, int y, in
   if (t->enabled && t->dest[0]) {
     lv_obj_add_flag(card, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(card, tile_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
+    lv_ui_press_fx(card);
   }
 
   if (badge > 0) {
