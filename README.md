@@ -1,8 +1,8 @@
 # meshcore-standalone
 
-> ⚠️ **Early development.** This project is at a very early stage. Expect rough
-> edges, breaking changes, and incomplete features, and note that it has **not yet
-> been validated on physical hardware**. Use at your own risk.
+> ⚠️ **Early development.** An independent derivative under active development —
+> expect rough edges and breaking changes. Now **hardware-validated on the LilyGo
+> T-Deck Plus** (LoRa RX/TX working, UI bound to live data). Use at your own risk.
 
 A standalone, **on-device UI** for [MeshCore](https://github.com/meshcore-dev/MeshCore)
 companion devices — starting with the **LilyGo T-Deck Plus** — so the radio can be
@@ -13,8 +13,8 @@ operated directly on the device, **without a phone or web app**.
 MeshCore's companion firmware is normally a near-stateless radio that you drive
 from a phone/web app. The mission of **meshcore-standalone** is to make a MeshCore
 device **self-sufficient**: a **touch-first** on-device interface to configure and
-(in time) use the radio with no external app — while staying **portable** across
-companion devices and faithful to MeshCore's underlying protocol.
+use the radio with no external app — while staying **portable** across companion
+devices and faithful to MeshCore's underlying protocol.
 
 - **Standalone** — full control of the device from its own screen.
 - **Touch-first** — designed for the T-Deck Plus touchscreen, with keyboard and
@@ -25,27 +25,33 @@ companion devices and faithful to MeshCore's underlying protocol.
 
 ## Status
 
-The full feature set is built and exercised in desktop simulators; **on-device
-hardware validation is still pending** a T-Deck Plus.
+**Hardware-validated on the LilyGo T-Deck Plus.** The standalone [LVGL](https://lvgl.io)
+UI runs on-device, bound to live MeshCore data, and LoRa **RX and TX both work**
+(after fixing a shared-SPI bus conflict between the radio and the display, where the
+LovyanGFX panel was tearing down the radio's SPI bus). You can operate the node
+entirely from its screen — no phone or web app — over touch or the built-in keyboard.
 
-**UI redesign on LVGL (current direction).** The standalone UI is being rebuilt on
-[LVGL](https://lvgl.io) for an Android-app-quality look — black theme, per-feature
-colour-coded icon chips, charts/gauges, and real widgets. Built so far (live in the
-LVGL desktop sim, see [`sim-lvgl/`](sim-lvgl/README.md)):
+Built for an Android-app-quality look (black theme, per-feature colour-coded icon
+chips, charts/gauges, real widgets). Live on-device:
 
-- ✅ **Home launcher** — colour icon-grid, activity/noise widget cards, status bars
-- ✅ **Chat** — Channels/DMs list + speech-bubble conversation + compose keyboard
-- ✅ **Settings** — every companion config field, with switch/dropdown/slider/keyboard editors
-- ✅ **Diagnostics** — noise scope, signal coverage gauges, heard list
-- ✅ **Repeaters** — Saved/Scan list + detail (arc battery gauge, stats, login, triggers)
-- ✅ **Peer details** — tap a message or heard node to see RSSI/SNR/distance/location/key
-- ✅ **Trace / Terminal / Packet monitor** — hop SNRs; colour CLI log; decoded packet stream
-- ⏳ **T-Deck bring-up** — LVGL + LovyanGFX + GT911 touch on-device, screens bound to live data
+- ✅ **Home** — colour icon-grid launcher; live status bar (RX/RE/TX/CT counters,
+  clock, battery) and live noise-floor + RX-activity widgets
+- ✅ **Chat** — Public channel **and** direct messages (send + live receive), speech bubbles
+- ✅ **Contacts** — live contact list with name search
+- ✅ **Heard** — recently-heard stations with SNR/RSSI/age, auto-refreshing
+- ✅ **Discover** — announce, then list heard-but-unsaved nodes; tap to add to contacts
+- ✅ **Stats** — rolling noise-floor chart, last RSSI/SNR, packet counters, battery/uptime
+- ✅ **Packet monitor** — live decoded RX feed; tap a packet for the full breakdown + raw hex
+- ✅ **Signal** — per-repeater coverage (RSSI bar + SNR), strongest first, stale hidden
+- ✅ **Settings** — every companion config field, editable **and persisted** (incl. radio params)
+- ✅ **Repeaters** — Saved/Scan list + detail with remote login, live status, and a CLI console
+- ✅ **Trace** — trace a route to a contact and see each hop's SNR
+- ✅ **Peer details** — tap a contact for type/path/RSSI/SNR/location/public key
 
-The earlier feature work (settings, messaging, RF diagnostics, repeater management) was
-first implemented in a portable bitmap UI ([`examples/companion_radio/ui-new/`](examples/companion_radio/ui-new)),
-which still builds and is the firmware's current UI until the LVGL bring-up lands;
-it also remains the lightweight option for mono/non-touch boards.
+A portable bitmap UI ([`examples/companion_radio/ui-new/`](examples/companion_radio/ui-new))
+also still builds and remains the lightweight option for mono/non-touch boards. The
+LVGL screens are additionally runnable in a desktop simulator (see
+[`sim-lvgl/`](sim-lvgl/README.md)).
 
 See [ROADMAP.md](ROADMAP.md) for the full milestone map.
 

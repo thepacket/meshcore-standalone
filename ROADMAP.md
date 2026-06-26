@@ -28,11 +28,16 @@ keyboard, QR). Design language reference: **MeshUltra** (look only).
   and the feature panels share a Material panel kit (`lv_ui_md_*`: flat top app bar, solid
   cards, titleMedium headers, label/value rows, cyan accent) matching the Android look. The
   home launcher keeps its glass-card grid style.
-- 🟡 **On-device LVGL bring-up** — done on the T-Deck Plus (env
+- ✅ **On-device LVGL bring-up — done and hardware-validated** on the T-Deck Plus (env
   `LilyGo_TDeck_companion_radio_usb_lvgl`): LVGL 9.2 + LovyanGFX flush + GT911 touch + tick +
-  screen-manager all run on hardware (`ui-lvgl/UITask`). Screens are bound to live `MyMesh`
-  data through a C view-model bridge (`ui-lvgl/lv_data.h`); home status bar + Heard are live,
-  the rest (contacts/stats/chat/repeaters/settings) are being bound incrementally. The bitmap
+  screen-manager all run on hardware (`ui-lvgl/UITask`), and **every** screen is bound to live
+  `MyMesh` data through the C view-model bridge (`ui-lvgl/lv_data.h`) — home, Heard, Contacts
+  (search), Stats, Packet monitor (+ tap-for-detail), Discover, Signal, Settings (incl. radio
+  params, persisted), Chat (Public + DMs), Trace, and repeater admin (login/status/CLI).
+- ✅ **LoRa RX and TX both work on the T-Deck.** Fixed a shared-SPI bus conflict: the radio
+  (Arduino-HAL SPI) and the LovyanGFX display (ESP-IDF spi_master) were both on SPI2, so
+  `display.begin()` tore down the radio's bus. Moving the display to its own host (SPI3) and
+  handing the shared output pins back to the radio after each flush restored RX/TX. The bitmap
   UI stays as the fallback for mono / non-touch / companion boards.
 
 The protocol/firmware work from each milestone (config ops, ChatStore, RF hooks, login/
@@ -43,9 +48,9 @@ status/candidate cache) is UI-framework-agnostic and carries straight over.
 ## M1 — Settings ✅ (done)
 Full on-device companion configuration: data-driven settings UI (Public info, Radio +
 region presets, Contacts, Message, Position, Telemetry, Experimental, Device); app-style
-look; cycle-or-keyboard input; frequency-band validation. Pending on-hardware validation.
+look; cycle-or-keyboard input; frequency-band validation.
 
-## M2 — Messaging & chat  🟡 (core done; pending on-hardware validation)
+## M2 — Messaging & chat  🟡 (core done)
 A smartphone-style chat, fully on-device.
 - ✅ **Channels + DMs tabs** — channels-first (Public + configured), plus a DM list with
   last-message previews + unread badges (lists from live mesh enumeration).
@@ -61,7 +66,7 @@ A smartphone-style chat, fully on-device.
   on-screen QR (vendored MIT qrcodegen; see `THIRD_PARTY.md`).
 - ⏳ **Contact-type-aware** room post/read niceties (rooms currently treated as DMs).
 
-## M3 — RF diagnostics & tools  ✅ (done; pending on-hardware validation)
+## M3 — RF diagnostics & tools  ✅ (done)
 - ✅ **Packet monitor** — decoded raw packet stream + per-packet detail.
 - ✅ **Live noise scope** — scrolling graph of noise-floor history (`radio_driver.getNoiseFloor()`).
 - ✅ **Last-heard list** — recent stations with SNR/RSSI + estimated distance
@@ -70,7 +75,7 @@ A smartphone-style chat, fully on-device.
 - ✅ **Trace-route tool** — hop-by-hop path with per-hop SNR
   (`MyMesh::sendTrace` + `onTraceResult`).
 
-## M3.5 — MeshOS-style home & theme ✅ (done; pending on-hardware validation)
+## M3.5 — MeshOS-style home & theme ✅ (done)
 Delivered alongside M3 to host the diagnostic tiles:
 - ✅ **Icon-grid launcher** home (4-col tiles, line-art XBM icons + labels), replacing the
   paginated home; future tiles (Chat/Contacts/Repeaters/Finder/Map) shown dimmed.
@@ -85,7 +90,7 @@ Delivered alongside M3 to host the diagnostic tiles:
 - ⏳ Touch/trackball pan/zoom.
 - Requires the SD card (T-Deck Plus has one) — gate behind storage availability.
 
-## M5 — Remote infrastructure / repeater management  🟡 (core done; pending on-hardware validation)
+## M5 — Remote infrastructure / repeater management  🟡 (core done)
 - ✅ **Remote login** (password) to repeaters/rooms → pull **stats** (parsed RepeaterStats:
   battery, uptime, airtime tx/rx, packet counts, noise, RSSI/SNR, errors) via
   `uiLogin`/`uiRequestStatus` + new `onLoginResult`/`onStatusResponse` hooks.
