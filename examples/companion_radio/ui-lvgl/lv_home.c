@@ -114,17 +114,12 @@ static void make_statusbar(lv_obj_t* scr) {
   lv_obj_set_style_border_width(bar, 0, 0);
   lv_obj_set_style_pad_all(bar, 0, 0);
 
-  lv_obj_t* menu = lv_label_create(bar);
-  lv_label_set_text(menu, LV_SYMBOL_LIST);
-  lv_obj_set_style_text_color(menu, lv_color_hex(UI_TEXT), 0);
-  lv_obj_align(menu, LV_ALIGN_LEFT_MID, 8, 0);
-
-  // live packet counters (replaces the old static "Public" pill)
+  // live packet counters (left of the status bar)
   lv_obj_t* rxtx = lv_label_create(bar);
   lv_label_set_text(rxtx, "RX 0  RE 0  TX 0  CT 0");
   lv_obj_set_style_text_font(rxtx, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(rxtx, lv_color_hex(UI_MUTED), 0);
-  lv_obj_align(rxtx, LV_ALIGN_LEFT_MID, 30, 0);
+  lv_obj_align(rxtx, LV_ALIGN_LEFT_MID, 8, 0);
   s_rxtx = rxtx;
 
   lv_obj_t* clock = lv_label_create(bar);
@@ -190,11 +185,6 @@ static void make_identitybar(lv_obj_t* scr) {
   lv_obj_set_style_text_font(who, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(who, lv_color_hex(UI_MUTED), 0);
   lv_obj_align(who, LV_ALIGN_BOTTOM_LEFT, 8, -3);
-
-  lv_obj_t* sig = lv_label_create(scr);
-  lv_label_set_text(sig, LV_SYMBOL_BARS);
-  lv_obj_set_style_text_color(sig, lv_color_hex(UI_LIME), 0);
-  lv_obj_align(sig, LV_ALIGN_BOTTOM_RIGHT, -8, -3);
 }
 
 void lv_home_create(lv_obj_t* scr) {
