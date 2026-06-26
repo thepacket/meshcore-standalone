@@ -154,6 +154,21 @@ int lvd_rep_cli_count(void) { return 0; }
 const char* lvd_rep_cli_line(int i) { (void)i; return ""; }
 unsigned lvd_rep_seq(void) { return 1; }
 
+bool lvd_peer_get(const char* name, lvd_peer_t* out) {
+  (void)name;
+  snprintf(out->type, sizeof(out->type), "Chat contact");
+  snprintf(out->rssi, sizeof(out->rssi), "-78 dBm");
+  snprintf(out->snr, sizeof(out->snr), "9.0 dB");
+  snprintf(out->dist, sizeof(out->dist), "--");
+  snprintf(out->hops, sizeof(out->hops), "2");
+  snprintf(out->lastheard, sizeof(out->lastheard), "12s");
+  snprintf(out->path, sizeof(out->path), "direct");
+  snprintf(out->lat, sizeof(out->lat), "51.7960");
+  snprintf(out->lon, sizeof(out->lon), "-0.0810");
+  snprintf(out->pubkey, sizeof(out->pubkey), "a37f12c49b0e5d612f8a44d3b7e190ca");
+  return true;
+}
+
 #define W 320
 #define H 240
 

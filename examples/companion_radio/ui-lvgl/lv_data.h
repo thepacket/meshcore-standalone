@@ -146,6 +146,14 @@ const char* lvd_rep_cli_line(int i);                // oldest..newest
 
 unsigned    lvd_rep_seq(void);                      // refresh detection
 
+// ---- peer / contact details ------------------------------------------------
+typedef struct {
+  char type[16];        // "Chat contact", "Repeater", ...
+  char rssi[12], snr[12], dist[12], hops[12], lastheard[14], path[12];
+  char lat[16], lon[16], pubkey[72];
+} lvd_peer_t;
+bool lvd_peer_get(const char* name, lvd_peer_t* out);   // false if not a saved contact
+
 #ifdef __cplusplus
 }
 #endif

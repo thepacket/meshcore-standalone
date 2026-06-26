@@ -111,6 +111,16 @@ static lv_obj_t* act_btn(lv_obj_t* row, const char* icon, const char* txt, uint3
 
 void lv_peer_create(lv_obj_t* scr) {
   const char* name = lv_chat_active_peer();
+  lvd_peer_t p;
+  bool have = lvd_peer_get(name, &p);
+  if (!have) {   // not a saved contact -> show placeholders
+    strncpy(p.type, "Contact", sizeof(p.type));
+    snprintf(p.rssi, sizeof(p.rssi), "--"); snprintf(p.snr, sizeof(p.snr), "--");
+    snprintf(p.dist, sizeof(p.dist), "--"); snprintf(p.hops, sizeof(p.hops), "--");
+    snprintf(p.lastheard, sizeof(p.lastheard), "--"); snprintf(p.path, sizeof(p.path), "--");
+    snprintf(p.lat, sizeof(p.lat), "--"); snprintf(p.lon, sizeof(p.lon), "--");
+    snprintf(p.pubkey, sizeof(p.pubkey), "(unknown)");
+  }
   lv_ui_screen_bg(scr);
   lv_ui_md_topbar(scr, name);
 
@@ -135,7 +145,7 @@ void lv_peer_create(lv_obj_t* scr) {
   lv_label_set_text(nm, name);
   lv_obj_set_style_text_font(nm, &lv_font_montserrat_18, 0);
   lv_obj_set_style_text_color(nm, lv_color_hex(UI_TEXT), 0);
-  lv_ui_pill(col, "Chat contact", UI_BLUE);
+  lv_ui_pill(col, p.type, UI_BLUE);
 
   // quick actions
   lv_obj_t* acts = lv_obj_create(list);
@@ -172,12 +182,12 @@ void lv_peer_create(lv_obj_t* scr) {
   lv_obj_set_style_pad_all(grid, 0, 0);
   lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_ROW_WRAP);
   lv_obj_set_style_pad_row(grid, 6, 0); lv_obj_set_style_pad_column(grid, 6, 0);
-  stat_card(grid, "RSSI", "-78 dBm", UI_GREEN);
-  stat_card(grid, "SNR", "9.0 dB", UI_GREEN);
-  stat_card(grid, "Distance", "4.2 km", UI_CYAN);
-  stat_card(grid, "Hops", "2", UI_TEXT);
-  stat_card(grid, "Last heard", "12s", UI_TEXT);
-  stat_card(grid, "Path", "direct", UI_TEXT);
+  stat_card(grid, "RSSI", p.rssi, UI_GREEN);
+  stat_card(grid, "SNR", p.snr, UI_GREEN);
+  stat_card(grid, "Distance", p.dist, UI_CYAN);
+  stat_card(grid, "Hops", p.hops, UI_TEXT);
+  stat_card(grid, "Last heard", p.lastheard, UI_TEXT);
+  stat_card(grid, "Path", p.path, UI_TEXT);
 
   // location: latitude + longitude side by side
   lv_obj_t* loc = lv_obj_create(list);
@@ -186,10 +196,12 @@ void lv_peer_create(lv_obj_t* scr) {
   lv_obj_set_style_bg_opa(loc, 0, 0); lv_obj_set_style_border_width(loc, 0, 0);
   lv_obj_set_style_pad_all(loc, 0, 0);
   lv_obj_set_flex_flow(loc, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(loc, 6, 0);
-  kv_col(loc, "Longitude", "-0.0810 deg");
-  kv_col(loc, "Latitude", "51.7960 deg");
+  char latbuf[24], lonbuf[24];
+  snprintf(lonbuf, sizeof(lonbuf), "%s deg", p.lon);
+  snprintf(latbuf, sizeof(latbuf), "%s deg", p.lat);
+  kv_col(loc, "Longitude", lonbuf);
+  kv_col(loc, "Latitude", latbuf);
 
   // identity: full key wraps to its own line
-  kv_block(list, "Public key",
-           "a37f12c49b0e5d612f8a44d3b7e190ca5e6b8847aa12cd3490ff7e2b1d0c4a59", true);
+  kv_block(list, "Public key", p.pubkey, true);
 }

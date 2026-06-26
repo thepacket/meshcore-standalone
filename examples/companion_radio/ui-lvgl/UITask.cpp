@@ -804,3 +804,48 @@ void ui_rep_on_cmdreply(const uint8_t* pk6, const char* text) {
   else { for (int i = 1; i < CLI_LINES; i++) memcpy(s_cli[i - 1], s_cli[i], sizeof(s_cli[0])); memcpy(s_cli[CLI_LINES - 1], line, sizeof(line)); }
   s_rep_seq++;
 }
+
+// ---- peer / contact details ------------------------------------------------
+static bool find_heard_by_pubkey(const uint8_t* pub, AdvertPath& out) {
+  AdvertPath rec[16];
+  int n = the_mesh.getRecentlyHeard(rec, 16);
+  for (int i = 0; i < n; i++)
+    if (memcmp(rec[i].pubkey_prefix, pub, sizeof(rec[i].pubkey_prefix)) == 0) { out = rec[i]; return true; }
+  return false;
+}
+
+extern "C" bool lvd_peer_get(const char* name, lvd_peer_t* out) {
+  ContactInfo c;
+  if (!find_contact_by_name(name, c)) return false;
+
+  const char* t = c.type == ADV_TYPE_REPEATER ? "Repeater" :
+                  c.type == ADV_TYPE_ROOM     ? "Room server" :
+                  c.type == ADV_TYPE_SENSOR   ? "Sensor" : "Chat contact";
+  strncpy(out->type, t, sizeof(out->type) - 1); out->type[sizeof(out->type) - 1] = 0;
+
+  if (c.out_path_len == OUT_PATH_UNKNOWN) { snprintf(out->path, sizeof(out->path), "flood");  snprintf(out->hops, sizeof(out->hops), "--"); }
+  else if (c.out_path_len == 0)           { snprintf(out->path, sizeof(out->path), "direct"); snprintf(out->hops, sizeof(out->hops), "0"); }
+  else                                    { snprintf(out->path, sizeof(out->path), "routed"); snprintf(out->hops, sizeof(out->hops), "%u", (unsigned)c.out_path_len); }
+
+  for (int i = 0; i < 32; i++) snprintf(out->pubkey + i * 2, 3, "%02x", c.id.pub_key[i]);
+
+  int32_t lat = c.gps_lat, lon = c.gps_lon;
+  AdvertPath h; bool hh = find_heard_by_pubkey(c.id.pub_key, h);
+  if ((lat == 0 && lon == 0) && hh) { lat = h.gps_lat; lon = h.gps_lon; }
+  if (lat == 0 && lon == 0) { snprintf(out->lat, sizeof(out->lat), "--"); snprintf(out->lon, sizeof(out->lon), "--"); }
+  else { snprintf(out->lat, sizeof(out->lat), "%.4f", lat / 1e6); snprintf(out->lon, sizeof(out->lon), "%.4f", lon / 1e6); }
+
+  if (hh && h.rssi)  snprintf(out->rssi, sizeof(out->rssi), "%d dBm", h.rssi); else snprintf(out->rssi, sizeof(out->rssi), "--");
+  if (hh && h.snr_q) { int v10 = h.snr_q * 10 / 4, a = v10 < 0 ? -v10 : v10; snprintf(out->snr, sizeof(out->snr), "%s%d.%d dB", v10 < 0 ? "-" : "", a / 10, a % 10); }
+  else snprintf(out->snr, sizeof(out->snr), "--");
+  snprintf(out->dist, sizeof(out->dist), "--");   // needs local GPS
+
+  if (hh && h.recv_timestamp) {
+    uint32_t now = rtc_clock.getCurrentTime();
+    uint32_t age = now > h.recv_timestamp ? now - h.recv_timestamp : 0;
+    if (age < 60) snprintf(out->lastheard, sizeof(out->lastheard), "%us", (unsigned)age);
+    else if (age < 3600) snprintf(out->lastheard, sizeof(out->lastheard), "%um", (unsigned)(age / 60));
+    else snprintf(out->lastheard, sizeof(out->lastheard), "%uh", (unsigned)(age / 3600));
+  } else snprintf(out->lastheard, sizeof(out->lastheard), "--");
+  return true;
+}
