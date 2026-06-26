@@ -18,6 +18,10 @@ void ui_store_message(bool is_channel, int channel_idx, const uint8_t* peer6,
 // records a trace-route result for the on-device trace screen (UITask.cpp)
 void ui_store_trace(uint32_t tag, const uint8_t* path_hashes, const uint8_t* path_snrs,
                     uint8_t path_len, uint8_t path_sz, int8_t final_snr_q);
+// repeater-admin async results (UITask.cpp)
+void ui_rep_on_login(const uint8_t* pk6, bool ok, uint8_t perms);
+void ui_rep_on_status(const uint8_t* pk6, const uint8_t* data, uint8_t len);
+void ui_rep_on_cmdreply(const uint8_t* pk6, const char* text);
 
 class UITask : public AbstractUITask {
   DisplayDriver* _display = nullptr;
@@ -55,4 +59,7 @@ public:
                      uint8_t path_len, uint8_t path_sz, int8_t final_snr_q) override {
     ui_store_trace(tag, path_hashes, path_snrs, path_len, path_sz, final_snr_q);
   }
+  void onLoginResult(const uint8_t* pk6, bool ok, uint8_t perms) override { ui_rep_on_login(pk6, ok, perms); }
+  void onStatusResponse(const uint8_t* pk6, const uint8_t* data, uint8_t len) override { ui_rep_on_status(pk6, data, len); }
+  void onCommandReply(const uint8_t* pk6, const char* text) override { ui_rep_on_cmdreply(pk6, text); }
 };

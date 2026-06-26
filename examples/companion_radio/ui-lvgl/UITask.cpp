@@ -37,6 +37,8 @@ extern "C" {
   void lv_repeaters_create(lv_obj_t* scr);
   void lv_repeaters_set_tab(int t);
   void lv_repeater_detail_create(lv_obj_t* scr);
+  void lv_rep_login_create(lv_obj_t* scr);
+  void lv_rep_cli_create(lv_obj_t* scr);
   void lv_peer_create(lv_obj_t* scr);
   void lv_trace_create(lv_obj_t* scr);
   void lv_terminal_create(lv_obj_t* scr);
@@ -68,6 +70,8 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "repeaters")) { lv_repeaters_set_tab(0); lv_repeaters_create(s); }
   else if (!strcmp(name, "scan")) { lv_repeaters_set_tab(1); lv_repeaters_create(s); }
   else if (!strcmp(name, "repeater_detail")) lv_repeater_detail_create(s);
+  else if (!strcmp(name, "rep_login")) lv_rep_login_create(s);
+  else if (!strcmp(name, "rep_cli")) lv_rep_cli_create(s);
   else if (!strcmp(name, "peer")) lv_peer_create(s);
   else if (!strcmp(name, "trace")) lv_trace_create(s);
   else if (!strcmp(name, "terminal")) { lv_terminal_set_tab(0); lv_terminal_create(s); }
@@ -664,4 +668,139 @@ extern "C" bool        lvd_trace_get(int i, lvd_hop_t* out) {
   snprintf(out->snr, sizeof(out->snr), "%s%d.%d dB", v10 < 0 ? "-" : "+", a / 10, a % 10);
   out->quality = q >= 20 ? 2 : (q >= 0 ? 1 : 0);
   return true;
+}
+
+// ---- repeater / room admin -------------------------------------------------
+static bool     s_rep_active = false;
+static uint8_t  s_rep_peer[6];
+static char     s_rep_name[32] = "";
+static int      s_rep_login = 0;            // 0 none, 1 pending, 2 in, 3 failed
+static bool     s_rep_have_status = false;
+static uint8_t  s_rep_blob[80];
+static int      s_rep_blob_len = 0;
+static unsigned s_rep_seq = 0;
+#define CLI_LINES 10
+static char     s_cli[CLI_LINES][84];
+static int      s_cli_n = 0;
+
+static bool is_rep_type(int t) { return t == ADV_TYPE_REPEATER || t == ADV_TYPE_ROOM; }
+static const char* rep_type_tag(int t) { return t == ADV_TYPE_ROOM ? "ROOM" : "RPT"; }
+
+// fetch the i-th saved (scan=0) or heard (scan=1) repeater/room into c
+static bool rep_nth(int scan, int i, ContactInfo& c) {
+  int seen = 0;
+  if (scan == 0) {
+    int n = the_mesh.getNumContacts();
+    for (int k = 0; k < n; k++) {
+      ContactInfo t;
+      if (the_mesh.getContactByIdx((uint32_t)k, t) && is_rep_type(t.type)) { if (seen == i) { c = t; return true; } seen++; }
+    }
+  } else {
+    static ContactInfo cand[16];
+    int n = the_mesh.getHeardCandidates(cand, 16);
+    for (int k = 0; k < n; k++)
+      if (is_rep_type(cand[k].type)) { if (seen == i) { c = cand[k]; return true; } seen++; }
+  }
+  return false;
+}
+
+extern "C" int lvd_rep_count(int scan) {
+  int seen = 0;
+  if (scan == 0) {
+    int n = the_mesh.getNumContacts();
+    for (int k = 0; k < n; k++) { ContactInfo t; if (the_mesh.getContactByIdx((uint32_t)k, t) && is_rep_type(t.type)) seen++; }
+  } else {
+    static ContactInfo cand[16];
+    int n = the_mesh.getHeardCandidates(cand, 16);
+    for (int k = 0; k < n; k++) if (is_rep_type(cand[k].type)) seen++;
+  }
+  return seen;
+}
+extern "C" bool lvd_rep_get(int scan, int i, lvd_replist_t* out) {
+  ContactInfo c;
+  if (!rep_nth(scan, i, c)) return false;
+  strncpy(out->name, c.name, sizeof(out->name) - 1); out->name[sizeof(out->name) - 1] = 0;
+  strncpy(out->type, rep_type_tag(c.type), sizeof(out->type) - 1); out->type[sizeof(out->type) - 1] = 0;
+  out->fav = 0;
+  return true;
+}
+extern "C" void lvd_rep_open(int scan, int i) {
+  ContactInfo c;
+  if (!rep_nth(scan, i, c)) return;
+  s_rep_active = true;
+  memcpy(s_rep_peer, c.id.pub_key, 6);
+  strncpy(s_rep_name, c.name, sizeof(s_rep_name) - 1); s_rep_name[sizeof(s_rep_name) - 1] = 0;
+  s_rep_login = 0; s_rep_have_status = false; s_cli_n = 0;
+  s_rep_seq++;
+}
+
+extern "C" const char* lvd_rep_name(void)        { return s_rep_name; }
+extern "C" int         lvd_rep_login_state(void) { return s_rep_login; }
+extern "C" void        lvd_rep_login(const char* password) {
+  if (!s_rep_active) return;
+  uint32_t timeout;
+  if (the_mesh.uiLogin(s_rep_peer, password ? password : "", timeout)) s_rep_login = 1;  // pending
+  else s_rep_login = 3;
+  s_rep_seq++;
+}
+extern "C" void lvd_rep_request_status(void) {
+  if (!s_rep_active) return;
+  uint32_t timeout;
+  the_mesh.uiRequestStatus(s_rep_peer, timeout);
+  s_rep_seq++;
+}
+
+static uint32_t rd_u32(const uint8_t* p) { return p[0] | (p[1] << 8) | (p[2] << 16) | ((uint32_t)p[3] << 24); }
+static uint16_t rd_u16(const uint8_t* p) { return p[0] | (p[1] << 8); }
+
+extern "C" void lvd_rep_status_get(lvd_repstat_t* out) {
+  out->have = 0;
+  if (!s_rep_have_status || s_rep_blob_len < 24) { return; }
+  const uint8_t* b = s_rep_blob;
+  out->have = 1;
+  uint16_t mv = rd_u16(b + 0);
+  snprintf(out->batt, sizeof(out->batt), "%u.%02uV", mv / 1000, (mv % 1000) / 10);
+  uint32_t up = (s_rep_blob_len >= 24) ? rd_u32(b + 20) : 0;
+  if (up >= 86400) snprintf(out->uptime, sizeof(out->uptime), "%ud %uh", up / 86400, (up % 86400) / 3600);
+  else             snprintf(out->uptime, sizeof(out->uptime), "%uh %um", up / 3600, (up % 3600) / 60);
+  snprintf(out->recv, sizeof(out->recv), "%u", (unsigned)rd_u32(b + 8));
+  snprintf(out->sent, sizeof(out->sent), "%u", (unsigned)rd_u32(b + 12));
+  uint32_t air = (s_rep_blob_len >= 20) ? rd_u32(b + 16) : 0;
+  snprintf(out->airtime, sizeof(out->airtime), "%um", air / 60);
+  if (s_rep_blob_len >= 44) {
+    int16_t snr = (int16_t)rd_u16(b + 42); int v10 = snr * 10 / 4, a = v10 < 0 ? -v10 : v10;
+    snprintf(out->snr, sizeof(out->snr), "%s%d.%d dB", v10 < 0 ? "-" : "", a / 10, a % 10);
+  } else snprintf(out->snr, sizeof(out->snr), "--");
+}
+
+extern "C" void lvd_rep_send_cmd(const char* cmd) {
+  if (!s_rep_active || !cmd || !cmd[0]) return;
+  uint32_t timeout;
+  if (the_mesh.uiSendCommand(s_rep_peer, cmd, timeout)) {
+    // echo the command locally
+    if (s_cli_n < CLI_LINES) { snprintf(s_cli[s_cli_n], sizeof(s_cli[0]), "> %s", cmd); s_cli_n++; }
+    else { for (int i = 1; i < CLI_LINES; i++) memcpy(s_cli[i - 1], s_cli[i], sizeof(s_cli[0])); snprintf(s_cli[CLI_LINES - 1], sizeof(s_cli[0]), "> %s", cmd); }
+    s_rep_seq++;
+  }
+}
+extern "C" int         lvd_rep_cli_count(void) { return s_cli_n; }
+extern "C" const char* lvd_rep_cli_line(int i)  { return (i >= 0 && i < s_cli_n) ? s_cli[i] : ""; }
+extern "C" unsigned    lvd_rep_seq(void)        { return s_rep_seq; }
+
+void ui_rep_on_login(const uint8_t* pk6, bool ok, uint8_t perms) {
+  if (s_rep_active && memcmp(pk6, s_rep_peer, 6) == 0) { s_rep_login = ok ? 2 : 3; s_rep_seq++; }
+}
+void ui_rep_on_status(const uint8_t* pk6, const uint8_t* data, uint8_t len) {
+  if (!s_rep_active || memcmp(pk6, s_rep_peer, 6) != 0) return;
+  s_rep_blob_len = len > (int)sizeof(s_rep_blob) ? (int)sizeof(s_rep_blob) : len;
+  memcpy(s_rep_blob, data, s_rep_blob_len);
+  s_rep_have_status = true;
+  s_rep_seq++;
+}
+void ui_rep_on_cmdreply(const uint8_t* pk6, const char* text) {
+  if (!s_rep_active || memcmp(pk6, s_rep_peer, 6) != 0) return;
+  char line[84]; snprintf(line, sizeof(line), "%s", text ? text : "");
+  if (s_cli_n < CLI_LINES) { memcpy(s_cli[s_cli_n], line, sizeof(line)); s_cli_n++; }
+  else { for (int i = 1; i < CLI_LINES; i++) memcpy(s_cli[i - 1], s_cli[i], sizeof(s_cli[0])); memcpy(s_cli[CLI_LINES - 1], line, sizeof(line)); }
+  s_rep_seq++;
 }

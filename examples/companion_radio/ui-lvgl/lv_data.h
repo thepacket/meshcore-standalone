@@ -123,6 +123,29 @@ int         lvd_trace_count(void);    // hop rows (intermediate hops + final "to
 bool        lvd_trace_get(int i, lvd_hop_t* out);
 unsigned    lvd_trace_seq(void);      // monotonic, for refresh detection
 
+// ---- repeater / room admin -------------------------------------------------
+typedef struct { char name[32]; char type[6]; int fav; } lvd_replist_t;
+int  lvd_rep_count(int scan);                       // scan: 0=saved repeaters/rooms, 1=heard
+bool lvd_rep_get(int scan, int i, lvd_replist_t* out);
+void lvd_rep_open(int scan, int i);                 // set the active repeater from the list
+
+const char* lvd_rep_name(void);
+int  lvd_rep_login_state(void);                     // 0 none, 1 pending, 2 in, 3 failed
+void lvd_rep_login(const char* password);
+void lvd_rep_request_status(void);
+
+typedef struct {
+  int  have;
+  char batt[16], uptime[16], recv[14], sent[14], airtime[14], snr[12];
+} lvd_repstat_t;
+void lvd_rep_status_get(lvd_repstat_t* out);
+
+void        lvd_rep_send_cmd(const char* cmd);      // remote CLI command
+int         lvd_rep_cli_count(void);
+const char* lvd_rep_cli_line(int i);                // oldest..newest
+
+unsigned    lvd_rep_seq(void);                      // refresh detection
+
 #ifdef __cplusplus
 }
 #endif

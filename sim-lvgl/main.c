@@ -127,6 +127,33 @@ bool lvd_trace_get(int i, lvd_hop_t* out) {
 }
 unsigned lvd_trace_seq(void) { return 1; }
 
+static const lvd_replist_t MOCK_REPS[] = {
+  {"GW-Hertford", "RPT", 1}, {"Hilltop-Relay", "RPT", 0}, {"Town Square", "ROOM", 0},
+};
+int lvd_rep_count(int scan) { return scan ? 0 : (int)(sizeof(MOCK_REPS)/sizeof(MOCK_REPS[0])); }
+bool lvd_rep_get(int scan, int i, lvd_replist_t* out) {
+  if (scan || i < 0 || i >= lvd_rep_count(0)) return false;
+  *out = MOCK_REPS[i]; return true;
+}
+void lvd_rep_open(int scan, int i) { (void)scan; (void)i; }
+const char* lvd_rep_name(void) { return "GW-Hertford"; }
+int lvd_rep_login_state(void) { return 2; }
+void lvd_rep_login(const char* password) { (void)password; }
+void lvd_rep_request_status(void) {}
+void lvd_rep_status_get(lvd_repstat_t* out) {
+  out->have = 1;
+  snprintf(out->batt, sizeof(out->batt), "4.05V");
+  snprintf(out->uptime, sizeof(out->uptime), "4d 7h");
+  snprintf(out->recv, sizeof(out->recv), "150000");
+  snprintf(out->sent, sizeof(out->sent), "42000");
+  snprintf(out->airtime, sizeof(out->airtime), "70m");
+  snprintf(out->snr, sizeof(out->snr), "7.0 dB");
+}
+void lvd_rep_send_cmd(const char* cmd) { (void)cmd; }
+int lvd_rep_cli_count(void) { return 0; }
+const char* lvd_rep_cli_line(int i) { (void)i; return ""; }
+unsigned lvd_rep_seq(void) { return 1; }
+
 #define W 320
 #define H 240
 
