@@ -1,4 +1,4 @@
-// LVGL tools: Trace route, and Terminal (Console + Packets tabs / packet monitor).
+// LVGL tools: Trace route, the live packet monitor, and a per-packet detail view.
 #include "lv_ui.h"
 #include "lv_data.h"
 #include <stdio.h>
@@ -79,12 +79,20 @@ void lv_trace_create(lv_obj_t* scr) {
 // backing and was dropped -- this screen is the live packet monitor only.
 void lv_terminal_set_tab(int t) { (void)t; }   // retained for the nav signature
 
-static void pkt_row(lv_obj_t* list, const char* type, uint32_t tcol, const char* meta) {
+static void pkt_clicked(lv_event_t* e) {
+  int i = (int)(intptr_t)lv_event_get_user_data(e);
+  lvd_packet_select(i);
+  if (lv_nav_cb) lv_nav_cb("pktdetail");
+}
+
+static void pkt_row(lv_obj_t* list, int idx, const char* type, uint32_t tcol, const char* meta) {
   lv_obj_t* c = lv_ui_md_card(list);
   lv_obj_set_width(c, lv_pct(100)); lv_obj_set_height(c, 32);
   lv_obj_set_style_min_height(c, 0, 0); lv_obj_set_style_pad_hor(c, 8, 0); lv_obj_set_style_pad_ver(c, 0, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(c, pkt_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
   lv_obj_t* tag = lv_ui_pill(c, type, tcol);
   lv_obj_set_style_margin_right(tag, 8, 0);
   lv_obj_t* m = lv_label_create(c);
@@ -108,7 +116,7 @@ static void packets_fill(lv_obj_t* list) {
   }
   lvd_packet_t p;
   for (int i = 0; i < n; i++)
-    if (lvd_packet_get(i, &p)) pkt_row(list, p.type, p.color, p.meta);
+    if (lvd_packet_get(i, &p)) pkt_row(list, i, p.type, p.color, p.meta);
 }
 
 // rebuild when a new packet arrives (monotonic total changed)
@@ -125,4 +133,30 @@ void lv_terminal_create(lv_obj_t* scr) {
   s_pkt_list = full_list(scr, 42);
   packets_fill(s_pkt_list);
   lv_ui_set_refresh(packets_tick);
+}
+
+// ---- packet detail (full breakdown + raw hex, like the Android dialog) ------
+void lv_pkt_detail_create(lv_obj_t* scr) {
+  lv_ui_screen_bg(scr);
+  lv_ui_md_topbar(scr, "Packet");
+  lv_obj_t* list = lv_ui_md_scroll(scr);
+
+  lvd_kv_t kv[20];
+  int n = lvd_packet_detail(kv, 20);
+  if (n <= 0) {
+    lv_obj_t* h = lv_label_create(list);
+    lv_label_set_text(h, "No packet selected");
+    lv_obj_set_style_text_color(h, lv_color_hex(MD_MUTED), 0);
+    return;
+  }
+  lv_obj_t* card = lv_ui_md_card(list);
+  for (int i = 0; i < n; i++) lv_ui_md_row(card, kv[i].label, kv[i].value, MD_ON);
+
+  lv_obj_t* raw = lv_ui_md_section(list, "Raw", 0);
+  lv_obj_t* hx = lv_label_create(raw);
+  lv_label_set_text(hx, lvd_packet_hex());
+  lv_label_set_long_mode(hx, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(hx, lv_pct(100));
+  lv_obj_set_style_text_font(hx, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(hx, lv_color_hex(UI_TEXT), 0);
 }

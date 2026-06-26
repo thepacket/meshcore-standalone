@@ -54,6 +54,7 @@ extern "C" {
   void lv_trace_create(lv_obj_t* scr);
   void lv_terminal_create(lv_obj_t* scr);
   void lv_terminal_set_tab(int t);
+  void lv_pkt_detail_create(lv_obj_t* scr);
   void lv_stats_create(lv_obj_t* scr);
   void lv_discover_create(lv_obj_t* scr);
   void lv_disc_create(lv_obj_t* scr);
@@ -87,6 +88,7 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "trace")) lv_trace_create(s);
   else if (!strcmp(name, "terminal")) lv_terminal_create(s);
   else if (!strcmp(name, "packets")) lv_terminal_create(s);
+  else if (!strcmp(name, "pktdetail")) lv_pkt_detail_create(s);
   else if (!strcmp(name, "stats")) lv_stats_create(s);
   else if (!strcmp(name, "discover")) lv_discover_create(s);
   else if (!strcmp(name, "disc")) lv_disc_create(s);
@@ -475,7 +477,8 @@ extern "C" unsigned lvd_pkt_recv(void)    { return radio_driver.getPacketsRecv()
 
 // ---- packet monitor --------------------------------------------------------
 #define PKT_LOG 32
-struct PktRec { uint8_t header; int rssi; int snr_q; int len; uint32_t t; };
+#define PKT_RAW 192   // bytes of each packet kept for the hex/breakdown view
+struct PktRec { uint8_t header; int rssi; int snr_q; int len; uint32_t t; uint8_t raw[PKT_RAW]; uint8_t rawlen; };
 static PktRec s_pkt[PKT_LOG];
 static int s_pkt_head = 0, s_pkt_n = 0;
 static unsigned s_pkt_total = 0;   // monotonic, for change detection
@@ -487,6 +490,8 @@ void ui_log_packet(float snr, float rssi, const uint8_t* raw, int len) {
   r.snr_q = (int)(snr * 4.0f);
   r.len = len;
   r.t = millis();
+  r.rawlen = (uint8_t)(len > PKT_RAW ? PKT_RAW : (len < 0 ? 0 : len));
+  if (raw && r.rawlen) memcpy(r.raw, raw, r.rawlen);
   s_pkt_head = (s_pkt_head + 1) % PKT_LOG;
   if (s_pkt_n < PKT_LOG) s_pkt_n++;
   s_pkt_total++;
@@ -529,6 +534,129 @@ extern "C" bool lvd_packet_get(int i, lvd_packet_t* out) {
   snprintf(out->meta, sizeof(out->meta), "%s  len%d  %ddBm  %s%d.%d  %s",
            rt, r.len, r.rssi, snr10 < 0 ? "-" : "", sa / 10, sa % 10, agebuf);
   return true;
+}
+
+// ---- packet detail (tap a row in the monitor) ------------------------------
+static PktRec s_psel;
+static bool   s_psel_valid = false;
+
+extern "C" void lvd_packet_select(int i) {
+  if (i < 0 || i >= s_pkt_n) { s_psel_valid = false; return; }
+  int idx = (s_pkt_head - 1 - i + PKT_LOG * 2) % PKT_LOG;
+  s_psel = s_pkt[idx];
+  s_psel_valid = true;
+}
+
+static const char* route_name(int r) {
+  return r == 0 ? "Transport-flood" : r == 1 ? "Flood" : r == 2 ? "Direct" : "Transport-direct";
+}
+static const char* ptype_name(int t) {
+  switch (t) {
+    case 0x00: return "Request";    case 0x01: return "Response";  case 0x02: return "Text";
+    case 0x03: return "Ack";        case 0x04: return "Advert";    case 0x05: return "Group text";
+    case 0x06: return "Group data"; case 0x07: return "Anon req";  case 0x08: return "Path";
+    case 0x09: return "Trace";      case 0x0A: return "Multipart"; case 0x0B: return "Control";
+    case 0x0F: return "Raw custom"; default:   return "Unknown";
+  }
+}
+static const char* contact_name_by_pubkey6(const uint8_t* pk6) {
+  static char nm[32];
+  int n = the_mesh.getNumContacts();
+  for (int i = 0; i < n; i++) {
+    ContactInfo c;
+    if (the_mesh.getContactByIdx((uint32_t)i, c) && memcmp(c.id.pub_key, pk6, 6) == 0) {
+      strncpy(nm, c.name, sizeof(nm) - 1); nm[sizeof(nm) - 1] = 0; return nm;
+    }
+  }
+  return NULL;
+}
+static void kv_add(lvd_kv_t* out, int* n, int max, const char* label, const char* value) {
+  if (*n >= max) return;
+  strncpy(out[*n].label, label, sizeof(out[*n].label) - 1); out[*n].label[sizeof(out[*n].label) - 1] = 0;
+  strncpy(out[*n].value, value, sizeof(out[*n].value) - 1); out[*n].value[sizeof(out[*n].value) - 1] = 0;
+  (*n)++;
+}
+
+extern "C" int lvd_packet_detail(lvd_kv_t* out, int max) {
+  if (!s_psel_valid) return 0;
+  const PktRec& p = s_psel;
+  const uint8_t* b = p.raw;
+  int rl = p.rawlen;
+  uint8_t hdr = rl > 0 ? b[0] : 0;
+  int route = hdr & 0x03, ptype = (hdr >> 2) & 0x0F, ver = (hdr >> 6) & 0x03;
+  bool transport = (route == 0 || route == 3);
+  char v[88];
+  int n = 0;
+
+  kv_add(out, &n, max, "Type", ptype_name(ptype));
+  snprintf(v, sizeof(v), "%s (v%d)", route_name(route), ver);       kv_add(out, &n, max, "Route", v);
+
+  int off = 1;   // header [+4 transport] path_len path... payload
+  if (transport && rl >= 5) {
+    uint16_t t0 = b[1] | (b[2] << 8), t1 = b[3] | (b[4] << 8);
+    snprintf(v, sizeof(v), "0x%04X, 0x%04X", t0, t1);              kv_add(out, &n, max, "Transport", v);
+    off = 5;
+  }
+  uint8_t plf = (off < rl) ? b[off] : 0;
+  off++;
+  int hcount = plf & 63, hsize = (plf >> 6) + 1, pbytes = hcount * hsize;
+  if (hcount == 0) snprintf(v, sizeof(v), "direct (0 hops)");
+  else {
+    int k = snprintf(v, sizeof(v), "%d hop%s:", hcount, hcount == 1 ? "" : "s");
+    for (int j = 0; j < pbytes && off + j < rl && k < (int)sizeof(v) - 4; j++)
+      k += snprintf(v + k, sizeof(v) - k, " %02X", b[off + j]);
+  }
+  kv_add(out, &n, max, "Path", v);
+  int payoff = off + pbytes;
+  int paylen = p.len - payoff; if (paylen < 0) paylen = 0;
+  const uint8_t* pl = b + payoff;
+  int plav = rl - payoff; if (plav < 0) plav = 0;
+
+  switch (ptype) {
+    case 0x00: case 0x01: case 0x02: case 0x08:   // REQ/RESP/TXT/PATH: dest+src hash
+      if (plav >= 1) { snprintf(v, sizeof(v), "0x%02X", pl[0]); kv_add(out, &n, max, "Dest", v); }
+      if (plav >= 2) { snprintf(v, sizeof(v), "0x%02X", pl[1]); kv_add(out, &n, max, "Source", v); }
+      break;
+    case 0x03:                                    // ACK
+      if (plav >= 1) { int k = snprintf(v, sizeof(v), "0x"); for (int j = 0; j < plav && j < 8 && k < (int)sizeof(v) - 2; j++) k += snprintf(v + k, sizeof(v) - k, "%02X", pl[j]); kv_add(out, &n, max, "ACK code", v); }
+      break;
+    case 0x05: case 0x06:                          // GRP_TXT/GRP_DATA: channel hash
+      if (plav >= 1) { snprintf(v, sizeof(v), "0x%02X", pl[0]); kv_add(out, &n, max, "Channel", v); }
+      break;
+    case 0x04:                                     // ADVERT: advertiser pubkey
+      if (plav >= 6) {
+        const char* nm = contact_name_by_pubkey6(pl);
+        if (nm) snprintf(v, sizeof(v), "%s (%02X%02X%02X..)", nm, pl[0], pl[1], pl[2]);
+        else    snprintf(v, sizeof(v), "%02X%02X%02X%02X%02X%02X..", pl[0], pl[1], pl[2], pl[3], pl[4], pl[5]);
+        kv_add(out, &n, max, "Advertiser", v);
+      }
+      break;
+    case 0x09:                                     // TRACE: tag
+      if (plav >= 4) { uint32_t tag = pl[0] | (pl[1] << 8) | (pl[2] << 16) | ((uint32_t)pl[3] << 24); snprintf(v, sizeof(v), "0x%08X", (unsigned)tag); kv_add(out, &n, max, "Trace tag", v); }
+      break;
+    default: break;
+  }
+
+  { int v10 = p.snr_q * 10 / 4, a = v10 < 0 ? -v10 : v10;
+    snprintf(v, sizeof(v), "%s%d.%d dB / %d dBm", v10 < 0 ? "-" : "", a / 10, a % 10, p.rssi);
+    kv_add(out, &n, max, "SNR / RSSI", v); }
+  snprintf(v, sizeof(v), "%d B (payload %d B)", p.len, paylen);     kv_add(out, &n, max, "Length", v);
+  snprintf(v, sizeof(v), "0x%02X", hdr);                            kv_add(out, &n, max, "Header", v);
+  { uint32_t age = (millis() - p.t) / 1000;
+    if (age < 60) snprintf(v, sizeof(v), "%us ago", (unsigned)age);
+    else          snprintf(v, sizeof(v), "%um ago", (unsigned)(age / 60));
+    kv_add(out, &n, max, "Received", v); }
+  return n;
+}
+
+extern "C" const char* lvd_packet_hex(void) {
+  static char hex[PKT_RAW * 3 + 8];
+  if (!s_psel_valid) { hex[0] = 0; return hex; }
+  int k = 0;
+  for (int i = 0; i < s_psel.rawlen && k < (int)sizeof(hex) - 4; i++)
+    k += snprintf(hex + k, sizeof(hex) - k, "%02X ", s_psel.raw[i]);
+  if (s_psel.len > s_psel.rawlen && k < (int)sizeof(hex) - 4) snprintf(hex + k, sizeof(hex) - k, "...");
+  return hex;
 }
 
 // ---- discover (heard-but-unsaved nodes) ------------------------------------

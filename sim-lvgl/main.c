@@ -80,6 +80,22 @@ bool lvd_packet_get(int i, lvd_packet_t* out) {
   *out = MOCK_PKTS[i];
   return true;
 }
+static int g_psel = 0;
+void lvd_packet_select(int i) { g_psel = i; }
+int lvd_packet_detail(lvd_kv_t* out, int max) {
+  static const lvd_kv_t D[] = {
+    {"Type", "Advert"}, {"Route", "Flood (v1)"}, {"Path", "direct (0 hops)"},
+    {"Advertiser", "GW-Hertford (a37f12..)"}, {"SNR / RSSI", "9.0 dB / -78 dBm"},
+    {"Length", "41 B (payload 38 B)"}, {"Header", "0x11"}, {"Received", "3s ago"},
+  };
+  int n = (int)(sizeof(D)/sizeof(D[0]));
+  if (n > max) n = max;
+  for (int i = 0; i < n; i++) out[i] = D[i];
+  return n;
+}
+const char* lvd_packet_hex(void) {
+  return "11 00 04 A3 7F 12 C4 9B 0E 5D 61 2F 8A 44 D3 B7 E1 90 CA";
+}
 
 static const lvd_disc_t MOCK_DISC[] = {
   {"New-Repeater", "Repeater  -  tap to add", 2},

@@ -78,6 +78,13 @@ int      lvd_packet_count(void);
 unsigned lvd_packet_total(void);                 // monotonic count, for refresh detection
 bool     lvd_packet_get(int i, lvd_packet_t* out);   // i = 0 is the newest
 
+// packet detail (tap a row): snapshot row i, then read its decoded breakdown +
+// raw hex. The breakdown is a list of label/value pairs (like the Android dialog).
+typedef struct { char label[16]; char value[88]; } lvd_kv_t;
+void        lvd_packet_select(int i);                  // snapshot packet i (0 = newest)
+int         lvd_packet_detail(lvd_kv_t* out, int max); // fill rows, returns count
+const char* lvd_packet_hex(void);                      // raw hex of the selected packet
+
 // ---- discover (recently-heard nodes not yet saved as contacts) -------------
 typedef struct {
   char name[32];
