@@ -10,8 +10,19 @@
 #include <string.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include <ctype.h>
 
 extern MyMesh the_mesh;   // global mesh instance (main.cpp)
+
+// case-insensitive name compare for alphabetical sorting of lists
+static int ci_strcmp(const char* a, const char* b) {
+  while (*a && *b) {
+    int d = tolower((unsigned char)*a) - tolower((unsigned char)*b);
+    if (d) return d;
+    a++; b++;
+  }
+  return (unsigned char)*a - (unsigned char)*b;
+}
 
 #ifndef BATT_MIN_MILLIVOLTS
   #define BATT_MIN_MILLIVOLTS 3300
@@ -251,12 +262,35 @@ extern "C" bool lvd_heard_get(int i, lvd_heard_t* out) {
 }
 
 // ---- contacts (Contacts screen) --------------------------------------------
+// Present contacts alphabetically by name. getContactByIdx() returns storage
+// order, so keep a name-sorted index of contact indices, rebuilt when the count
+// changes. The comparator fetches the two contacts by index on demand.
+static int cmp_contact_idx(const void* a, const void* b) {
+  ContactInfo ca, cb;
+  the_mesh.getContactByIdx(*(const uint16_t*)a, ca);
+  the_mesh.getContactByIdx(*(const uint16_t*)b, cb);
+  return ci_strcmp(ca.name, cb.name);
+}
+static uint16_t g_corder[MAX_CONTACTS];
+static int      g_corder_n = -1;   // count the order was built for (-1 = none)
+
+static void build_contact_order(void) {
+  int n = the_mesh.getNumContacts();
+  if (n > MAX_CONTACTS) n = MAX_CONTACTS;
+  if (n == g_corder_n) return;
+  for (int i = 0; i < n; i++) g_corder[i] = (uint16_t)i;
+  qsort(g_corder, n, sizeof(g_corder[0]), cmp_contact_idx);
+  g_corder_n = n;
+}
+
 extern "C" int lvd_contact_count(void) {
-  return the_mesh.getNumContacts();
+  build_contact_order();
+  return g_corder_n;
 }
 extern "C" bool lvd_contact_get(int i, lvd_contact_t* out) {
+  build_contact_order();
   ContactInfo c;
-  if (i < 0 || !the_mesh.getContactByIdx((uint32_t)i, c)) return false;
+  if (i < 0 || i >= g_corder_n || !the_mesh.getContactByIdx(g_corder[i], c)) return false;
   strncpy(out->name, c.name, sizeof(out->name) - 1); out->name[sizeof(out->name) - 1] = 0;
   out->type = c.type;
 
@@ -686,36 +720,42 @@ static int      s_cli_n = 0;
 static bool is_rep_type(int t) { return t == ADV_TYPE_REPEATER || t == ADV_TYPE_ROOM; }
 static const char* rep_type_tag(int t) { return t == ADV_TYPE_ROOM ? "ROOM" : "RPT"; }
 
-// fetch the i-th saved (scan=0) or heard (scan=1) repeater/room into c
-static bool rep_nth(int scan, int i, ContactInfo& c) {
-  int seen = 0;
+// Name-sorted snapshot of the current repeater/room list (saved or heard). Built
+// when the list is requested; lvd_rep_get/open then read it by display index.
+#define REPLIST_MAX 64
+static ContactInfo g_replist[REPLIST_MAX];
+static int         g_replist_n = 0;
+static int         g_replist_scan = -1;
+
+static int cmp_ci_name(const void* a, const void* b) {
+  return ci_strcmp(((const ContactInfo*)a)->name, ((const ContactInfo*)b)->name);
+}
+static void rep_build(int scan) {
+  g_replist_n = 0;
+  g_replist_scan = scan;
   if (scan == 0) {
     int n = the_mesh.getNumContacts();
-    for (int k = 0; k < n; k++) {
+    for (int k = 0; k < n && g_replist_n < REPLIST_MAX; k++) {
       ContactInfo t;
-      if (the_mesh.getContactByIdx((uint32_t)k, t) && is_rep_type(t.type)) { if (seen == i) { c = t; return true; } seen++; }
+      if (the_mesh.getContactByIdx((uint32_t)k, t) && is_rep_type(t.type)) g_replist[g_replist_n++] = t;
     }
   } else {
-    static ContactInfo cand[16];
+    ContactInfo cand[16];
     int n = the_mesh.getHeardCandidates(cand, 16);
-    for (int k = 0; k < n; k++)
-      if (is_rep_type(cand[k].type)) { if (seen == i) { c = cand[k]; return true; } seen++; }
+    for (int k = 0; k < n && g_replist_n < REPLIST_MAX; k++)
+      if (is_rep_type(cand[k].type)) g_replist[g_replist_n++] = cand[k];
   }
-  return false;
+  qsort(g_replist, g_replist_n, sizeof(ContactInfo), cmp_ci_name);
+}
+// fetch the i-th saved (scan=0) or heard (scan=1) repeater/room into c
+static bool rep_nth(int scan, int i, ContactInfo& c) {
+  if (g_replist_scan != scan) rep_build(scan);
+  if (i < 0 || i >= g_replist_n) return false;
+  c = g_replist[i];
+  return true;
 }
 
-extern "C" int lvd_rep_count(int scan) {
-  int seen = 0;
-  if (scan == 0) {
-    int n = the_mesh.getNumContacts();
-    for (int k = 0; k < n; k++) { ContactInfo t; if (the_mesh.getContactByIdx((uint32_t)k, t) && is_rep_type(t.type)) seen++; }
-  } else {
-    static ContactInfo cand[16];
-    int n = the_mesh.getHeardCandidates(cand, 16);
-    for (int k = 0; k < n; k++) if (is_rep_type(cand[k].type)) seen++;
-  }
-  return seen;
-}
+extern "C" int lvd_rep_count(int scan) { rep_build(scan); return g_replist_n; }
 extern "C" bool lvd_rep_get(int scan, int i, lvd_replist_t* out) {
   ContactInfo c;
   if (!rep_nth(scan, i, c)) return false;
