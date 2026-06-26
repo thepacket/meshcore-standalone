@@ -191,6 +191,19 @@ bool        lvd_peer_reset_path(const char* name);  // forget the learned return
 bool        lvd_peer_remove(const char* name);      // delete the contact
 const char* lvd_peer_export_hex(const char* name);  // advert card as hex (for QR + display)
 
+// ---- channels (channel management) -----------------------------------------
+typedef struct {
+  char name[32];
+  char info[28];     // "Public - 128-bit key" / "256-bit key"
+  int  is_public;    // 1 = the Public channel (cannot be removed)
+} lvd_chan_t;
+int         lvd_chan_count(void);
+bool        lvd_chan_get(int i, lvd_chan_t* out);
+bool        lvd_chan_add(const char* name, const char* psk_b64);   // join/create; false on bad PSK
+bool        lvd_chan_remove(int i);                                // delete (not the Public channel)
+const char* lvd_chan_psk(int i);                                   // channel PSK as base64 (share/QR)
+const char* lvd_chan_new_psk(void);                                // fresh random 128-bit key (base64)
+
 // ---- signal coverage (per repeater/room) -----------------------------------
 typedef struct {
   char name[32];

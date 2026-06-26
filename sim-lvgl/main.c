@@ -144,6 +144,20 @@ void lvd_disc_clear(void) {}
 void lvd_disc_announce(void) {}
 void lvd_disc_announce_flood(void) {}
 
+static const char* MOCK_CHAN[] = { "Public", "Hiking Club", "Field Team" };
+int lvd_chan_count(void) { return 3; }
+bool lvd_chan_get(int i, lvd_chan_t* out) {
+  if (i < 0 || i >= 3) return false;
+  snprintf(out->name, sizeof(out->name), "%s", MOCK_CHAN[i]);
+  snprintf(out->info, sizeof(out->info), "%s128-bit key", i == 0 ? "Public - " : "");
+  out->is_public = (i == 0);
+  return true;
+}
+bool lvd_chan_add(const char* name, const char* psk) { (void)name; (void)psk; return true; }
+bool lvd_chan_remove(int i) { (void)i; return true; }
+const char* lvd_chan_psk(int i) { (void)i; return "izOH6cXN6mrJ5e26oRXNcg=="; }
+const char* lvd_chan_new_psk(void) { return "QkNERUZHSElKS0xNTk9Q"; }
+
 static const lvd_msg_t MOCK_MSGS[] = {
   {"Alice", "Anyone around the north side?", 0},
   {"Bob",   "Yep, copy you 5 by 9",          0},

@@ -142,6 +142,8 @@ public:
   bool uiResetPath(const uint8_t* pubkey);       // forget the learned return path
   bool uiRemoveContact(const uint8_t* pubkey);   // delete the contact + its stored blob
   int  uiExportContact(const uint8_t* pubkey, uint8_t* out, int max);  // raw advert card; returns len
+  bool uiAddChannel(const char* name, const char* psk_b64);  // join/create + persist
+  bool uiRemoveChannel(int idx);                 // clear a channel slot (keeps Public, idx 0)
 
   // ---- Companion config API (shared by the frame protocol and the on-device UI) ----
   // Each performs validate -> apply-live -> persist. Setters returning bool report

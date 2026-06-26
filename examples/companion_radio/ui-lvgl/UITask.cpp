@@ -54,6 +54,9 @@ extern "C" {
   void lv_rep_cli_create(lv_obj_t* scr);
   void lv_peer_create(lv_obj_t* scr);
   void lv_peer_export_create(lv_obj_t* scr);
+  void lv_channels_create(lv_obj_t* scr);
+  void lv_chan_detail_create(lv_obj_t* scr);
+  void lv_chan_add_create(lv_obj_t* scr);
   void lv_trace_create(lv_obj_t* scr);
   void lv_trace_rep_search_create(lv_obj_t* scr);
   void lv_terminal_create(lv_obj_t* scr);
@@ -93,6 +96,9 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "rep_cli")) lv_rep_cli_create(s);
   else if (!strcmp(name, "peer")) lv_peer_create(s);
   else if (!strcmp(name, "peer_export")) lv_peer_export_create(s);
+  else if (!strcmp(name, "channels")) lv_channels_create(s);
+  else if (!strcmp(name, "chan_detail")) lv_chan_detail_create(s);
+  else if (!strcmp(name, "chan_add")) lv_chan_add_create(s);
   else if (!strcmp(name, "trace")) lv_trace_create(s);
   else if (!strcmp(name, "tr_rep_search")) lv_trace_rep_search_create(s);
   else if (!strcmp(name, "terminal")) lv_terminal_create(s);
@@ -935,6 +941,75 @@ extern "C" int lvd_disc_request(void) {
 extern "C" void lvd_disc_clear(void)   { the_mesh.clearDiscoveredNodes(); }
 extern "C" void lvd_disc_announce(void) { the_mesh.advert(); }            // zero-hop self-advert
 extern "C" void lvd_disc_announce_flood(void) { the_mesh.advertFlood(); } // flood-routed self-advert
+
+// ---- channels (channel management) -----------------------------------------
+// Standard base64 encode (the base64 lib defines symbols in its header, so it
+// can't be included here too; we only need encode for displaying a PSK).
+static int b64_encode(const uint8_t* in, int n, char* out) {
+  static const char T[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+  int o = 0;
+  for (int i = 0; i < n; i += 3) {
+    int b0 = in[i], b1 = (i + 1 < n) ? in[i + 1] : 0, b2 = (i + 2 < n) ? in[i + 2] : 0;
+    out[o++] = T[b0 >> 2];
+    out[o++] = T[((b0 & 3) << 4) | (b1 >> 4)];
+    out[o++] = (i + 1 < n) ? T[((b1 & 15) << 2) | (b2 >> 6)] : '=';
+    out[o++] = (i + 2 < n) ? T[b2 & 63] : '=';
+  }
+  out[o] = 0;
+  return o;
+}
+// A compacted index of occupied channel slots (idx 0 is the Public channel).
+static int g_chan_idx[MAX_GROUP_CHANNELS];
+static int g_chan_n = 0;
+static bool chan_occupied(const ChannelDetails& c) {
+  if (c.name[0]) return true;
+  for (size_t i = 0; i < sizeof(c.channel.secret); i++) if (c.channel.secret[i]) return true;
+  return false;
+}
+static bool chan_is128(const ChannelDetails& c) {   // 128-bit key = upper 16 bytes zero
+  for (int k = 16; k < 32; k++) if (c.channel.secret[k]) return false;
+  return true;
+}
+static void chan_build(void) {
+  g_chan_n = 0;
+  for (int i = 0; i < MAX_GROUP_CHANNELS && g_chan_n < MAX_GROUP_CHANNELS; i++) {
+    ChannelDetails c;
+    if (the_mesh.getChannel(i, c) && chan_occupied(c)) g_chan_idx[g_chan_n++] = i;
+  }
+}
+extern "C" int lvd_chan_count(void) { chan_build(); return g_chan_n; }
+extern "C" bool lvd_chan_get(int i, lvd_chan_t* out) {
+  if (i < 0 || i >= g_chan_n) return false;
+  ChannelDetails c; the_mesh.getChannel(g_chan_idx[i], c);
+  const char* nm = c.name[0] ? c.name : "(unnamed)";
+  strncpy(out->name, nm, sizeof(out->name) - 1); out->name[sizeof(out->name) - 1] = 0;
+  snprintf(out->info, sizeof(out->info), "%s%s", g_chan_idx[i] == 0 ? "Public - " : "",
+           chan_is128(c) ? "128-bit key" : "256-bit key");
+  out->is_public = (g_chan_idx[i] == 0) ? 1 : 0;
+  return true;
+}
+extern "C" bool lvd_chan_add(const char* name, const char* psk_b64) {
+  if (!name || !*name || !psk_b64) return false;
+  return the_mesh.uiAddChannel(name, psk_b64);
+}
+extern "C" bool lvd_chan_remove(int i) {
+  if (i < 0 || i >= g_chan_n || g_chan_idx[i] == 0) return false;   // never remove Public
+  return the_mesh.uiRemoveChannel(g_chan_idx[i]);
+}
+extern "C" const char* lvd_chan_psk(int i) {     // the channel's PSK as base64 (for sharing/QR)
+  static char b64[50]; b64[0] = 0;
+  if (i < 0 || i >= g_chan_n) return b64;
+  ChannelDetails c; the_mesh.getChannel(g_chan_idx[i], c);
+  b64_encode(c.channel.secret, chan_is128(c) ? 16 : 32, b64);
+  return b64;
+}
+extern "C" const char* lvd_chan_new_psk(void) {  // a fresh random 128-bit key (base64), for new channels
+  static char b64[50];
+  uint8_t key[16];
+  for (int i = 0; i < 16; i++) key[i] = (uint8_t)esp_random();
+  b64_encode(key, 16, b64);
+  return b64;
+}
 
 // ---- chat store (Public channel + DMs) -------------------------------------
 #define MSG_LOG 32

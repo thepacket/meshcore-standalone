@@ -470,6 +470,19 @@ int MyMesh::uiExportContact(const uint8_t* pubkey, uint8_t* out, int max) {
   memcpy(out, tmp, n);
   return n;
 }
+bool MyMesh::uiAddChannel(const char* name, const char* psk_b64) {
+  if (!addChannel(name, psk_b64)) return false;
+  saveChannels();
+  return true;
+}
+bool MyMesh::uiRemoveChannel(int idx) {
+  if (idx <= 0 || idx >= MAX_GROUP_CHANNELS) return false;   // never remove Public (idx 0)
+  ChannelDetails empty;
+  memset(&empty, 0, sizeof(empty));   // blank name + zero key -> the slot reads as unused
+  if (!setChannel(idx, empty)) return false;
+  saveChannels();
+  return true;
+}
 
 bool MyMesh::sendTextTo(ContactInfo& recipient, const char* text,
                         uint32_t& expected_ack, uint32_t& est_timeout) {

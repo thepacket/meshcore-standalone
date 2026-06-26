@@ -16,6 +16,7 @@ extern const lv_font_t icons_fa;  // 22px icon font
 #define ICON_TRACE      "\xEF\x93\x97"
 #define ICON_TERMINAL   "\xEF\x84\xA0"
 #define ICON_PACKETS    "\xEF\x9B\xBF"   // fa-network-wired (U+F6FF)
+#define ICON_CHANNELS   "\xEF\x8A\x92"   // fa-hashtag (U+F292)
 #define ICON_NOISE      "\xEF\xA0\xBE"
 #define ICON_SIGNAL     "\xEF\x80\x92"
 #define ICON_SHIELD     "\xEF\x8F\xAD"

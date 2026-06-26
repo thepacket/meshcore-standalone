@@ -10,7 +10,7 @@ static const Tile TILES[12] = {
   {ICON_CHAT,      UI_BLUE,    true,  "chat"},
   {ICON_CONTACTS,  UI_GREEN,   true,  "contacts"},
   {ICON_REPEATERS, UI_PURPLE,  true,  "repeaters"},
-  {ICON_FINDER,    UI_CYAN,    true,  "scan"},
+  {ICON_CHANNELS,  UI_CYAN,    true,  "channels"},
   {ICON_HEARD,     UI_TEAL,    true,  "heard"},
   {ICON_MAP,       UI_ORANGE,  false, ""},
   {ICON_ADVERT,    UI_PINK,    true,  "discover"},
