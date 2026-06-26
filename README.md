@@ -13,8 +13,9 @@ use the radio with no external app — while staying **portable** across compani
 devices and faithful to MeshCore's underlying protocol.
 
 - **Standalone** — full control of the device from its own screen.
-- **Touch-first** — designed for the T-Deck Plus touchscreen, with keyboard and
-  trackball as alternatives.
+- **Touch-first** — designed for the T-Deck Plus touchscreen, with the built-in
+  physical keyboard as an alternative for text entry. (The T-Deck trackball is
+  too unreliable to be useful and is disabled.)
 - **Beautiful** — a modern, colourful, widget-rich interface (built on **LVGL**),
   not raw text on a panel.
 - **Open** — MIT licensed.
@@ -31,18 +32,28 @@ Built for an Android-app-quality look (black theme, per-feature colour-coded ico
 chips, charts/gauges, real widgets). Live on-device:
 
 - ✅ **Home** — colour icon-grid launcher; live status bar (RX/RE/TX/CT counters,
-  clock, battery) and live noise-floor + RX-activity widgets
+  clock, battery); a **live RF signal scope** (instantaneous channel RSSI) that
+  taps through to a full-screen scope with a max-scale slider
 - ✅ **Chat** — Public channel **and** direct messages (send + live receive), speech bubbles
-- ✅ **Contacts** — live contact list with name search
+- ✅ **Contacts** — live contact list with name search (space-separated OR tokens)
+- ✅ **Channels** — manage group channels: list, view/share a channel's key as a
+  QR, and add (join or create) by name + key
 - ✅ **Heard** — recently-heard stations with SNR/RSSI/age, auto-refreshing
-- ✅ **Discover** — announce, then list heard-but-unsaved nodes; tap to add to contacts
+- ✅ **Discover / Tools** — active node discovery (paced zero-hop `NODE_DISCOVER_REQ`,
+  auto-repeated every 60s; responders auto-added as contacts) plus zero-hop /
+  flood self-advert actions
 - ✅ **Stats** — rolling noise-floor chart, last RSSI/SNR, packet counters, battery/uptime
-- ✅ **Packet monitor** — live decoded RX feed; tap a packet for the full breakdown + raw hex
+- ✅ **Packet monitor** — live decoded RX feed; tap a packet for the full breakdown + raw hex; path search
 - ✅ **Signal** — per-repeater coverage (RSSI bar + SNR), strongest first, stale hidden
-- ✅ **Settings** — every companion config field, editable **and persisted** (incl. radio params)
+- ✅ **Settings** — every companion config field, editable **and persisted** (incl.
+  radio params); on-screen-keyboard toggle
 - ✅ **Repeaters** — Saved/Scan list + detail with remote login, live status, and a CLI console
-- ✅ **Trace** — trace a route to a contact and see each hop's SNR
-- ✅ **Peer details** — tap a contact for type/path/RSSI/SNR/location/public key
+- ✅ **Trace** — build a path through chosen repeaters and trace it, with a 10s
+  timeout and friendly per-hop names + SNR
+- ✅ **Peer details** — tap a contact for type/path/RSSI/SNR/distance/last-heard/
+  location/public key, plus Share / Reset-path / Export (QR) / Remove actions
+- ✅ **Input & feedback** — physical keyboard typing into focused fields; press
+  feedback + confirmation toasts on every action
 
 A portable bitmap UI ([`examples/companion_radio/ui-new/`](examples/companion_radio/ui-new))
 also still builds and remains the lightweight option for mono/non-touch boards. The

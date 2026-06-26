@@ -37,8 +37,16 @@ keyboard, QR). Design language reference: **MeshUltra** (look only).
 - ✅ **LoRa RX and TX both work on the T-Deck.** Fixed a shared-SPI bus conflict: the radio
   (Arduino-HAL SPI) and the LovyanGFX display (ESP-IDF spi_master) were both on SPI2, so
   `display.begin()` tore down the radio's bus. Moving the display to its own host (SPI3) and
-  handing the shared output pins back to the radio after each flush restored RX/TX. The bitmap
+  handing the shared output pins back to the radio once per frame restored RX/TX. The bitmap
   UI stays as the fallback for mono / non-touch / companion boards.
+- ✅ **On-device extras built directly in the LVGL UI:** a live **RF signal scope**
+  (home panel + full-screen scope with a scale slider); **channel management**
+  (list / share-key-as-QR / add-or-join); **active node discovery** (paced zero-hop
+  `NODE_DISCOVER_REQ` every 60s, responders auto-added) with zero-hop/flood advert
+  actions; peer-details **contact ops** (Share / Reset-path / Export-QR / Remove);
+  the **physical keyboard** wired into LVGL with an on-screen-keyboard toggle; and
+  global **tap feedback + toasts**. The T-Deck **trackball is disabled** — its
+  hardware is too unreliable (missed rolls + false clicks) to be useful.
 
 The protocol/firmware work from each milestone (config ops, ChatStore, RF hooks, login/
 status/candidate cache) is UI-framework-agnostic and carries straight over.
@@ -67,8 +75,10 @@ A smartphone-style chat, fully on-device.
 - ⏳ **Contact-type-aware** room post/read niceties (rooms currently treated as DMs).
 
 ## M3 — RF diagnostics & tools  ✅ (done)
-- ✅ **Packet monitor** — decoded raw packet stream + per-packet detail.
-- ✅ **Live noise scope** — scrolling graph of noise-floor history (`radio_driver.getNoiseFloor()`).
+- ✅ **Packet monitor** — decoded raw packet stream + per-packet detail + path search.
+- ✅ **Live RF scope** — fast scrolling plot of the instantaneous channel RSSI
+  (`radio_driver.getCurrentRSSI()`) on the home panel, tapping through to a
+  full-screen scope with a max-scale slider (shared scale, −120 dBm floor).
 - ✅ **Last-heard list** — recent stations with SNR/RSSI + estimated distance
   (extended `AdvertPath`/`getRecentlyHeard`; haversine from advert lat/lon vs our GPS).
 - ✅ **Signal meter** — per-repeater mesh-coverage bars + last-heard age.
@@ -87,7 +97,7 @@ Delivered alongside M3 to host the diagnostic tiles:
 - ⏳ **Offline maps** from SD-card tiles (needs tile renderer + projection).
 - ⏳ **Node/repeater plotting** from advert lat/lon (`onAdvertRecv`).
 - ⏳ **Geographic route trace** (ties to M3 trace) + **share location** over RF.
-- ⏳ Touch/trackball pan/zoom.
+- ⏳ Touch pan/zoom (the trackball is disabled — unreliable hardware).
 - Requires the SD card (T-Deck Plus has one) — gate behind storage availability.
 
 ## M5 — Remote infrastructure / repeater management  🟡 (core done)
@@ -124,7 +134,10 @@ Delivered alongside M3 to host the diagnostic tiles:
 
 ## Done so far
 M1 settings; the MeshOS-style cyan-on-black icon-grid launcher home with status bars; all of
-M3 (packet monitor, noise scope, last-heard, signal meter, trace route); M2 chat (Channels/DMs
+M3 (packet monitor, **live RF scope**, last-heard, signal meter, trace route); M2 chat (Channels/DMs
 tabs, speech-bubble threads, colour-coded names, delivery status, compose, tap-to-reply, inline
 emoji, URL→QR); the M5 core (remote login, repeater stats, scanner/whitelist, remote triggers);
-and the desktop simulator.
+**channel management**, **active node discovery** (auto-add), peer-details **contact ops**
+(Share/Reset/Export-QR/Remove), **physical keyboard** input + on-screen-keyboard toggle, and
+global tap feedback/toasts; and the desktop simulator. (The T-Deck trackball is disabled —
+unreliable hardware.)
