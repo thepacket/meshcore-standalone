@@ -149,6 +149,7 @@ void lvd_trace_path_add_name(const char* name) { (void)name; }
 int lvd_trace_path_len(void) { return 2; }
 const char* lvd_trace_path_str(void) { return "GW-Hertford > Hilltop-Relay"; }
 void lvd_trace_go(void) {}
+void lvd_trace_poll(void) {}
 int lvd_trace_state(void) { return 2; }
 const char* lvd_trace_target(void) { return "Repeater-7"; }
 int lvd_trace_count(void) { return (int)(sizeof(MOCK_HOPS)/sizeof(MOCK_HOPS[0])); }

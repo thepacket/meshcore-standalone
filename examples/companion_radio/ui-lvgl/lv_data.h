@@ -140,8 +140,9 @@ int         lvd_trace_path_len(void);
 const char* lvd_trace_path_str(void);           // "A > B" chain being built
 void        lvd_trace_go(void);                 // send the trace along the built path
 
-int         lvd_trace_state(void);    // 0 idle, 1 tracing, 2 done, 3 failed
+int         lvd_trace_state(void);    // 0 idle, 1 tracing, 2 done, 3 failed, 4 timed out
 const char* lvd_trace_target(void);
+void        lvd_trace_poll(void);     // call ~1/s while tracing; flips to timed out
 int         lvd_trace_count(void);    // hop rows (intermediate hops + final "to you")
 bool        lvd_trace_get(int i, lvd_hop_t* out);
 unsigned    lvd_trace_seq(void);      // monotonic, for refresh detection

@@ -125,8 +125,9 @@ static void trace_build(lv_obj_t* scr) {
     return;
   }
 
-  // build mode (st 0, or 3 = previous send failed)
+  // build mode (st 0, or 3 = send failed, or 4 = timed out)
   if (st == 3) trace_note(list, "Trace send failed (busy or path too long).");
+  if (st == 4) trace_note(list, "Trace timed out (no response in 10s). Tap Send to retry.");
 
   lv_obj_t* pc = lv_ui_md_card(list);
   lv_obj_set_flex_flow(pc, LV_FLEX_FLOW_COLUMN); lv_obj_set_style_pad_row(pc, 8, 0);
@@ -221,6 +222,7 @@ void lv_trace_rep_search_create(lv_obj_t* scr) {
 }
 
 static void trace_tick(void) {
+  lvd_trace_poll();   // time out a stuck trace
   if (lvd_trace_seq() != s_trace_seq) { lv_obj_t* s = lv_screen_active(); lv_obj_clean(s); trace_build(s); }
 }
 

@@ -893,10 +893,12 @@ static unsigned s_tr_seq = 0;
 // trace path being built (chain of node hashes = each repeater's pub_key[0])
 static uint8_t  s_tpath[TRACE_MAX];
 static int      s_tpath_n = 0;
+static uint32_t s_tr_sent_ms = 0;        // when the in-flight trace was sent
+#define TRACE_TIMEOUT_MS 10000
 
 void ui_store_trace(uint32_t tag, const uint8_t* hashes, const uint8_t* snrs,
                     uint8_t path_len, uint8_t path_sz, int8_t final_snr_q) {
-  if (s_tr_state == 1 && tag != s_tr_tag) return;   // not the trace we asked for
+  if (tag != s_tr_tag) return;   // only our own trace (also accepts a late result after timeout)
   int n = path_len >> path_sz;                      // SNR entries (== hops)
   if (n > TRACE_MAX) n = TRACE_MAX;
   s_tr_hops = n;
@@ -935,9 +937,13 @@ extern "C" void lvd_trace_go(void) {
   strncpy(s_tr_target, lvd_trace_path_str(), sizeof(s_tr_target) - 1); s_tr_target[sizeof(s_tr_target) - 1] = 0;
   s_tr_hops = 0;
   uint32_t tag;
-  if (the_mesh.sendTracePath(s_tpath, (uint8_t)s_tpath_n, tag)) { s_tr_tag = tag; s_tr_state = 1; }
+  if (the_mesh.sendTracePath(s_tpath, (uint8_t)s_tpath_n, tag)) { s_tr_tag = tag; s_tr_state = 1; s_tr_sent_ms = millis(); }
   else s_tr_state = 3;
   s_tr_seq++;
+}
+// called periodically by the trace screen; flips a stuck trace to "timed out"
+extern "C" void lvd_trace_poll(void) {
+  if (s_tr_state == 1 && millis() - s_tr_sent_ms > TRACE_TIMEOUT_MS) { s_tr_state = 4; s_tr_seq++; }
 }
 extern "C" int         lvd_trace_state(void)  { return s_tr_state; }
 extern "C" const char* lvd_trace_target(void) { return s_tr_target; }
