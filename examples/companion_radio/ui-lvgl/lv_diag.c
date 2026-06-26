@@ -76,9 +76,9 @@ void lv_noise_create(lv_obj_t* scr) {
 
 // ---- Signal: per-repeater coverage gauges (live, from the heard table) ------
 static void coverage_row(lv_obj_t* list, const lvd_sig_t* r) {
-  lv_obj_t* row = lv_ui_card(list, -1, 0, 0, 52);
+  lv_obj_t* row = lv_ui_card(list, -1, 0, 0, 60);
   lv_obj_set_width(row, lv_pct(100));
-  lv_obj_set_height(row, 50);
+  lv_obj_set_height(row, 58);
   lv_obj_set_style_min_height(row, 0, 0);
   lv_obj_set_style_pad_hor(row, 10, 0);
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
@@ -100,6 +100,12 @@ static void coverage_row(lv_obj_t* list, const lvd_sig_t* r) {
   lv_obj_set_style_text_font(ag, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(ag, lv_color_hex(UI_MUTED), 0);
   lv_obj_align(ag, LV_ALIGN_RIGHT_MID, 0, 0);
+
+  // RSSI · SNR line (the bar is RSSI-based; SNR shown for link quality)
+  lv_obj_t* info = lv_label_create(row);
+  lv_label_set_text(info, r->info);
+  lv_obj_set_style_text_font(info, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(info, lv_color_hex(MD_MUTED), 0);
 
   int pct = r->heard ? (r->rssi + 120) * 100 / 70 : 0;   // -120..-50 -> 0..100
   if (pct < 0) pct = 0; if (pct > 100) pct = 100;

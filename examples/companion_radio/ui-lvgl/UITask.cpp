@@ -1021,26 +1021,36 @@ extern "C" bool lvd_peer_get(const char* name, lvd_peer_t* out) {
 // ---- signal coverage (saved repeaters/rooms we've actually heard) ----------
 // Only include repeaters with a recent heard advert (skip stale ones). Keep a
 // filtered index into the sorted g_replist, rebuilt on each count.
-static uint16_t g_sigidx[REPLIST_MAX];
-static int      g_sigidx_n = 0;
+struct SigEnt { uint16_t idx; int rssi; };
+static SigEnt g_sig[REPLIST_MAX];
+static int    g_sig_n = 0;
 
+static int cmp_sig_rssi(const void* a, const void* b) {
+  return ((const SigEnt*)b)->rssi - ((const SigEnt*)a)->rssi;   // descending (strongest first)
+}
 static void sig_build(void) {
   rep_build(0);
-  g_sigidx_n = 0;
+  g_sig_n = 0;
   for (int i = 0; i < g_replist_n; i++) {
     AdvertPath h;
-    if (find_heard_by_pubkey(g_replist[i].id.pub_key, h) && h.rssi) g_sigidx[g_sigidx_n++] = (uint16_t)i;
+    if (find_heard_by_pubkey(g_replist[i].id.pub_key, h) && h.rssi) {
+      g_sig[g_sig_n].idx = (uint16_t)i; g_sig[g_sig_n].rssi = h.rssi; g_sig_n++;
+    }
   }
+  qsort(g_sig, g_sig_n, sizeof(g_sig[0]), cmp_sig_rssi);
 }
-extern "C" int lvd_signal_count(void) { sig_build(); return g_sigidx_n; }
+extern "C" int lvd_signal_count(void) { sig_build(); return g_sig_n; }
 extern "C" bool lvd_signal_get(int i, lvd_sig_t* out) {
-  if (i < 0 || i >= g_sigidx_n) return false;
-  ContactInfo& c = g_replist[g_sigidx[i]];
+  if (i < 0 || i >= g_sig_n) return false;
+  ContactInfo& c = g_replist[g_sig[i].idx];
   strncpy(out->name, c.name, sizeof(out->name) - 1); out->name[sizeof(out->name) - 1] = 0;
 
   AdvertPath h;
   find_heard_by_pubkey(c.id.pub_key, h);   // present (filtered in sig_build)
   out->rssi = h.rssi; out->heard = 1;
+  int v10 = h.snr_q * 10 / 4, a = v10 < 0 ? -v10 : v10;
+  snprintf(out->info, sizeof(out->info), "%d dBm   SNR %s%d.%d dB", h.rssi, v10 < 0 ? "-" : "", a / 10, a % 10);
+
   uint32_t now = rtc_clock.getCurrentTime();
   uint32_t age = now > h.recv_timestamp ? now - h.recv_timestamp : 0;
   if (age < 60)        snprintf(out->age, sizeof(out->age), "%us", (unsigned)age);

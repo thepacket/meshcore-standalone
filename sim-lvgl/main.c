@@ -186,10 +186,9 @@ bool lvd_peer_get(const char* name, lvd_peer_t* out) {
 }
 
 static const lvd_sig_t MOCK_SIG[] = {
-  {"GW-Hertford",  -72, "12s",   1},
-  {"Hilltop-Relay",-96, "2m",    1},
-  {"Town Square",  -110,"30m",   1},
-  {"Field-Node",    0,  "stale", 0},
+  {"GW-Hertford",  -72, "-72 dBm   SNR 9.0 dB",  "12s", 1},
+  {"Hilltop-Relay",-96, "-96 dBm   SNR 2.0 dB",  "2m",  1},
+  {"Town Square",  -110,"-110 dBm   SNR -8.0 dB","30m", 1},
 };
 int lvd_signal_count(void) { return (int)(sizeof(MOCK_SIG)/sizeof(MOCK_SIG[0])); }
 bool lvd_signal_get(int i, lvd_sig_t* out) {

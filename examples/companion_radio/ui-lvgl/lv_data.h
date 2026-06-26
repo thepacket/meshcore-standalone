@@ -164,8 +164,9 @@ bool lvd_peer_get(const char* name, lvd_peer_t* out);   // false if not a saved 
 // ---- signal coverage (per repeater/room) -----------------------------------
 typedef struct {
   char name[32];
-  int  rssi;        // dBm (0 = not heard)
-  char age[12];     // "12s" / "2m" / "stale"
+  int  rssi;        // dBm (drives the bar)
+  char info[28];    // "-78 dBm   SNR 9.0 dB"
+  char age[12];     // "12s" / "2m"
   int  heard;       // 1 if recently heard
 } lvd_sig_t;
 int  lvd_signal_count(void);
