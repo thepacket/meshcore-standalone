@@ -63,6 +63,8 @@ int lvd_stats_noise_history(int* out, int max) {
   for (int i = 0; i < n; i++) out[i] = -104 + (i * 11 % 6) - 3;
   return n;
 }
+int lvd_noise_floor(void) { return -104; }
+unsigned lvd_pkt_recv(void) { static unsigned r = 1900; return r += 2; }
 
 #define W 320
 #define H 240

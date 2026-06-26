@@ -347,3 +347,6 @@ extern "C" int lvd_stats_noise_history(int* out, int max) {
   }
   return n;
 }
+
+extern "C" int      lvd_noise_floor(void) { return radio_driver.getNoiseFloor(); }
+extern "C" unsigned lvd_pkt_recv(void)    { return radio_driver.getPacketsRecv(); }

@@ -63,6 +63,10 @@ typedef struct {
 void lvd_stats_get(lvd_stats_t* out);              // sample now (advances noise history)
 int  lvd_stats_noise_history(int* out, int max);   // oldest..newest; returns count
 
+// ---- home hero widgets -----------------------------------------------------
+int      lvd_noise_floor(void);   // current noise floor, dBm (0 = unknown)
+unsigned lvd_pkt_recv(void);      // total packets received (drives the activity rate)
+
 #ifdef __cplusplus
 }
 #endif
