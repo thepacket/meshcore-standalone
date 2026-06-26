@@ -3,6 +3,7 @@
 #include "lv_data.h"
 #include <stdio.h>
 #include <string.h>
+#include <ctype.h>
 
 static lv_obj_t* full_list(lv_obj_t* scr, int top) {
   lv_obj_t* list = lv_obj_create(scr);
@@ -49,6 +50,20 @@ static void trace_rebuild(void) { lv_async_call(trace_rebuild_cb, NULL); }
 static void tr_add_clicked(lv_event_t* e)  { lvd_trace_path_add((int)(intptr_t)lv_event_get_user_data(e)); trace_rebuild(); }
 static void tr_send_clicked(lv_event_t* e) { (void)e; lvd_trace_go();        trace_rebuild(); }
 static void tr_clear_clicked(lv_event_t* e){ (void)e; lvd_trace_path_clear(); trace_rebuild(); }
+
+// repeater-name filter for the builder list (this screen only)
+static char s_tr_repfilter[24] = "";
+static int tr_ci_contains(const char* hay, const char* needle) {
+  if (!needle[0]) return 1;
+  for (; *hay; hay++) {
+    const char* h = hay; const char* n = needle;
+    while (*h && *n && tolower((unsigned char)*h) == tolower((unsigned char)*n)) { h++; n++; }
+    if (!*n) return 1;
+  }
+  return 0;
+}
+static void tr_repsearch_open(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("trace_rep_search"); }
+static void tr_repfilter_clear(lv_event_t* e) { (void)e; s_tr_repfilter[0] = 0; trace_rebuild(); }
 
 static lv_obj_t* tr_btn(lv_obj_t* parent, const char* txt, uint32_t color) {
   lv_obj_t* b = lv_ui_card(parent, -1, 0, 0, 0);
@@ -133,8 +148,76 @@ static void trace_build(lv_obj_t* scr) {
 
   int rn = lvd_rep_count(0);
   if (rn == 0) { trace_note(list, "No repeaters or rooms saved to build a path."); return; }
+
+  // search field to filter the repeater list
+  bool fa = s_tr_repfilter[0] != 0;
+  lv_obj_t* sf = lv_ui_md_card(list);
+  lv_obj_set_flex_flow(sf, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(sf, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_add_flag(sf, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(sf, tr_repsearch_open, LV_EVENT_CLICKED, NULL);
+  lv_obj_t* si = lv_label_create(sf);
+  lv_label_set_text(si, ICON_FINDER);
+  lv_obj_set_style_text_font(si, &icons_fa, 0);
+  lv_obj_set_style_text_color(si, lv_color_hex(MD_MUTED), 0);
+  lv_obj_set_style_margin_right(si, 10, 0);
+  lv_obj_t* sl = lv_label_create(sf);
+  lv_label_set_text(sl, fa ? s_tr_repfilter : "Search repeaters");
+  lv_obj_set_style_text_color(sl, lv_color_hex(fa ? MD_ON : MD_MUTED), 0);
+  lv_obj_set_flex_grow(sl, 1);
+  if (fa) {
+    lv_obj_t* cl = lv_label_create(sf);
+    lv_label_set_text(cl, LV_SYMBOL_CLOSE);
+    lv_obj_set_style_text_color(cl, lv_color_hex(MD_MUTED), 0);
+    lv_obj_add_flag(cl, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(cl, 10);
+    lv_obj_add_event_cb(cl, tr_repfilter_clear, LV_EVENT_CLICKED, NULL);
+  }
+
   lvd_replist_t r;
-  for (int i = 0; i < rn; i++) if (lvd_rep_get(0, i, &r)) tr_rep_row(list, i, r.name);
+  int shown = 0;
+  for (int i = 0; i < rn; i++) {
+    if (!lvd_rep_get(0, i, &r)) continue;
+    if (fa && !tr_ci_contains(r.name, s_tr_repfilter)) continue;
+    tr_rep_row(list, i, r.name);   // i = original index (for lvd_trace_path_add)
+    shown++;
+  }
+  if (shown == 0) trace_note(list, "No repeaters match");
+}
+
+// repeater-search keyboard screen for the trace builder
+static lv_obj_t* s_tr_search_ta = NULL;
+static void tr_search_ready(lv_event_t* e) {
+  (void)e;
+  if (s_tr_search_ta) {
+    const char* t = lv_textarea_get_text(s_tr_search_ta);
+    strncpy(s_tr_repfilter, t ? t : "", sizeof(s_tr_repfilter) - 1);
+    s_tr_repfilter[sizeof(s_tr_repfilter) - 1] = 0;
+  }
+  if (lv_nav_cb) lv_nav_cb("back");
+}
+static void tr_search_cancel(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("back"); }
+
+void lv_trace_rep_search_create(lv_obj_t* scr) {
+  lv_ui_screen_bg(scr);
+  lv_ui_md_topbar(scr, "Search repeaters");
+  lv_obj_t* ta = lv_textarea_create(scr);
+  lv_textarea_set_one_line(ta, true);
+  lv_textarea_set_text(ta, s_tr_repfilter);
+  lv_textarea_set_placeholder_text(ta, "Repeater name");
+  lv_obj_set_pos(ta, 8, 38); lv_obj_set_size(ta, 320 - 16, 34);
+  lv_obj_set_style_bg_color(ta, lv_color_hex(0x18202c), 0);
+  lv_obj_set_style_border_color(ta, lv_color_hex(MD_PRIMARY), 0);
+  lv_obj_set_style_border_width(ta, 1, 0);
+  lv_obj_set_style_text_color(ta, lv_color_hex(UI_TEXT), 0);
+  s_tr_search_ta = ta;
+  lv_obj_t* kb = lv_keyboard_create(scr);
+  lv_keyboard_set_mode(kb, LV_KEYBOARD_MODE_TEXT_LOWER);
+  lv_keyboard_set_textarea(kb, ta);
+  lv_obj_set_size(kb, 320, 150);
+  lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_add_event_cb(kb, tr_search_ready, LV_EVENT_READY, NULL);
+  lv_obj_add_event_cb(kb, tr_search_cancel, LV_EVENT_CANCEL, NULL);
 }
 
 static void trace_tick(void) {

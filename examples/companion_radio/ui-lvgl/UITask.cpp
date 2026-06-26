@@ -52,6 +52,7 @@ extern "C" {
   void lv_rep_cli_create(lv_obj_t* scr);
   void lv_peer_create(lv_obj_t* scr);
   void lv_trace_create(lv_obj_t* scr);
+  void lv_trace_rep_search_create(lv_obj_t* scr);
   void lv_terminal_create(lv_obj_t* scr);
   void lv_terminal_set_tab(int t);
   void lv_pkt_detail_create(lv_obj_t* scr);
@@ -89,6 +90,7 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "rep_cli")) lv_rep_cli_create(s);
   else if (!strcmp(name, "peer")) lv_peer_create(s);
   else if (!strcmp(name, "trace")) lv_trace_create(s);
+  else if (!strcmp(name, "trace_rep_search")) lv_trace_rep_search_create(s);
   else if (!strcmp(name, "terminal")) lv_terminal_create(s);
   else if (!strcmp(name, "packets")) lv_terminal_create(s);
   else if (!strcmp(name, "pktdetail")) lv_pkt_detail_create(s);
