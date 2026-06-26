@@ -1,10 +1,18 @@
 // LVGL peer-details panel: everything known about a contact/sender, opened by
 // tapping their message. Header + quick actions + stat grid + location + key.
 #include "lv_ui.h"
+#include "lv_data.h"
 #include <stdio.h>
 #include <string.h>
 
 const char* lv_chat_active_peer(void);  // provided by lv_chat.c
+
+// "Message" -> open a DM conversation with this contact, then show it
+static void message_clicked(lv_event_t* e) {
+  (void)e;
+  lvd_chat_open_dm(lv_chat_active_peer());
+  if (lv_nav_cb) lv_nav_cb("conv");
+}
 
 // stat card: label on TOP, value below
 static void stat_card(lv_obj_t* grid, const char* k, const char* v, uint32_t color) {
@@ -80,7 +88,7 @@ static void fav_btn(lv_obj_t* row, bool is_fav) {
   lv_obj_center(l);
 }
 
-static void act_btn(lv_obj_t* row, const char* icon, const char* txt, uint32_t color, const char* dest) {
+static lv_obj_t* act_btn(lv_obj_t* row, const char* icon, const char* txt, uint32_t color, const char* dest) {
   lv_obj_t* b = lv_ui_card(row, -1, 0, 0, 0);
   lv_obj_set_flex_grow(b, 1); lv_obj_set_height(b, 34);
   lv_obj_set_style_bg_color(b, lv_color_hex(color), 0); lv_obj_set_style_bg_opa(b, 44, 0);
@@ -92,6 +100,7 @@ static void act_btn(lv_obj_t* row, const char* icon, const char* txt, uint32_t c
   lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(l, lv_color_hex(0xffffff), 0);
   lv_obj_center(l);
+  return b;
 }
 
 void lv_peer_create(lv_obj_t* scr) {
@@ -129,7 +138,9 @@ void lv_peer_create(lv_obj_t* scr) {
   lv_obj_set_style_bg_opa(acts, 0, 0); lv_obj_set_style_border_width(acts, 0, 0);
   lv_obj_set_style_pad_all(acts, 0, 0);
   lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(acts, 5, 0);
-  act_btn(acts, LV_SYMBOL_LEFT, "Message", UI_BLUE, "back");
+  lv_obj_t* msg_btn = act_btn(acts, LV_SYMBOL_RIGHT, "Message", UI_BLUE, NULL);
+  lv_obj_add_flag(msg_btn, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(msg_btn, message_clicked, LV_EVENT_CLICKED, NULL);
   act_btn(acts, "", "Trace", UI_AMBER, "trace");
   fav_btn(acts, true);   // checkable: filled when favourite, toggles on tap
 

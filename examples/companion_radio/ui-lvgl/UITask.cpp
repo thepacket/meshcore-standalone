@@ -521,16 +521,23 @@ extern "C" void lvd_disc_add(int i) {
 }
 extern "C" void lvd_disc_announce(void) { the_mesh.advert(); }
 
-// ---- chat store (Public channel v1) ----------------------------------------
-#define MSG_LOG 24
-struct MsgRec { bool is_ch; int ch; char who[24]; char text[124]; bool out; };
+// ---- chat store (Public channel + DMs) -------------------------------------
+#define MSG_LOG 32
+struct MsgRec { bool is_ch; int ch; uint8_t peer6[6]; char who[24]; char text[124]; bool out; };
 static MsgRec s_msg[MSG_LOG];
 static int s_msg_head = 0, s_msg_n = 0;
 static unsigned s_msg_total = 0;
 
-void ui_store_message(bool is_ch, int ch, const char* who, const char* text, bool out) {
+// active conversation: Public channel, or a DM with a specific contact
+static bool        s_conv_public = true;
+static uint8_t     s_conv_peer[6];
+static ContactInfo s_conv_contact;
+static bool        s_conv_has_contact = false;
+
+void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who, const char* text, bool out) {
   MsgRec& m = s_msg[s_msg_head];
   m.is_ch = is_ch; m.ch = ch; m.out = out;
+  if (peer6) memcpy(m.peer6, peer6, 6); else memset(m.peer6, 0, 6);
   strncpy(m.who,  who  ? who  : "", sizeof(m.who)  - 1); m.who[sizeof(m.who)   - 1] = 0;
   strncpy(m.text, text ? text : "", sizeof(m.text) - 1); m.text[sizeof(m.text) - 1] = 0;
   s_msg_head = (s_msg_head + 1) % MSG_LOG;
@@ -538,26 +545,56 @@ void ui_store_message(bool is_ch, int ch, const char* who, const char* text, boo
   s_msg_total++;
 }
 
-// map the j-th oldest Public-channel message to a ring index, or -1
-static int public_msg_idx(int j) {
+// does message at ring index idx belong to the active conversation?
+static bool in_active_conv(int idx) {
+  const MsgRec& m = s_msg[idx];
+  if (s_conv_public) return m.is_ch && m.ch == 0;
+  return !m.is_ch && memcmp(m.peer6, s_conv_peer, 6) == 0;
+}
+// also: does a message belong to the Public channel (for the list preview)?
+static bool is_public_msg(int idx) { return s_msg[idx].is_ch && s_msg[idx].ch == 0; }
+
+static int nth_idx(int j, bool (*match)(int)) {
   int seen = 0;
   for (int k = 0; k < s_msg_n; k++) {
     int idx = (s_msg_head - s_msg_n + k + MSG_LOG * 2) % MSG_LOG;
-    if (s_msg[idx].is_ch && s_msg[idx].ch == 0) { if (seen == j) return idx; seen++; }
+    if (match(idx)) { if (seen == j) return idx; seen++; }
   }
   return -1;
 }
-
-extern "C" int lvd_chat_count(void) {
+static int count_idx(bool (*match)(int)) {
   int n = 0;
   for (int k = 0; k < s_msg_n; k++) {
     int idx = (s_msg_head - s_msg_n + k + MSG_LOG * 2) % MSG_LOG;
-    if (s_msg[idx].is_ch && s_msg[idx].ch == 0) n++;
+    if (match(idx)) n++;
   }
   return n;
 }
+
+// find a saved contact by display name (for opening / sending a DM)
+static bool find_contact_by_name(const char* name, ContactInfo& out) {
+  int n = the_mesh.getNumContacts();
+  for (int i = 0; i < n; i++) {
+    ContactInfo c;
+    if (the_mesh.getContactByIdx((uint32_t)i, c) && strcmp(c.name, name) == 0) { out = c; return true; }
+  }
+  return false;
+}
+
+extern "C" void lvd_chat_open_public(void) { s_conv_public = true; }
+extern "C" void lvd_chat_open_dm(const char* contact_name) {
+  s_conv_public = false;
+  s_conv_has_contact = find_contact_by_name(contact_name, s_conv_contact);
+  if (s_conv_has_contact) memcpy(s_conv_peer, s_conv_contact.id.pub_key, 6);
+  else memset(s_conv_peer, 0, 6);
+}
+extern "C" const char* lvd_chat_title(void) {
+  return s_conv_public ? "Public" : (s_conv_has_contact ? s_conv_contact.name : "Direct");
+}
+
+extern "C" int  lvd_chat_count(void) { return count_idx(in_active_conv); }
 extern "C" bool lvd_chat_get(int i, lvd_msg_t* out) {
-  int idx = public_msg_idx(i);
+  int idx = nth_idx(i, in_active_conv);
   if (idx < 0) return false;
   strncpy(out->sender, s_msg[idx].who,  sizeof(out->sender) - 1); out->sender[sizeof(out->sender) - 1] = 0;
   strncpy(out->text,   s_msg[idx].text, sizeof(out->text)  - 1); out->text[sizeof(out->text)   - 1] = 0;
@@ -566,12 +603,18 @@ extern "C" bool lvd_chat_get(int i, lvd_msg_t* out) {
 }
 extern "C" unsigned lvd_chat_total(void) { return s_msg_total; }
 extern "C" const char* lvd_chat_last_preview(void) {
-  int n = lvd_chat_count();
+  int n = count_idx(is_public_msg);
   if (n <= 0) return "No messages yet";
-  int idx = public_msg_idx(n - 1);
+  int idx = nth_idx(n - 1, is_public_msg);
   return idx >= 0 ? s_msg[idx].text : "";
 }
-extern "C" void lvd_chat_send_public(const char* text) {
-  if (text && text[0] && the_mesh.sendChannelText(0, text))
-    ui_store_message(true, 0, "You", text, true);
+extern "C" void lvd_chat_send(const char* text) {
+  if (!text || !text[0]) return;
+  if (s_conv_public) {
+    if (the_mesh.sendChannelText(0, text)) ui_store_message(true, 0, NULL, "You", text, true);
+  } else if (s_conv_has_contact) {
+    uint32_t ack, timeout;
+    if (the_mesh.sendTextTo(s_conv_contact, text, ack, timeout))
+      ui_store_message(false, -1, s_conv_peer, "You", text, true);
+  }
 }

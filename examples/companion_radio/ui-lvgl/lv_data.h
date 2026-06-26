@@ -97,11 +97,17 @@ typedef struct {
   int  outgoing;     // 1 = sent by us
 } lvd_msg_t;
 
-int      lvd_chat_count(void);                 // messages in the Public channel
+// The conversation screen shows one "active" conversation: the Public channel or
+// a direct message with a contact. Open one before showing the conversation.
+void        lvd_chat_open_public(void);
+void        lvd_chat_open_dm(const char* contact_name);
+const char* lvd_chat_title(void);              // "Public" or the DM peer name
+
+int      lvd_chat_count(void);                 // messages in the active conversation
 bool     lvd_chat_get(int i, lvd_msg_t* out);  // oldest..newest
 unsigned lvd_chat_total(void);                 // monotonic, for refresh detection
 const char* lvd_chat_last_preview(void);       // last Public msg text (for the list row)
-void     lvd_chat_send_public(const char* text);
+void     lvd_chat_send(const char* text);      // send to the active conversation
 
 #ifdef __cplusplus
 }

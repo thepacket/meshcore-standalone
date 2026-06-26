@@ -53,13 +53,20 @@ static uint32_t name_color(const char* s) {
 // =============================================================================
 typedef struct { const char* name; const char* preview; const char* time; int unread; uint32_t color; bool channel; } Row;
 
+static void open_public_conv(lv_event_t* e) {
+  (void)e;
+  lvd_chat_open_public();
+  if (lv_nav_cb) lv_nav_cb("conv");
+}
+
 static void add_row(lv_obj_t* list, const Row* r) {
   lv_obj_t* row = lv_ui_md_card(list);
   lv_obj_set_width(row, lv_pct(100));
   lv_obj_set_height(row, 54);
   lv_obj_set_style_min_height(row, 0, 0);
   lv_obj_set_style_pad_all(row, 8, 0);
-  lv_ui_clickable(row, "conv");
+  lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(row, open_public_conv, LV_EVENT_CLICKED, NULL);
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
 
@@ -159,16 +166,18 @@ void lv_chat_list_create(lv_obj_t* scr) {
   lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(list, 8, 0);
 
-  // Public channel row carries a live last-message preview; the rest are still
-  // prototype (DMs/other channels not yet wired -- all rows open Public for now).
+  // Public channel row (live last-message preview). DMs are reached via a
+  // contact's details > Message; other channels are not wired yet.
   Row pub = {"Public", lvd_chat_last_preview(), "", 0, UI_BLUE, true};
   add_row(list, &pub);
-  Row rows[] = {
-    {"#london",     "Dave: anyone near E1?",        "4m",  0, UI_PURPLE, true},
-    {"Andy-Mobile", "You: ETA about 10 minutes",    "1m",  0, UI_GREEN, false},
-    {"GW-Hertford", "Repeater online",              "2h",  0, UI_AMBER, false},
-  };
-  for (unsigned i = 0; i < sizeof(rows) / sizeof(rows[0]); i++) add_row(list, &rows[i]);
+
+  lv_obj_t* hint = lv_label_create(list);
+  lv_label_set_text(hint, "Open a contact and tap Message to start a DM.");
+  lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(hint, lv_pct(100));
+  lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(hint, lv_color_hex(UI_MUTED), 0);
+  lv_obj_set_style_pad_top(hint, 8, 0);
 }
 
 // =============================================================================
@@ -261,7 +270,7 @@ static void conv_tick(void) {
 
 void lv_chat_conv_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
-  lv_ui_md_topbar(scr, "Public");
+  lv_ui_md_topbar(scr, lvd_chat_title());
 
   int composeH = 32;
   s_conv_scroll = lv_obj_create(scr);
@@ -310,7 +319,7 @@ static void compose_ready(lv_event_t* e) {
   (void)e;
   if (s_compose_ta) {
     const char* txt = lv_textarea_get_text(s_compose_ta);
-    if (txt && txt[0]) lvd_chat_send_public(txt);
+    if (txt && txt[0]) lvd_chat_send(txt);
   }
   if (lv_nav_cb) lv_nav_cb("back");
 }
@@ -318,11 +327,11 @@ static void compose_cancel(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("b
 
 void lv_chat_compose_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
-  lv_ui_md_topbar(scr, "Public message");
+  lv_ui_md_topbar(scr, lvd_chat_title());
 
   lv_obj_t* ta = lv_textarea_create(scr);
   lv_textarea_set_one_line(ta, true);
-  lv_textarea_set_placeholder_text(ta, "Message to Public");
+  lv_textarea_set_placeholder_text(ta, "Message");
   lv_obj_set_pos(ta, 8, 38);
   lv_obj_set_size(ta, 320 - 16, 34);
   lv_obj_set_style_bg_color(ta, lv_color_hex(0x18202c), 0);

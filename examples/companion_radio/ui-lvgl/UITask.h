@@ -11,8 +11,10 @@
 
 // records a received packet into the packet-monitor ring buffer (UITask.cpp)
 void ui_log_packet(float snr, float rssi, const uint8_t* raw, int len);
-// records a text message (incoming or outgoing) into the chat store (UITask.cpp)
-void ui_store_message(bool is_channel, int channel_idx, const char* who, const char* text, bool outgoing);
+// records a text message (incoming or outgoing) into the chat store (UITask.cpp).
+// peer6 = 6-byte sender pubkey prefix for DMs (NULL for channel messages).
+void ui_store_message(bool is_channel, int channel_idx, const uint8_t* peer6,
+                      const char* who, const char* text, bool outgoing);
 
 class UITask : public AbstractUITask {
   DisplayDriver* _display = nullptr;
@@ -44,6 +46,6 @@ public:
   void onTextMessage(bool is_channel, int channel_idx, const uint8_t* dm_prefix6,
                      const char* dm_name, const char* text, uint32_t timestamp,
                      uint8_t path_len, int8_t snr_q) override {
-    ui_store_message(is_channel, channel_idx, dm_name, text, false);
+    ui_store_message(is_channel, channel_idx, dm_prefix6, dm_name, text, false);
   }
 };

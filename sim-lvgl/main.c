@@ -99,6 +99,9 @@ static const lvd_msg_t MOCK_MSGS[] = {
   {"Bob",   "Yep, copy you 5 by 9",          0},
   {"",      "On the hill now, strong signal", 1},
 };
+void lvd_chat_open_public(void) {}
+void lvd_chat_open_dm(const char* contact_name) { (void)contact_name; }
+const char* lvd_chat_title(void) { return "Public"; }
 int lvd_chat_count(void) { return (int)(sizeof(MOCK_MSGS)/sizeof(MOCK_MSGS[0])); }
 bool lvd_chat_get(int i, lvd_msg_t* out) {
   if (i < 0 || i >= lvd_chat_count()) return false;
@@ -107,7 +110,7 @@ bool lvd_chat_get(int i, lvd_msg_t* out) {
 }
 unsigned lvd_chat_total(void) { return (unsigned)lvd_chat_count(); }
 const char* lvd_chat_last_preview(void) { return "On the hill now, strong signal"; }
-void lvd_chat_send_public(const char* text) { (void)text; }
+void lvd_chat_send(const char* text) { (void)text; }
 
 #define W 320
 #define H 240
