@@ -91,6 +91,8 @@ typedef struct { char label[16]; char value[88]; } lvd_kv_t;
 void        lvd_packet_select(int i);                  // snapshot packet i (0 = newest)
 int         lvd_packet_detail(lvd_kv_t* out, int max); // fill rows, returns count
 const char* lvd_packet_hex(void);                      // raw hex of the selected packet
+void        lvd_packet_set_path_filter(const char* s); // show only packets whose path matches
+const char* lvd_packet_path_filter(void);
 
 // ---- discover (recently-heard nodes not yet saved as contacts) -------------
 typedef struct {

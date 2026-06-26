@@ -55,6 +55,7 @@ extern "C" {
   void lv_terminal_create(lv_obj_t* scr);
   void lv_terminal_set_tab(int t);
   void lv_pkt_detail_create(lv_obj_t* scr);
+  void lv_pkt_search_create(lv_obj_t* scr);
   void lv_stats_create(lv_obj_t* scr);
   void lv_discover_create(lv_obj_t* scr);
   void lv_disc_create(lv_obj_t* scr);
@@ -91,6 +92,7 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "terminal")) lv_terminal_create(s);
   else if (!strcmp(name, "packets")) lv_terminal_create(s);
   else if (!strcmp(name, "pktdetail")) lv_pkt_detail_create(s);
+  else if (!strcmp(name, "pkt_search")) lv_pkt_search_create(s);
   else if (!strcmp(name, "stats")) lv_stats_create(s);
   else if (!strcmp(name, "discover")) lv_discover_create(s);
   else if (!strcmp(name, "disc")) lv_disc_create(s);
@@ -527,12 +529,66 @@ void ui_log_packet(float snr, float rssi, const uint8_t* raw, int len) {
   s_pkt_total++;
 }
 
-extern "C" int      lvd_packet_count(void) { return s_pkt_n; }
+// resolve a 1-byte path hash (== a node's pub_key[0]) to a saved contact name
+static const char* contact_name_by_hash(uint8_t h) {
+  static char nm[32];
+  int n = the_mesh.getNumContacts();
+  for (int i = 0; i < n; i++) {
+    ContactInfo c;
+    if (the_mesh.getContactByIdx((uint32_t)i, c) && c.id.pub_key[0] == h) {
+      strncpy(nm, c.name, sizeof(nm) - 1); nm[sizeof(nm) - 1] = 0; return nm;
+    }
+  }
+  return NULL;
+}
+// friendly path string for a packet ("direct", or "A > B > 7F"; "" if no path field)
+static void packet_path_str(const PktRec& p, char* v, int vlen) {
+  const uint8_t* b = p.raw; int rl = p.rawlen;
+  if (rl < 1) { v[0] = 0; return; }
+  int route = b[0] & 0x03; bool transport = (route == 0 || route == 3);
+  int off = 1;
+  if (transport && rl >= 5) off = 5;
+  uint8_t plf = (off < rl) ? b[off] : 0; off++;
+  int hcount = plf & 63, hsize = (plf >> 6) + 1;
+  if (hcount == 0) { snprintf(v, vlen, "direct"); return; }
+  int k = 0;
+  for (int j = 0; j < hcount && off + j * hsize < rl; j++) {
+    uint8_t hb = b[off + j * hsize];
+    const char* nm = contact_name_by_hash(hb);
+    const char* sep = (j == 0) ? "" : " > ";
+    if (nm) k += snprintf(v + k, vlen - k, "%s%s", sep, nm);
+    else    k += snprintf(v + k, vlen - k, "%s%02X", sep, hb);
+    if (k >= vlen - 8) { snprintf(v + k, vlen - k, " .."); break; }
+  }
+}
+
+// path text filter for the monitor list
+static char g_pkt_filter[24] = "";
+static int  g_pktidx[PKT_LOG];   // ring indices passing the filter, newest first
+static int  g_pktidx_n = 0;
+
+static void pkt_build_filter(void) {
+  g_pktidx_n = 0;
+  for (int i = 0; i < s_pkt_n; i++) {
+    int idx = (s_pkt_head - 1 - i + PKT_LOG * 2) % PKT_LOG;   // newest first
+    if (g_pkt_filter[0]) {
+      char path[96]; packet_path_str(s_pkt[idx], path, sizeof(path));
+      if (!ci_contains(path, g_pkt_filter)) continue;
+    }
+    g_pktidx[g_pktidx_n++] = idx;
+  }
+}
+extern "C" void        lvd_packet_set_path_filter(const char* s) {
+  strncpy(g_pkt_filter, s ? s : "", sizeof(g_pkt_filter) - 1); g_pkt_filter[sizeof(g_pkt_filter) - 1] = 0;
+}
+extern "C" const char* lvd_packet_path_filter(void) { return g_pkt_filter; }
+
+extern "C" int      lvd_packet_count(void) { pkt_build_filter(); return g_pktidx_n; }
 extern "C" unsigned lvd_packet_total(void) { return s_pkt_total; }
 
 extern "C" bool lvd_packet_get(int i, lvd_packet_t* out) {
-  if (i < 0 || i >= s_pkt_n) return false;
-  int idx = (s_pkt_head - 1 - i + PKT_LOG * 2) % PKT_LOG;   // newest first
+  if (i < 0 || i >= g_pktidx_n) return false;
+  int idx = g_pktidx[i];
   const PktRec& r = s_pkt[idx];
 
   uint8_t pt = (r.header >> 2) & 0x0F;   // PH_TYPE_SHIFT / PH_TYPE_MASK
@@ -571,9 +627,8 @@ static PktRec s_psel;
 static bool   s_psel_valid = false;
 
 extern "C" void lvd_packet_select(int i) {
-  if (i < 0 || i >= s_pkt_n) { s_psel_valid = false; return; }
-  int idx = (s_pkt_head - 1 - i + PKT_LOG * 2) % PKT_LOG;
-  s_psel = s_pkt[idx];
+  if (i < 0 || i >= g_pktidx_n) { s_psel_valid = false; return; }
+  s_psel = s_pkt[g_pktidx[i]];
   s_psel_valid = true;
 }
 
@@ -595,18 +650,6 @@ static const char* contact_name_by_pubkey6(const uint8_t* pk6) {
   for (int i = 0; i < n; i++) {
     ContactInfo c;
     if (the_mesh.getContactByIdx((uint32_t)i, c) && memcmp(c.id.pub_key, pk6, 6) == 0) {
-      strncpy(nm, c.name, sizeof(nm) - 1); nm[sizeof(nm) - 1] = 0; return nm;
-    }
-  }
-  return NULL;
-}
-// resolve a 1-byte path hash (== a node's pub_key[0]) to a saved contact name
-static const char* contact_name_by_hash(uint8_t h) {
-  static char nm[32];
-  int n = the_mesh.getNumContacts();
-  for (int i = 0; i < n; i++) {
-    ContactInfo c;
-    if (the_mesh.getContactByIdx((uint32_t)i, c) && c.id.pub_key[0] == h) {
       strncpy(nm, c.name, sizeof(nm) - 1); nm[sizeof(nm) - 1] = 0; return nm;
     }
   }

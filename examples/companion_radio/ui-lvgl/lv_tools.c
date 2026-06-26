@@ -110,8 +110,9 @@ static void packets_fill(lv_obj_t* list) {
   int n = lvd_packet_count();
   s_pkt_last = lvd_packet_total();
   if (n <= 0) {
+    const char* f = lvd_packet_path_filter();
     lv_obj_t* hint = lv_label_create(list);
-    lv_label_set_text(hint, "No packets yet");
+    lv_label_set_text(hint, (f && f[0]) ? "No packets match that path" : "No packets yet");
     lv_obj_set_style_text_color(hint, lv_color_hex(MD_MUTED), 0);
     return;
   }
@@ -128,12 +129,78 @@ static void packets_tick(void) {
   }
 }
 
+static void pkt_open_search(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("pkt_search"); }
+static void pkt_clear_search_cb(void* p) {
+  (void)p; lvd_packet_set_path_filter("");
+  if (s_pkt_list) { lv_obj_clean(s_pkt_list); packets_fill(s_pkt_list); }
+}
+static void pkt_clear_search(lv_event_t* e) { (void)e; lv_async_call(pkt_clear_search_cb, NULL); }
+
 void lv_terminal_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
   lv_ui_md_topbar(scr, "Packets");
-  s_pkt_list = full_list(scr, 42);
+
+  // search-by-path field
+  const char* f = lvd_packet_path_filter();
+  bool active = f && f[0];
+  lv_obj_t* sf = lv_ui_card(scr, 4, 40, 320 - 8, 30);
+  lv_obj_set_style_pad_hor(sf, 10, 0); lv_obj_set_style_pad_ver(sf, 0, 0);
+  lv_obj_set_flex_flow(sf, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(sf, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_add_flag(sf, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(sf, pkt_open_search, LV_EVENT_CLICKED, NULL);
+  lv_obj_t* ic = lv_label_create(sf);
+  lv_label_set_text(ic, ICON_FINDER);
+  lv_obj_set_style_text_font(ic, &icons_fa, 0);
+  lv_obj_set_style_text_color(ic, lv_color_hex(MD_MUTED), 0);
+  lv_obj_set_style_margin_right(ic, 10, 0);
+  lv_obj_t* st = lv_label_create(sf);
+  lv_label_set_text(st, active ? f : "Search path");
+  lv_obj_set_style_text_color(st, lv_color_hex(active ? MD_ON : MD_MUTED), 0);
+  lv_obj_set_flex_grow(st, 1);
+  if (active) {
+    lv_obj_t* cl = lv_label_create(sf);
+    lv_label_set_text(cl, LV_SYMBOL_CLOSE);
+    lv_obj_set_style_text_color(cl, lv_color_hex(MD_MUTED), 0);
+    lv_obj_add_flag(cl, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(cl, 10);
+    lv_obj_add_event_cb(cl, pkt_clear_search, LV_EVENT_CLICKED, NULL);
+  }
+
+  s_pkt_list = full_list(scr, 74);
   packets_fill(s_pkt_list);
   lv_ui_set_refresh(packets_tick);
+}
+
+// path-search keyboard screen
+static lv_obj_t* s_pkt_search_ta = NULL;
+static void pkt_search_ready(lv_event_t* e) {
+  (void)e;
+  if (s_pkt_search_ta) lvd_packet_set_path_filter(lv_textarea_get_text(s_pkt_search_ta));
+  if (lv_nav_cb) lv_nav_cb("back");
+}
+static void pkt_search_cancel(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("back"); }
+
+void lv_pkt_search_create(lv_obj_t* scr) {
+  lv_ui_screen_bg(scr);
+  lv_ui_md_topbar(scr, "Search path");
+  lv_obj_t* ta = lv_textarea_create(scr);
+  lv_textarea_set_one_line(ta, true);
+  lv_textarea_set_text(ta, lvd_packet_path_filter());
+  lv_textarea_set_placeholder_text(ta, "Node name in path");
+  lv_obj_set_pos(ta, 8, 38); lv_obj_set_size(ta, 320 - 16, 34);
+  lv_obj_set_style_bg_color(ta, lv_color_hex(0x18202c), 0);
+  lv_obj_set_style_border_color(ta, lv_color_hex(MD_PRIMARY), 0);
+  lv_obj_set_style_border_width(ta, 1, 0);
+  lv_obj_set_style_text_color(ta, lv_color_hex(UI_TEXT), 0);
+  s_pkt_search_ta = ta;
+  lv_obj_t* kb = lv_keyboard_create(scr);
+  lv_keyboard_set_mode(kb, LV_KEYBOARD_MODE_TEXT_LOWER);
+  lv_keyboard_set_textarea(kb, ta);
+  lv_obj_set_size(kb, 320, 150);
+  lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_add_event_cb(kb, pkt_search_ready, LV_EVENT_READY, NULL);
+  lv_obj_add_event_cb(kb, pkt_search_cancel, LV_EVENT_CANCEL, NULL);
 }
 
 // ---- packet detail (full breakdown + raw hex, like the Android dialog) ------

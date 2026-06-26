@@ -104,6 +104,9 @@ int lvd_packet_detail(lvd_kv_t* out, int max) {
 const char* lvd_packet_hex(void) {
   return "11 00 04 A3 7F 12 C4 9B 0E 5D 61 2F 8A 44 D3 B7 E1 90 CA";
 }
+static char g_pktf[24] = "";
+void lvd_packet_set_path_filter(const char* s) { g_pktf[0] = 0; if (s) { int i = 0; for (; s[i] && i < 23; i++) g_pktf[i] = s[i]; g_pktf[i] = 0; } }
+const char* lvd_packet_path_filter(void) { return g_pktf; }
 
 static const lvd_disc_t MOCK_DISC[] = {
   {"New-Repeater", "Repeater  -  tap to add", 2},
