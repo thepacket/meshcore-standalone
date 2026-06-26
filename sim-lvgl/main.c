@@ -73,6 +73,9 @@ void lvd_cfg_set(const char* group, const char* label, const char* val, int sel)
   (void)group; (void)label; (void)val; (void)sel;
 }
 void lvd_cfg_action(const char* group, const char* label) { (void)group; (void)label; }
+static bool s_osk = true;
+bool lvd_osk_enabled(void) { return s_osk; }
+void lvd_osk_set(bool on) { s_osk = on; }
 
 void lvd_stats_get(lvd_stats_t* out) {
   out->noise_floor = -104; out->noise_min = -118; out->noise_max = -92;

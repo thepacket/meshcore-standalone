@@ -77,6 +77,9 @@ void lv_ui_clickable(lv_obj_t* o, const char* dest);
 void lv_ui_press_fx(lv_obj_t* o);
 // transient bottom toast on the active screen (auto-removes); confirms an action
 void lv_ui_toast(const char* msg);
+// shared focus group for the physical keyboard; lv_ui_kbd_focus routes keys to a field
+lv_group_t* lv_ui_kbd_group(void);
+void        lv_ui_kbd_focus(lv_obj_t* ta);
 
 // Periodic refresh hook for live screens. A screen that shows live data registers
 // a callback via lv_ui_set_refresh() at the end of its create fn; the host calls

@@ -55,6 +55,10 @@ bool lvd_cfg_get(const char* group, const char* label, char* val, int val_len, i
 void lvd_cfg_set(const char* group, const char* label, const char* val, int sel);
 void lvd_cfg_action(const char* group, const char* label);
 
+// on-screen (touch) keyboard preference; text screens skip it when disabled
+bool lvd_osk_enabled(void);
+void lvd_osk_set(bool on);
+
 // ---- statistics (Stats screen) ---------------------------------------------
 typedef struct {
   int      noise_floor;            // current noise floor, dBm (0 = unknown)

@@ -12,6 +12,7 @@
 #include <stdio.h>
 #include <ctype.h>
 #include <math.h>
+#include <Preferences.h>
 
 extern MyMesh the_mesh;   // global mesh instance (main.cpp)
 
@@ -162,6 +163,53 @@ static void touch_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
   }
 }
 
+#if defined(UI_HAS_KEYBOARD)
+// map the T-Deck keyboard's ASCII byte to an LVGL key (printables pass through)
+static uint32_t kb_map(uint8_t c) {
+  switch (c) {
+    case 8: case 127: return LV_KEY_BACKSPACE;
+    case 10: case 13: return LV_KEY_ENTER;
+    case 27:          return LV_KEY_ESC;
+    default:          return c;   // printable ASCII -> inserted into the focused field
+  }
+}
+// LVGL keypad device: one press per key (the C3 keyboard yields each key once),
+// reported as PRESSED then RELEASED so LVGL registers a single keystroke.
+static void kb_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
+  (void)indev;
+  static uint32_t held = 0;
+  char c = tdeck_keyboard.read();
+  if (c) { held = kb_map((uint8_t)c); data->key = held; data->state = LV_INDEV_STATE_PRESSED; }
+  else   {                            data->key = held; data->state = LV_INDEV_STATE_RELEASED; }
+}
+#endif
+
+#if defined(UI_HAS_TRACKBALL)
+// The active screen's main scrollable: the direct child with the most scrollable
+// content. The trackball scrolls this up/down (left/right are intentionally unused).
+static lv_obj_t* active_scrollable() {
+  lv_obj_t* scr = lv_screen_active();
+  if (!scr) return nullptr;
+  lv_obj_t* best = nullptr; int best_range = 0;
+  uint32_t n = lv_obj_get_child_count(scr);
+  for (uint32_t i = 0; i < n; i++) {
+    lv_obj_t* c = lv_obj_get_child(scr, i);
+    if (!lv_obj_has_flag(c, LV_OBJ_FLAG_SCROLLABLE)) continue;
+    int range = lv_obj_get_scroll_top(c) + lv_obj_get_scroll_bottom(c);
+    if (range > best_range) { best_range = range; best = c; }
+  }
+  return best;
+}
+#define TRACKBALL_STEP_PX 12
+// The trackball directions are noisy, quadrature-like pulses as the ball rolls
+// (~3 transitions per roll, idle level wanders). FALLING-only misses most of
+// them, so count *every* edge (CHANGE) and scroll a small step per edge for
+// smooth, reliable up/down. Left/right are intentionally unused.
+static volatile uint32_t s_tb_up = 0, s_tb_down = 0;
+static void IRAM_ATTR tb_up_isr()   { s_tb_up++; }
+static void IRAM_ATTR tb_down_isr() { s_tb_down++; }
+#endif
+
 // two partial draw buffers (internal RAM); ~1/6 screen each
 #define LV_BUF_LINES 40
 static uint8_t g_buf1[320 * LV_BUF_LINES * 2];
@@ -193,6 +241,24 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
   lv_indev_set_read_cb(indev, touch_read_cb);
 
+#if defined(UI_HAS_KEYBOARD)
+  // physical keyboard: a keypad device feeding the shared focus group, so the
+  // T-Deck keys type into whichever text field a screen has focused.
+  tdeck_keyboard.begin();
+  lv_indev_t* kbd = lv_indev_create();
+  lv_indev_set_type(kbd, LV_INDEV_TYPE_KEYPAD);
+  lv_indev_set_read_cb(kbd, kb_read_cb);
+  lv_indev_set_group(kbd, lv_ui_kbd_group());
+#endif
+
+#if defined(UI_HAS_TRACKBALL)
+  // up/down only (scrolling); count every signal edge via CHANGE interrupts
+  pinMode(PIN_TRACKBALL_UP, INPUT_PULLUP);
+  pinMode(PIN_TRACKBALL_DOWN, INPUT_PULLUP);
+  attachInterrupt(digitalPinToInterrupt(PIN_TRACKBALL_UP),   tb_up_isr,   CHANGE);
+  attachInterrupt(digitalPinToInterrupt(PIN_TRACKBALL_DOWN), tb_down_isr, CHANGE);
+#endif
+
   lv_nav_cb = nav;       // screens route taps through here
   g_nav_sp = 0;
   nav("home");
@@ -205,6 +271,14 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 
 void UITask::loop() {
   if (!_lvgl_ready) return;
+
+#if defined(UI_HAS_TRACKBALL)
+  // drain the edge counters and scroll the active list (left/right intentionally unused)
+  uint32_t tbu = s_tb_up, tbd = s_tb_down;
+  if (tbu) { s_tb_up   -= tbu; lv_obj_t* s = active_scrollable(); if (s) lv_obj_scroll_by(s, 0,  (int)(TRACKBALL_STEP_PX * tbu), LV_ANIM_OFF); }
+  if (tbd) { s_tb_down -= tbd; lv_obj_t* s = active_scrollable(); if (s) lv_obj_scroll_by(s, 0, -(int)(TRACKBALL_STEP_PX * tbd), LV_ANIM_OFF); }
+#endif
+
   lv_timer_handler();
   if (g_disp_drew) {       // the frame is fully flushed: give the bus back once
     g_disp_drew = false;
@@ -389,6 +463,18 @@ static bool apply_radio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr, ui
                                  (uint32_t)(bw_khz * 1000.0f + 0.5f), sf, cr, repeat);
 }
 
+// On-screen keyboard preference (UI-only, persisted in NVS so it survives reboots
+// and is independent of the device-prefs file). Default on.
+static bool g_osk_loaded = false, g_osk_on = true;
+extern "C" bool lvd_osk_enabled(void) {
+  if (!g_osk_loaded) { Preferences p; p.begin("ui", true); g_osk_on = p.getBool("osk", true); p.end(); g_osk_loaded = true; }
+  return g_osk_on;
+}
+extern "C" void lvd_osk_set(bool on) {
+  g_osk_on = on; g_osk_loaded = true;
+  Preferences p; p.begin("ui", false); p.putBool("osk", on); p.end();
+}
+
 // auto-add bitmask bit for a Contacts toggle label (0 if not an auto-add field)
 static uint8_t autoadd_bit(const char* label) {
   if (eq(label, "Overwrite oldest"))   return 0x01;
@@ -442,6 +528,7 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
     }
     if (eq(label, "Firmware")) { strncpy(val, FIRMWARE_VERSION, len - 1); val[len - 1] = 0; return true; }
     if (eq(label, "Device"))   { strncpy(val, board.getManufacturerName(), len - 1); val[len - 1] = 0; return true; }
+    if (eq(label, "On-screen keyboard")) { *sel = lvd_osk_enabled() ? 1 : 0; return true; }
   }
   return false;
 }
@@ -478,6 +565,8 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
     if (eq(label, "RX delay base") && val)  { the_mesh.setTuningParams((float)atof(val), p->airtime_factor); return; }
   } else if (eq(group, "Security")) {
     if (eq(label, "BLE pin") && val) { the_mesh.setBlePin((uint32_t)strtoul(val, NULL, 10)); return; }
+  } else if (eq(group, "Device")) {
+    if (eq(label, "On-screen keyboard")) { lvd_osk_set(sel != 0); return; }
   }
 }
 

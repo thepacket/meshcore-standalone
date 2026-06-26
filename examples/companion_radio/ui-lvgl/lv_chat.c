@@ -341,12 +341,16 @@ void lv_chat_compose_create(lv_obj_t* scr) {
   lv_obj_set_style_border_width(ta, 1, 0);
   lv_obj_set_style_text_color(ta, lv_color_hex(UI_TEXT), 0);
   s_compose_ta = ta;
+  lv_ui_kbd_focus(ta);   // route the physical keyboard into this field
+  lv_obj_add_event_cb(ta, compose_ready, LV_EVENT_READY, NULL);   // physical Enter sends
 
-  lv_obj_t* kb = lv_keyboard_create(scr);
-  lv_keyboard_set_mode(kb, LV_KEYBOARD_MODE_TEXT_LOWER);
-  lv_keyboard_set_textarea(kb, ta);
-  lv_obj_set_size(kb, 320, 150);
-  lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_obj_add_event_cb(kb, compose_ready, LV_EVENT_READY, NULL);
-  lv_obj_add_event_cb(kb, compose_cancel, LV_EVENT_CANCEL, NULL);
+  if (lvd_osk_enabled()) {
+    lv_obj_t* kb = lv_keyboard_create(scr);
+    lv_keyboard_set_mode(kb, LV_KEYBOARD_MODE_TEXT_LOWER);
+    lv_keyboard_set_textarea(kb, ta);
+    lv_obj_set_size(kb, 320, 150);
+    lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_add_event_cb(kb, compose_ready, LV_EVENT_READY, NULL);
+    lv_obj_add_event_cb(kb, compose_cancel, LV_EVENT_CANCEL, NULL);
+  }
 }

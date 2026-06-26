@@ -85,6 +85,7 @@ static const Field F_TIME[] = {
   {"Time source 3",  F_VAL, "(none)", 0},
 };
 static const Field F_DEVICE[] = {
+  {"On-screen keyboard", F_BOOL, NULL, 1},   // show the touch keyboard for text entry
   {"Buzzer quiet",    F_BOOL, NULL, 0},
   {"Battery/storage", F_INFO, "4050 mV  120/1536 KB", 0},
   {"Firmware",        F_INFO, "v1.16.0", 0},
@@ -358,12 +359,16 @@ void lv_settings_edit_create(lv_obj_t* scr) {
   lv_obj_set_style_border_width(ta, 1, 0);
   lv_obj_set_style_text_color(ta, lv_color_hex(UI_TEXT), 0);
   s_edit_ta = ta;
+  lv_ui_kbd_focus(ta);   // route the physical keyboard into this field
+  lv_obj_add_event_cb(ta, on_kb_ready, LV_EVENT_READY, NULL);   // physical Enter applies
 
-  lv_obj_t* kb = lv_keyboard_create(scr);
-  lv_keyboard_set_mode(kb, field_numeric(f) ? LV_KEYBOARD_MODE_NUMBER : LV_KEYBOARD_MODE_TEXT_LOWER);
-  lv_keyboard_set_textarea(kb, ta);
-  lv_obj_set_size(kb, 320, 150);
-  lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
-  lv_obj_add_event_cb(kb, on_kb_ready, LV_EVENT_READY, NULL);
-  lv_obj_add_event_cb(kb, on_kb_cancel, LV_EVENT_CANCEL, NULL);
+  if (lvd_osk_enabled()) {
+    lv_obj_t* kb = lv_keyboard_create(scr);
+    lv_keyboard_set_mode(kb, field_numeric(f) ? LV_KEYBOARD_MODE_NUMBER : LV_KEYBOARD_MODE_TEXT_LOWER);
+    lv_keyboard_set_textarea(kb, ta);
+    lv_obj_set_size(kb, 320, 150);
+    lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_add_event_cb(kb, on_kb_ready, LV_EVENT_READY, NULL);
+    lv_obj_add_event_cb(kb, on_kb_cancel, LV_EVENT_CANCEL, NULL);
+  }
 }

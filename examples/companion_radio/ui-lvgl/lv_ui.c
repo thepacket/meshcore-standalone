@@ -11,6 +11,20 @@ static void nav_event(lv_event_t* e) {
   if (lv_nav_cb && dest) lv_nav_cb(dest);
 }
 
+// Physical-keyboard focus group: the keypad input device (created in UITask)
+// routes T-Deck key presses to whatever object is focused here. A text screen
+// calls lv_ui_kbd_focus() on its textarea so physical typing lands in it.
+static lv_group_t* g_kbd_group = NULL;
+lv_group_t* lv_ui_kbd_group(void) {
+  if (!g_kbd_group) g_kbd_group = lv_group_create();
+  return g_kbd_group;
+}
+void lv_ui_kbd_focus(lv_obj_t* ta) {
+  lv_group_t* g = lv_ui_kbd_group();
+  lv_group_add_obj(g, ta);
+  lv_group_focus_obj(ta);
+}
+
 // give a tappable object an obvious pressed look (dim + sink) so every tap is
 // visibly acknowledged, even when the action itself produces no screen change.
 void lv_ui_press_fx(lv_obj_t* o) {
