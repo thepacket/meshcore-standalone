@@ -157,12 +157,12 @@ static lv_obj_t* widget_card(lv_obj_t* scr, int x, int y, int w, int h, const ch
 static void make_hero(lv_obj_t* scr, int y, int h) {
   int w = (320 - 8 * 2 - 8) / 2;
 
-  lv_obj_t* a = widget_card(scr, 8, y, w, h, "Latest", UI_PURPLE);
+  lv_obj_t* a = widget_card(scr, 8, y, w, h, "", UI_PURPLE);
   s_latest = lv_label_create(a);
   lv_label_set_text(s_latest, "RSSI --  SNR --");
   lv_obj_set_style_text_font(s_latest, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(s_latest, lv_color_hex(UI_TEXT), 0);
-  lv_obj_align(s_latest, LV_ALIGN_TOP_LEFT, 2, 16);
+  lv_obj_align(s_latest, LV_ALIGN_TOP_LEFT, 2, 4);
   s_strength = lv_bar_create(a);                 // strength meter: min left, max right
   lv_obj_set_size(s_strength, w - 18, 6);
   lv_obj_align(s_strength, LV_ALIGN_BOTTOM_MID, 0, -2);
