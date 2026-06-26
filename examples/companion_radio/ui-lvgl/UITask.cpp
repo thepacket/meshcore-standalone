@@ -618,3 +618,50 @@ extern "C" void lvd_chat_send(const char* text) {
       ui_store_message(false, -1, s_conv_peer, "You", text, true);
   }
 }
+
+// ---- trace route -----------------------------------------------------------
+#define TRACE_MAX 16
+static int      s_tr_state = 0;          // 0 idle, 1 tracing, 2 done, 3 no-path
+static char     s_tr_target[24] = "";
+static uint32_t s_tr_tag = 0;
+static int      s_tr_hops = 0;           // intermediate hops
+static uint8_t  s_tr_hash[TRACE_MAX];
+static int8_t   s_tr_snr[TRACE_MAX];
+static int8_t   s_tr_final = 0;
+static unsigned s_tr_seq = 0;
+
+void ui_store_trace(uint32_t tag, const uint8_t* hashes, const uint8_t* snrs,
+                    uint8_t path_len, uint8_t path_sz, int8_t final_snr_q) {
+  if (s_tr_state == 1 && tag != s_tr_tag) return;   // not the trace we asked for
+  int n = path_len >> path_sz;                      // SNR entries (== hops)
+  if (n > TRACE_MAX) n = TRACE_MAX;
+  s_tr_hops = n;
+  for (int i = 0; i < n; i++) { s_tr_hash[i] = hashes[i]; s_tr_snr[i] = snrs[i]; }
+  s_tr_final = final_snr_q;
+  s_tr_state = 2;
+  s_tr_seq++;
+}
+
+extern "C" void lvd_trace_start(const char* contact_name) {
+  s_tr_seq++;
+  ContactInfo c;
+  if (!find_contact_by_name(contact_name, c)) { s_tr_state = 3; s_tr_target[0] = 0; return; }
+  strncpy(s_tr_target, c.name, sizeof(s_tr_target) - 1); s_tr_target[sizeof(s_tr_target) - 1] = 0;
+  uint32_t tag;
+  if (the_mesh.sendTrace(c, tag)) { s_tr_tag = tag; s_tr_hops = 0; s_tr_state = 1; }
+  else { s_tr_state = 3; }   // no known path
+}
+extern "C" int         lvd_trace_state(void)  { return s_tr_state; }
+extern "C" const char* lvd_trace_target(void) { return s_tr_target; }
+extern "C" unsigned    lvd_trace_seq(void)    { return s_tr_seq; }
+extern "C" int         lvd_trace_count(void)  { return s_tr_state == 2 ? s_tr_hops + 1 : 0; }
+extern "C" bool        lvd_trace_get(int i, lvd_hop_t* out) {
+  if (s_tr_state != 2 || i < 0 || i > s_tr_hops) return false;
+  int8_t q = (i < s_tr_hops) ? s_tr_snr[i] : s_tr_final;
+  if (i < s_tr_hops) snprintf(out->left, sizeof(out->left), "%d.  id %02X", i + 1, s_tr_hash[i]);
+  else               snprintf(out->left, sizeof(out->left), "%s  to you", LV_SYMBOL_DOWN);
+  int v10 = q * 10 / 4, a = v10 < 0 ? -v10 : v10;
+  snprintf(out->snr, sizeof(out->snr), "%s%d.%d dB", v10 < 0 ? "-" : "+", a / 10, a % 10);
+  out->quality = q >= 20 ? 2 : (q >= 0 ? 1 : 0);
+  return true;
+}

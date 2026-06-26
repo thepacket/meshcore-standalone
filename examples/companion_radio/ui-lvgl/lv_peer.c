@@ -13,6 +13,12 @@ static void message_clicked(lv_event_t* e) {
   lvd_chat_open_dm(lv_chat_active_peer());
   if (lv_nav_cb) lv_nav_cb("conv");
 }
+// "Trace" -> start a trace-route to this contact, then show the trace screen
+static void trace_clicked(lv_event_t* e) {
+  (void)e;
+  lvd_trace_start(lv_chat_active_peer());
+  if (lv_nav_cb) lv_nav_cb("trace");
+}
 
 // stat card: label on TOP, value below
 static void stat_card(lv_obj_t* grid, const char* k, const char* v, uint32_t color) {
@@ -141,7 +147,9 @@ void lv_peer_create(lv_obj_t* scr) {
   lv_obj_t* msg_btn = act_btn(acts, LV_SYMBOL_RIGHT, "Message", UI_BLUE, NULL);
   lv_obj_add_flag(msg_btn, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(msg_btn, message_clicked, LV_EVENT_CLICKED, NULL);
-  act_btn(acts, "", "Trace", UI_AMBER, "trace");
+  lv_obj_t* tr_btn = act_btn(acts, "", "Trace", UI_AMBER, NULL);
+  lv_obj_add_flag(tr_btn, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(tr_btn, trace_clicked, LV_EVENT_CLICKED, NULL);
   fav_btn(acts, true);   // checkable: filled when favourite, toggles on tap
 
   // contact ops row (mirrors the Android long-press menu)

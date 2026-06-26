@@ -109,6 +109,20 @@ unsigned lvd_chat_total(void);                 // monotonic, for refresh detecti
 const char* lvd_chat_last_preview(void);       // last Public msg text (for the list row)
 void     lvd_chat_send(const char* text);      // send to the active conversation
 
+// ---- trace route -----------------------------------------------------------
+typedef struct {
+  char left[24];     // "1.  id A3" or "to you"
+  char snr[16];      // "+8.0 dB"
+  int  quality;      // 0 = weak, 1 = ok, 2 = good (row colour)
+} lvd_hop_t;
+
+void        lvd_trace_start(const char* contact_name);  // begin a trace to this contact
+int         lvd_trace_state(void);    // 0 idle, 1 tracing, 2 done, 3 no-path/contact
+const char* lvd_trace_target(void);
+int         lvd_trace_count(void);    // hop rows (intermediate hops + final "to you")
+bool        lvd_trace_get(int i, lvd_hop_t* out);
+unsigned    lvd_trace_seq(void);      // monotonic, for refresh detection
+
 #ifdef __cplusplus
 }
 #endif

@@ -112,6 +112,21 @@ unsigned lvd_chat_total(void) { return (unsigned)lvd_chat_count(); }
 const char* lvd_chat_last_preview(void) { return "On the hill now, strong signal"; }
 void lvd_chat_send(const char* text) { (void)text; }
 
+static const lvd_hop_t MOCK_HOPS[] = {
+  {"1.  id A3", "+8.0 dB", 2}, {"2.  id 7F", "+5.0 dB", 2},
+  {"3.  id 12", "+3.0 dB", 1}, {"to you",     "+7.0 dB", 2},
+};
+void lvd_trace_start(const char* contact_name) { (void)contact_name; }
+int lvd_trace_state(void) { return 2; }
+const char* lvd_trace_target(void) { return "Repeater-7"; }
+int lvd_trace_count(void) { return (int)(sizeof(MOCK_HOPS)/sizeof(MOCK_HOPS[0])); }
+bool lvd_trace_get(int i, lvd_hop_t* out) {
+  if (i < 0 || i >= lvd_trace_count()) return false;
+  *out = MOCK_HOPS[i];
+  return true;
+}
+unsigned lvd_trace_seq(void) { return 1; }
+
 #define W 320
 #define H 240
 
