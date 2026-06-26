@@ -91,7 +91,7 @@ static void apply_batt(lv_obj_t* b, int bp) {
 static void home_tick(void) {
   if (s_clock) { char t[8]; lvd_clock_hhmm(t, sizeof(t)); lv_label_set_text(s_clock, t); }
   if (s_batt)  apply_batt(s_batt, lvd_batt_pct());
-  if (s_rxtx)  { char b[28]; snprintf(b, sizeof(b), "rx %u  tx %u", lvd_pkt_recv(), lvd_pkt_sent()); lv_label_set_text(s_rxtx, b); }
+  if (s_rxtx)  { char b[40]; snprintf(b, sizeof(b), "rx %u  tx %u  ct %d", lvd_pkt_recv(), lvd_pkt_sent(), lvd_contact_total()); lv_label_set_text(s_rxtx, b); }
   if (s_noise_val) {
     int nf = lvd_noise_floor();
     char b[12]; snprintf(b, sizeof(b), "%d", nf); lv_label_set_text(s_noise_val, b);
@@ -121,7 +121,7 @@ static void make_statusbar(lv_obj_t* scr) {
 
   // live packet counters (replaces the old static "Public" pill)
   lv_obj_t* rxtx = lv_label_create(bar);
-  lv_label_set_text(rxtx, "rx 0  tx 0");
+  lv_label_set_text(rxtx, "rx 0  tx 0  ct 0");
   lv_obj_set_style_text_font(rxtx, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(rxtx, lv_color_hex(UI_MUTED), 0);
   lv_obj_align(rxtx, LV_ALIGN_LEFT_MID, 30, 0);

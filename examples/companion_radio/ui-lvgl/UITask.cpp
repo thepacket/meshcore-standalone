@@ -309,6 +309,7 @@ extern "C" void        lvd_contact_set_filter(const char* s) {
   strncpy(g_cfilter, s ? s : "", sizeof(g_cfilter) - 1); g_cfilter[sizeof(g_cfilter) - 1] = 0;
 }
 extern "C" const char* lvd_contact_filter(void) { return g_cfilter; }
+extern "C" int         lvd_contact_total(void)  { return the_mesh.getNumContacts(); }
 
 extern "C" int lvd_contact_count(void) {
   build_contact_order();
