@@ -70,6 +70,7 @@ int  lvd_stats_noise_history(int* out, int max);   // oldest..newest; returns co
 int      lvd_noise_floor(void);   // current noise floor, dBm (0 = unknown)
 unsigned lvd_pkt_recv(void);      // total packets received (drives the activity rate)
 unsigned lvd_pkt_sent(void);      // total packets transmitted
+unsigned lvd_pkt_recv_err(void);  // total receive errors
 
 // ---- packet monitor (Terminal > Packets) -----------------------------------
 typedef struct {

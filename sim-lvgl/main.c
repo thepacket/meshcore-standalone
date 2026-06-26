@@ -70,6 +70,7 @@ int lvd_stats_noise_history(int* out, int max) {
 int lvd_noise_floor(void) { return -104; }
 unsigned lvd_pkt_recv(void) { static unsigned r = 1900; return r += 2; }
 unsigned lvd_pkt_sent(void) { static unsigned s = 230; return s += 1; }
+unsigned lvd_pkt_recv_err(void) { return 7; }
 
 static const lvd_packet_t MOCK_PKTS[] = {
   {"TXT", "FLD  len41  -78dBm  9.0  3s",   UI_BLUE},
