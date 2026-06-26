@@ -132,7 +132,7 @@ static void make_statusbar(lv_obj_t* scr) {
   lv_label_set_text(clock, tbuf);
   lv_obj_set_style_text_font(clock, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(clock, lv_color_hex(UI_TEXT), 0);
-  lv_obj_align(clock, LV_ALIGN_RIGHT_MID, -56, 0);
+  lv_obj_align(clock, LV_ALIGN_RIGHT_MID, -34, 0);   // just left of the battery icon
   s_clock = clock;
 
   lv_obj_t* batt = lv_label_create(bar);
