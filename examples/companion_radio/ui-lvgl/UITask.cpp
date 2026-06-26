@@ -271,6 +271,17 @@ extern "C" bool lvd_contact_get(int i, lvd_contact_t* out) {
 // screen and this map stay decoupled from field ordering.
 static bool eq(const char* a, const char* b) { return strcmp(a, b) == 0; }
 
+// LoRa bandwidth options (kHz) matching the Radio > Bandwidth dropdown order
+static const float BW_KHZ[] = {7.8f, 10.4f, 15.6f, 20.8f, 31.25f, 41.7f, 62.5f, 125, 250, 500};
+#define BW_N ((int)(sizeof(BW_KHZ) / sizeof(BW_KHZ[0])))
+
+// setRadioParams takes freq in kHz and bw in Hz; it validates all ranges and
+// only applies (+persists) on success, so a bad value is a safe no-op.
+static bool apply_radio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr, uint8_t repeat) {
+  return the_mesh.setRadioParams((uint32_t)(freq_mhz * 1000.0f + 0.5f),
+                                 (uint32_t)(bw_khz * 1000.0f + 0.5f), sf, cr, repeat);
+}
+
 // auto-add bitmask bit for a Contacts toggle label (0 if not an auto-add field)
 static uint8_t autoadd_bit(const char* label) {
   if (eq(label, "Overwrite oldest"))   return 0x01;
@@ -287,7 +298,16 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
     if (eq(label, "Node name"))       { strncpy(val, p->node_name, len - 1); val[len - 1] = 0; return true; }
     if (eq(label, "Location policy")) { *sel = p->advert_loc_policy ? 1 : 0; return true; }
   } else if (eq(group, "Radio")) {
-    if (eq(label, "TX power"))        { snprintf(val, len, "%d", p->tx_power_dbm); return true; }
+    if (eq(label, "TX power"))         { snprintf(val, len, "%d", p->tx_power_dbm); return true; }
+    if (eq(label, "Frequency"))        { snprintf(val, len, "%.3f", p->freq); return true; }
+    if (eq(label, "Spreading factor")) { snprintf(val, len, "%u", p->sf); return true; }
+    if (eq(label, "Coding rate"))      { snprintf(val, len, "%u", p->cr); return true; }
+    if (eq(label, "Client repeat"))    { *sel = p->client_repeat ? 1 : 0; return true; }
+    if (eq(label, "Bandwidth")) {
+      int best = 6; float bd = 1e9f;
+      for (int i = 0; i < BW_N; i++) { float d = p->bw - BW_KHZ[i]; if (d < 0) d = -d; if (d < bd) { bd = d; best = i; } }
+      *sel = best; return true;
+    }
   } else if (eq(group, "Contacts")) {
     if (eq(label, "Manual add"))        { *sel = p->manual_add_contacts ? 1 : 0; return true; }
     if (eq(label, "Auto-add max hops")) { snprintf(val, len, "%u", p->autoadd_max_hops); return true; }
@@ -325,7 +345,12 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
     if (eq(label, "Node name") && val)  { the_mesh.setAdvertName(val); return; }
     if (eq(label, "Location policy"))   { the_mesh.setAdvertLocPolicy((uint8_t)sel); return; }
   } else if (eq(group, "Radio")) {
-    if (eq(label, "TX power") && val)   { the_mesh.setTxPower((int8_t)atoi(val)); return; }
+    if (eq(label, "TX power") && val)          { the_mesh.setTxPower((int8_t)atoi(val)); return; }
+    if (eq(label, "Frequency") && val)         { apply_radio((float)atof(val), p->bw, p->sf, p->cr, p->client_repeat); return; }
+    if (eq(label, "Spreading factor") && val)  { apply_radio(p->freq, p->bw, (uint8_t)atoi(val), p->cr, p->client_repeat); return; }
+    if (eq(label, "Coding rate") && val)       { apply_radio(p->freq, p->bw, p->sf, (uint8_t)atoi(val), p->client_repeat); return; }
+    if (eq(label, "Client repeat"))            { apply_radio(p->freq, p->bw, p->sf, p->cr, (uint8_t)(sel != 0)); return; }
+    if (eq(label, "Bandwidth") && sel >= 0 && sel < BW_N) { apply_radio(p->freq, BW_KHZ[sel], p->sf, p->cr, p->client_repeat); return; }
   } else if (eq(group, "Contacts")) {
     if (eq(label, "Manual add"))                { the_mesh.setManualAdd(sel != 0); return; }
     if (eq(label, "Auto-add max hops") && val)  { the_mesh.setMaxHops((uint8_t)atoi(val)); return; }
