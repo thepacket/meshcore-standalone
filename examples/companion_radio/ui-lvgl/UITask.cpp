@@ -499,6 +499,7 @@ extern "C" int lvd_stats_noise_history(int* out, int max) {
 
 extern "C" int      lvd_noise_floor(void) { return radio_driver.getNoiseFloor(); }
 extern "C" unsigned lvd_pkt_recv(void)    { return radio_driver.getPacketsRecv(); }
+extern "C" unsigned lvd_pkt_sent(void)    { return radio_driver.getPacketsSent(); }
 
 // ---- packet monitor --------------------------------------------------------
 #define PKT_LOG 32

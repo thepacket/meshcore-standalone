@@ -70,6 +70,7 @@ static void make_tile(lv_obj_t* parent, const Tile* t, int idx, int x, int y, in
 // screen's refresh hook). Valid only while the home screen is active.
 static lv_obj_t* s_clock = NULL;
 static lv_obj_t* s_batt  = NULL;
+static lv_obj_t* s_rxtx  = NULL;   // "rx N  tx M" packet counters
 // live hero widgets (Activity = RX packets/sec, Noise = noise-floor trend)
 static lv_obj_t* s_act_chart;   static lv_chart_series_t* s_act_s;
 static lv_obj_t* s_noise_chart; static lv_chart_series_t* s_noise_s;
@@ -90,6 +91,7 @@ static void apply_batt(lv_obj_t* b, int bp) {
 static void home_tick(void) {
   if (s_clock) { char t[8]; lvd_clock_hhmm(t, sizeof(t)); lv_label_set_text(s_clock, t); }
   if (s_batt)  apply_batt(s_batt, lvd_batt_pct());
+  if (s_rxtx)  { char b[28]; snprintf(b, sizeof(b), "rx %u  tx %u", lvd_pkt_recv(), lvd_pkt_sent()); lv_label_set_text(s_rxtx, b); }
   if (s_noise_val) {
     int nf = lvd_noise_floor();
     char b[12]; snprintf(b, sizeof(b), "%d", nf); lv_label_set_text(s_noise_val, b);
@@ -117,8 +119,13 @@ static void make_statusbar(lv_obj_t* scr) {
   lv_obj_set_style_text_color(menu, lv_color_hex(UI_TEXT), 0);
   lv_obj_align(menu, LV_ALIGN_LEFT_MID, 8, 0);
 
-  lv_obj_t* p = lv_ui_pill(bar, "Public", UI_BLUE);
-  lv_obj_align(p, LV_ALIGN_LEFT_MID, 30, 0);
+  // live packet counters (replaces the old static "Public" pill)
+  lv_obj_t* rxtx = lv_label_create(bar);
+  lv_label_set_text(rxtx, "rx 0  tx 0");
+  lv_obj_set_style_text_font(rxtx, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(rxtx, lv_color_hex(UI_MUTED), 0);
+  lv_obj_align(rxtx, LV_ALIGN_LEFT_MID, 30, 0);
+  s_rxtx = rxtx;
 
   lv_obj_t* clock = lv_label_create(bar);
   char tbuf[8]; lvd_clock_hhmm(tbuf, sizeof(tbuf));
@@ -127,11 +134,6 @@ static void make_statusbar(lv_obj_t* scr) {
   lv_obj_set_style_text_color(clock, lv_color_hex(UI_TEXT), 0);
   lv_obj_align(clock, LV_ALIGN_RIGHT_MID, -56, 0);
   s_clock = clock;
-
-  lv_obj_t* wifi = lv_label_create(bar);
-  lv_label_set_text(wifi, LV_SYMBOL_WIFI);
-  lv_obj_set_style_text_color(wifi, lv_color_hex(UI_CYAN), 0);
-  lv_obj_align(wifi, LV_ALIGN_RIGHT_MID, -30, 0);
 
   lv_obj_t* batt = lv_label_create(bar);
   apply_batt(batt, lvd_batt_pct());
