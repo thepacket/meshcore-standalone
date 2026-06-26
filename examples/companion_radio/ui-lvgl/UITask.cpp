@@ -600,6 +600,18 @@ static const char* contact_name_by_pubkey6(const uint8_t* pk6) {
   }
   return NULL;
 }
+// resolve a 1-byte path hash (== a node's pub_key[0]) to a saved contact name
+static const char* contact_name_by_hash(uint8_t h) {
+  static char nm[32];
+  int n = the_mesh.getNumContacts();
+  for (int i = 0; i < n; i++) {
+    ContactInfo c;
+    if (the_mesh.getContactByIdx((uint32_t)i, c) && c.id.pub_key[0] == h) {
+      strncpy(nm, c.name, sizeof(nm) - 1); nm[sizeof(nm) - 1] = 0; return nm;
+    }
+  }
+  return NULL;
+}
 static void kv_add(lvd_kv_t* out, int* n, int max, const char* label, const char* value) {
   if (*n >= max) return;
   strncpy(out[*n].label, label, sizeof(out[*n].label) - 1); out[*n].label[sizeof(out[*n].label) - 1] = 0;
@@ -632,9 +644,15 @@ extern "C" int lvd_packet_detail(lvd_kv_t* out, int max) {
   int hcount = plf & 63, hsize = (plf >> 6) + 1, pbytes = hcount * hsize;
   if (hcount == 0) snprintf(v, sizeof(v), "direct (0 hops)");
   else {
-    int k = snprintf(v, sizeof(v), "%d hop%s:", hcount, hcount == 1 ? "" : "s");
-    for (int j = 0; j < pbytes && off + j < rl && k < (int)sizeof(v) - 4; j++)
-      k += snprintf(v + k, sizeof(v) - k, " %02X", b[off + j]);
+    int k = 0;   // chain of friendly names (hex byte where unknown), e.g. "GW > Hilltop > 7F"
+    for (int j = 0; j < hcount && off + j * hsize < rl; j++) {
+      uint8_t hb = b[off + j * hsize];
+      const char* nm = contact_name_by_hash(hb);
+      const char* sep = (j == 0) ? "" : " > ";
+      if (nm) k += snprintf(v + k, sizeof(v) - k, "%s%s", sep, nm);
+      else    k += snprintf(v + k, sizeof(v) - k, "%s%02X", sep, hb);
+      if (k >= (int)sizeof(v) - 8) { snprintf(v + k, sizeof(v) - k, " .."); break; }
+    }
   }
   kv_add(out, &n, max, "Path", v);
   int payoff = off + pbytes;

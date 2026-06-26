@@ -2,6 +2,7 @@
 #include "lv_ui.h"
 #include "lv_data.h"
 #include <stdio.h>
+#include <string.h>
 
 static lv_obj_t* full_list(lv_obj_t* scr, int top) {
   lv_obj_t* list = lv_obj_create(scr);
@@ -150,7 +151,23 @@ void lv_pkt_detail_create(lv_obj_t* scr) {
     return;
   }
   lv_obj_t* card = lv_ui_md_card(list);
-  for (int i = 0; i < n; i++) lv_ui_md_row(card, kv[i].label, kv[i].value, MD_ON);
+  for (int i = 0; i < n; i++) {
+    if (strcmp(kv[i].label, "Path") == 0) {
+      // path can be a long chain of names -- label + value wrapped to its own lines
+      lv_obj_t* lab = lv_label_create(card);
+      lv_label_set_text(lab, "Path");
+      lv_obj_set_style_text_font(lab, &lv_font_montserrat_14, 0);
+      lv_obj_set_style_text_color(lab, lv_color_hex(MD_MUTED), 0);
+      lv_obj_t* val = lv_label_create(card);
+      lv_label_set_text(val, kv[i].value);
+      lv_label_set_long_mode(val, LV_LABEL_LONG_WRAP);
+      lv_obj_set_width(val, lv_pct(100));
+      lv_obj_set_style_text_font(val, &lv_font_montserrat_14, 0);
+      lv_obj_set_style_text_color(val, lv_color_hex(MD_ON), 0);
+    } else {
+      lv_ui_md_row(card, kv[i].label, kv[i].value, MD_ON);
+    }
+  }
 
   lv_obj_t* raw = lv_ui_md_section(list, "Raw", 0);
   lv_obj_t* hx = lv_label_create(raw);
