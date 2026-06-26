@@ -29,6 +29,20 @@ bool lvd_heard_get(int i, lvd_heard_t* out) {
   return true;
 }
 
+static const lvd_contact_t MOCK_CONTACTS[] = {
+  {"Andy-Mobile",   "Chat / direct",   1},
+  {"Field-Team",    "Room / 2 hops",   3},
+  {"GW-Hertford",   "Repeater / flood",2},
+  {"Hilltop-Relay", "Repeater / 2 hops",2},
+  {"Sensor-Barn",   "Sensor / direct", 4},
+};
+int lvd_contact_count(void) { return (int)(sizeof(MOCK_CONTACTS)/sizeof(MOCK_CONTACTS[0])); }
+bool lvd_contact_get(int i, lvd_contact_t* out) {
+  if (i < 0 || i >= lvd_contact_count()) return false;
+  *out = MOCK_CONTACTS[i];
+  return true;
+}
+
 #define W 320
 #define H 240
 

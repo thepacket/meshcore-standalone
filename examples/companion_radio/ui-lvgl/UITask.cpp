@@ -241,3 +241,26 @@ extern "C" bool lvd_heard_get(int i, lvd_heard_t* out) {
   out->bars = (a.snr_q == 0) ? 1 : (snr >= 5 ? 4 : (snr >= 0 ? 2 : 1));
   return true;
 }
+
+// ---- contacts (Contacts screen) --------------------------------------------
+extern "C" int lvd_contact_count(void) {
+  return the_mesh.getNumContacts();
+}
+extern "C" bool lvd_contact_get(int i, lvd_contact_t* out) {
+  ContactInfo c;
+  if (i < 0 || !the_mesh.getContactByIdx((uint32_t)i, c)) return false;
+  strncpy(out->name, c.name, sizeof(out->name) - 1); out->name[sizeof(out->name) - 1] = 0;
+  out->type = c.type;
+
+  const char* t = c.type == ADV_TYPE_CHAT     ? "Chat"     :
+                  c.type == ADV_TYPE_REPEATER ? "Repeater" :
+                  c.type == ADV_TYPE_ROOM     ? "Room"     :
+                  c.type == ADV_TYPE_SENSOR   ? "Sensor"   : "Node";
+  if (c.out_path_len == OUT_PATH_UNKNOWN)
+    snprintf(out->subtitle, sizeof(out->subtitle), "%s / flood", t);
+  else if (c.out_path_len == 0)
+    snprintf(out->subtitle, sizeof(out->subtitle), "%s / direct", t);
+  else
+    snprintf(out->subtitle, sizeof(out->subtitle), "%s / %u hops", t, (unsigned)c.out_path_len);
+  return true;
+}

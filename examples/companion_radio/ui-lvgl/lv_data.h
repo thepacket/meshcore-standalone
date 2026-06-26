@@ -31,6 +31,16 @@ typedef struct {
 int  lvd_heard_count(void);
 bool lvd_heard_get(int i, lvd_heard_t* out);
 
+// ---- contacts (Contacts screen) --------------------------------------------
+typedef struct {
+  char name[32];
+  char subtitle[40];   // pre-formatted "Chat / direct", "Repeater / 2 hops", ...
+  int  type;           // ADV_TYPE_*: 1=chat 2=repeater 3=room 4=sensor (0=other)
+} lvd_contact_t;
+
+int  lvd_contact_count(void);
+bool lvd_contact_get(int i, lvd_contact_t* out);
+
 #ifdef __cplusplus
 }
 #endif
