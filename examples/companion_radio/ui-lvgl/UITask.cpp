@@ -271,6 +271,16 @@ extern "C" bool lvd_contact_get(int i, lvd_contact_t* out) {
 // screen and this map stay decoupled from field ordering.
 static bool eq(const char* a, const char* b) { return strcmp(a, b) == 0; }
 
+// auto-add bitmask bit for a Contacts toggle label (0 if not an auto-add field)
+static uint8_t autoadd_bit(const char* label) {
+  if (eq(label, "Overwrite oldest"))   return 0x01;
+  if (eq(label, "Auto-add users"))     return 0x02;
+  if (eq(label, "Auto-add repeaters")) return 0x04;
+  if (eq(label, "Auto-add rooms"))     return 0x08;
+  if (eq(label, "Auto-add sensors"))   return 0x10;
+  return 0;
+}
+
 extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int len, int* sel) {
   NodePrefs* p = the_mesh.getNodePrefs();
   if (eq(group, "Public info")) {
@@ -278,6 +288,25 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
     if (eq(label, "Location policy")) { *sel = p->advert_loc_policy ? 1 : 0; return true; }
   } else if (eq(group, "Radio")) {
     if (eq(label, "TX power"))        { snprintf(val, len, "%d", p->tx_power_dbm); return true; }
+  } else if (eq(group, "Contacts")) {
+    if (eq(label, "Manual add"))        { *sel = p->manual_add_contacts ? 1 : 0; return true; }
+    if (eq(label, "Auto-add max hops")) { snprintf(val, len, "%u", p->autoadd_max_hops); return true; }
+    uint8_t bit = autoadd_bit(label);
+    if (bit) { *sel = (p->autoadd_config & bit) ? 1 : 0; return true; }
+  } else if (eq(group, "Messaging")) {
+    if (eq(label, "Multi-acks"))     { snprintf(val, len, "%u", p->multi_acks); return true; }
+    if (eq(label, "Path hash mode")) { *sel = p->path_hash_mode <= 2 ? p->path_hash_mode : 2; return true; }
+  } else if (eq(group, "Position")) {
+    if (eq(label, "Latitude"))    { snprintf(val, len, "%.4f", sensors.node_lat); return true; }
+    if (eq(label, "Longitude"))   { snprintf(val, len, "%.4f", sensors.node_lon); return true; }
+    if (eq(label, "GPS enabled")) { *sel = p->gps_enabled ? 1 : 0; return true; }
+    if (eq(label, "GPS interval")){ snprintf(val, len, "%u", (unsigned)p->gps_interval); return true; }
+  } else if (eq(group, "Tuning")) {
+    if (eq(label, "Airtime factor")) { snprintf(val, len, "%.2f", p->airtime_factor); return true; }
+    if (eq(label, "RX delay base"))  { snprintf(val, len, "%.0f", p->rx_delay_base); return true; }
+    if (eq(label, "Default scope"))  { snprintf(val, len, "%s", p->default_scope_name[0] ? p->default_scope_name : "(none)"); return true; }
+  } else if (eq(group, "Security")) {
+    if (eq(label, "BLE pin")) { snprintf(val, len, "%u", (unsigned)p->ble_pin); return true; }
   } else if (eq(group, "Device")) {
     if (eq(label, "Battery/storage")) {
       uint16_t mv; uint32_t used, total; the_mesh.getBattAndStorage(mv, used, total);
@@ -291,11 +320,32 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
 }
 
 extern "C" void lvd_cfg_set(const char* group, const char* label, const char* val, int sel) {
+  NodePrefs* p = the_mesh.getNodePrefs();
   if (eq(group, "Public info")) {
     if (eq(label, "Node name") && val)  { the_mesh.setAdvertName(val); return; }
     if (eq(label, "Location policy"))   { the_mesh.setAdvertLocPolicy((uint8_t)sel); return; }
   } else if (eq(group, "Radio")) {
     if (eq(label, "TX power") && val)   { the_mesh.setTxPower((int8_t)atoi(val)); return; }
+  } else if (eq(group, "Contacts")) {
+    if (eq(label, "Manual add"))                { the_mesh.setManualAdd(sel != 0); return; }
+    if (eq(label, "Auto-add max hops") && val)  { the_mesh.setMaxHops((uint8_t)atoi(val)); return; }
+    uint8_t bit = autoadd_bit(label);
+    if (bit) { uint8_t m = p->autoadd_config; if (sel) m |= bit; else m &= ~bit; the_mesh.setAutoAddConfig(m); return; }
+  } else if (eq(group, "Messaging")) {
+    if (eq(label, "Multi-acks") && val)  { the_mesh.setMultiAcks((uint8_t)atoi(val)); return; }
+    if (eq(label, "Path hash mode"))     { the_mesh.setPathHashMode((uint8_t)sel); return; }
+  } else if (eq(group, "Position")) {
+    if (eq(label, "Latitude") && val)  { the_mesh.setAdvertLatLon((int32_t)(atof(val) * 1e6), (int32_t)(sensors.node_lon * 1e6)); return; }
+    if (eq(label, "Longitude") && val) { the_mesh.setAdvertLatLon((int32_t)(sensors.node_lat * 1e6), (int32_t)(atof(val) * 1e6)); return; }
+#if ENV_INCLUDE_GPS == 1
+    if (eq(label, "GPS enabled"))        { the_mesh.setGpsEnabled(sel != 0); return; }
+    if (eq(label, "GPS interval") && val){ the_mesh.setGpsInterval((uint32_t)atoi(val)); return; }
+#endif
+  } else if (eq(group, "Tuning")) {
+    if (eq(label, "Airtime factor") && val) { the_mesh.setTuningParams(p->rx_delay_base, (float)atof(val)); return; }
+    if (eq(label, "RX delay base") && val)  { the_mesh.setTuningParams((float)atof(val), p->airtime_factor); return; }
+  } else if (eq(group, "Security")) {
+    if (eq(label, "BLE pin") && val) { the_mesh.setBlePin((uint32_t)strtoul(val, NULL, 10)); return; }
   }
 }
 
@@ -303,6 +353,11 @@ extern "C" void lvd_cfg_action(const char* group, const char* label) {
   if (eq(group, "Public info")) {
     if (eq(label, "Send advert"))         { the_mesh.advert();      return; }
     if (eq(label, "Send advert (flood)")) { the_mesh.advertFlood(); return; }
+  } else if (eq(group, "Tuning")) {
+    if (eq(label, "Clear default scope")) { the_mesh.setDefaultFloodScope("", NULL); return; }
+  } else if (eq(group, "Device")) {
+    if (eq(label, "Reboot")) { the_mesh.rebootDevice(); return; }
+    // Factory reset intentionally NOT wired yet -- needs a confirm dialog first.
   }
 }
 
