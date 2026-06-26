@@ -64,6 +64,8 @@ lv_obj_t* lv_ui_md_card(lv_obj_t* parent);
 lv_obj_t* lv_ui_md_section(lv_obj_t* parent, const char* title, uint32_t accent);
 // a "label .......... value" row inside a card (label muted left, value right)
 void lv_ui_md_row(lv_obj_t* card, const char* label, const char* value, uint32_t value_color);
+// like lv_ui_md_row but returns the value label, for live in-place updates
+lv_obj_t* lv_ui_md_row_v(lv_obj_t* card, const char* label, const char* value, uint32_t value_color);
 
 // Navigation hook: screens call lv_nav_cb(dest) when a tappable element is
 // activated. The host (sim or firmware screen-manager) sets this. "back" pops.

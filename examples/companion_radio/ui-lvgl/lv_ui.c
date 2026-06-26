@@ -120,6 +120,10 @@ lv_obj_t* lv_ui_md_section(lv_obj_t* parent, const char* title, uint32_t accent)
 }
 
 void lv_ui_md_row(lv_obj_t* card, const char* label, const char* value, uint32_t value_color) {
+  lv_ui_md_row_v(card, label, value, value_color);
+}
+
+lv_obj_t* lv_ui_md_row_v(lv_obj_t* card, const char* label, const char* value, uint32_t value_color) {
   lv_obj_t* row = lv_obj_create(card);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
@@ -139,6 +143,7 @@ void lv_ui_md_row(lv_obj_t* card, const char* label, const char* value, uint32_t
   lv_label_set_text(v, value);
   lv_obj_set_style_text_font(v, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(v, lv_color_hex(value_color ? value_color : MD_ON), 0);
+  return v;
 }
 
 lv_obj_t* lv_ui_pill(lv_obj_t* parent, const char* text, uint32_t color) {

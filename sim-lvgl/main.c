@@ -52,6 +52,18 @@ void lvd_cfg_set(const char* group, const char* label, const char* val, int sel)
 }
 void lvd_cfg_action(const char* group, const char* label) { (void)group; (void)label; }
 
+void lvd_stats_get(lvd_stats_t* out) {
+  out->noise_floor = -104; out->noise_min = -118; out->noise_max = -92;
+  out->last_rssi = -78; out->last_snr_q = 90;
+  out->pkt_recv = 1942; out->pkt_sent = 238; out->pkt_recv_err = 7;
+  out->batt_mv = 4050; out->uptime_secs = 3 * 3600 + 12 * 60;
+}
+int lvd_stats_noise_history(int* out, int max) {
+  int n = max < 40 ? max : 40;
+  for (int i = 0; i < n; i++) out[i] = -104 + (i * 11 % 6) - 3;
+  return n;
+}
+
 #define W 320
 #define H 240
 

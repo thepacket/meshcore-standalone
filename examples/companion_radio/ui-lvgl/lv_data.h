@@ -50,6 +50,19 @@ bool lvd_cfg_get(const char* group, const char* label, char* val, int val_len, i
 void lvd_cfg_set(const char* group, const char* label, const char* val, int sel);
 void lvd_cfg_action(const char* group, const char* label);
 
+// ---- statistics (Stats screen) ---------------------------------------------
+typedef struct {
+  int      noise_floor;            // current noise floor, dBm (0 = unknown)
+  int      noise_min, noise_max;   // over the recent on-screen window
+  int      last_rssi;              // dBm
+  int      last_snr_q;             // SNR * 10 (avoids float formatting on the C side)
+  unsigned pkt_recv, pkt_sent, pkt_recv_err;
+  unsigned batt_mv;
+  unsigned uptime_secs;
+} lvd_stats_t;
+void lvd_stats_get(lvd_stats_t* out);              // sample now (advances noise history)
+int  lvd_stats_noise_history(int* out, int max);   // oldest..newest; returns count
+
 #ifdef __cplusplus
 }
 #endif

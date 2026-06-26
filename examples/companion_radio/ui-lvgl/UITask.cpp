@@ -305,3 +305,45 @@ extern "C" void lvd_cfg_action(const char* group, const char* label) {
     if (eq(label, "Send advert (flood)")) { the_mesh.advertFlood(); return; }
   }
 }
+
+// ---- statistics ------------------------------------------------------------
+#define STATS_HIST 40
+static int s_noise_hist[STATS_HIST];
+static int s_noise_head = 0;   // next write slot
+static int s_noise_n    = 0;   // valid samples
+
+extern "C" void lvd_stats_get(lvd_stats_t* out) {
+  int nf = radio_driver.getNoiseFloor();
+  s_noise_hist[s_noise_head] = nf;
+  s_noise_head = (s_noise_head + 1) % STATS_HIST;
+  if (s_noise_n < STATS_HIST) s_noise_n++;
+
+  int mn = 0, mx = 0; bool first = true;
+  for (int i = 0; i < s_noise_n; i++) {
+    int v = s_noise_hist[i];
+    if (v == 0) continue;            // skip "unknown" samples
+    if (first || v < mn) mn = v;
+    if (first || v > mx) mx = v;
+    first = false;
+  }
+  out->noise_floor = nf;
+  out->noise_min = mn;
+  out->noise_max = mx;
+  out->last_rssi = (int)radio_driver.getLastRSSI();
+  out->last_snr_q = (int)(radio_driver.getLastSNR() * 10.0f);
+  out->pkt_recv = radio_driver.getPacketsRecv();
+  out->pkt_sent = radio_driver.getPacketsSent();
+  out->pkt_recv_err = radio_driver.getPacketsRecvErrors();
+  uint16_t mv; uint32_t used, total; the_mesh.getBattAndStorage(mv, used, total);
+  out->batt_mv = mv;
+  out->uptime_secs = millis() / 1000;
+}
+
+extern "C" int lvd_stats_noise_history(int* out, int max) {
+  int n = s_noise_n < max ? s_noise_n : max;
+  for (int i = 0; i < n; i++) {
+    int idx = (s_noise_head - n + i + STATS_HIST * 2) % STATS_HIST;
+    out[i] = s_noise_hist[idx];
+  }
+  return n;
+}
