@@ -1,6 +1,9 @@
 // LVGL chat screens: list (Channels/DMs tabs, Material rows) + conversation
-// (gradient speech bubbles, coloured sender names, compose bar).
+// (gradient speech bubbles, coloured sender names, compose bar). The Public
+// channel conversation is bound to the live chat store (lvd_chat_*); DMs and
+// other channels remain prototype for now.
 #include "lv_ui.h"
+#include "lv_data.h"
 #include <stdio.h>
 #include <string.h>
 
@@ -156,8 +159,11 @@ void lv_chat_list_create(lv_obj_t* scr) {
   lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(list, 8, 0);
 
+  // Public channel row carries a live last-message preview; the rest are still
+  // prototype (DMs/other channels not yet wired -- all rows open Public for now).
+  Row pub = {"Public", lvd_chat_last_preview(), "", 0, UI_BLUE, true};
+  add_row(list, &pub);
   Row rows[] = {
-    {"Public",      "Carol: Map here: meshcore.io", "now", 2, UI_BLUE,  true},
     {"#london",     "Dave: anyone near E1?",        "4m",  0, UI_PURPLE, true},
     {"Andy-Mobile", "You: ETA about 10 minutes",    "1m",  0, UI_GREEN, false},
     {"GW-Hertford", "Repeater online",              "2h",  0, UI_AMBER, false},
@@ -226,31 +232,54 @@ static void add_bubble(lv_obj_t* scroll, const char* sender, const char* text,
   }
 }
 
+// ---- live Public conversation ----------------------------------------------
+static lv_obj_t* s_conv_scroll = NULL;
+static unsigned  s_conv_last = 0;
+
+static void conv_fill(lv_obj_t* scroll) {
+  s_conv_last = lvd_chat_total();
+  int n = lvd_chat_count();
+  if (n <= 0) {
+    lv_obj_t* hint = lv_label_create(scroll);
+    lv_label_set_text(hint, "No messages yet. Tap below to post to Public.");
+    lv_obj_set_style_text_color(hint, lv_color_hex(UI_MUTED), 0);
+    return;
+  }
+  lvd_msg_t m;
+  for (int i = 0; i < n; i++)
+    if (lvd_chat_get(i, &m))
+      add_bubble(scroll, m.sender[0] ? m.sender : NULL, m.text, m.outgoing != 0, NULL);
+  lv_obj_scroll_to_view(lv_obj_get_child(scroll, -1), LV_ANIM_OFF);   // pin to newest
+}
+
+static void conv_tick(void) {
+  if (s_conv_scroll && lvd_chat_total() != s_conv_last) {
+    lv_obj_clean(s_conv_scroll);
+    conv_fill(s_conv_scroll);
+  }
+}
+
 void lv_chat_conv_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
   lv_ui_md_topbar(scr, "Public");
 
   int composeH = 32;
-  lv_obj_t* scroll = lv_obj_create(scr);
-  lv_obj_set_pos(scroll, 4, 36);
-  lv_obj_set_size(scroll, 320 - 8, 240 - 32 - composeH - 4);
-  lv_obj_set_style_bg_opa(scroll, 0, 0);
-  lv_obj_set_style_border_width(scroll, 0, 0);
-  lv_obj_set_style_pad_all(scroll, 4, 0);
-  lv_obj_set_flex_flow(scroll, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(scroll, 6, 0);
+  s_conv_scroll = lv_obj_create(scr);
+  lv_obj_set_pos(s_conv_scroll, 4, 36);
+  lv_obj_set_size(s_conv_scroll, 320 - 8, 240 - 32 - composeH - 4);
+  lv_obj_set_style_bg_opa(s_conv_scroll, 0, 0);
+  lv_obj_set_style_border_width(s_conv_scroll, 0, 0);
+  lv_obj_set_style_pad_all(s_conv_scroll, 4, 0);
+  lv_obj_set_flex_flow(s_conv_scroll, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(s_conv_scroll, 6, 0);
+  conv_fill(s_conv_scroll);
 
-  add_bubble(scroll, "Alice", "Anyone around the north side?", false, NULL);
-  add_bubble(scroll, "Bob", "Yep, copy you 5 by 9", false, NULL);
-  add_bubble(scroll, NULL, "On the hill now, strong signal", true, "delivered");
-  add_bubble(scroll, "Carol", "Map here: meshcore.io", false, NULL);
-  add_bubble(scroll, NULL, "Nice, on my way", true, "sending");
-
-  // compose bar
+  // compose bar -> opens the keyboard compose screen
   lv_obj_t* bar = lv_ui_card(scr, 4, 240 - composeH - 2, 320 - 8, composeH);
   lv_obj_set_style_pad_all(bar, 4, 0);
   lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_ui_clickable(bar, "compose");
 
   lv_obj_t* input = lv_label_create(bar);
   lv_label_set_text(input, "Message");
@@ -270,4 +299,43 @@ void lv_chat_conv_create(lv_obj_t* scr) {
   lv_label_set_text(si, LV_SYMBOL_RIGHT);
   lv_obj_set_style_text_color(si, lv_color_hex(0xffffff), 0);
   lv_obj_center(si);
+
+  lv_ui_set_refresh(conv_tick);
+}
+
+// ---- compose (keyboard) for a Public message -------------------------------
+static lv_obj_t* s_compose_ta = NULL;
+
+static void compose_ready(lv_event_t* e) {
+  (void)e;
+  if (s_compose_ta) {
+    const char* txt = lv_textarea_get_text(s_compose_ta);
+    if (txt && txt[0]) lvd_chat_send_public(txt);
+  }
+  if (lv_nav_cb) lv_nav_cb("back");
+}
+static void compose_cancel(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("back"); }
+
+void lv_chat_compose_create(lv_obj_t* scr) {
+  lv_ui_screen_bg(scr);
+  lv_ui_md_topbar(scr, "Public message");
+
+  lv_obj_t* ta = lv_textarea_create(scr);
+  lv_textarea_set_one_line(ta, true);
+  lv_textarea_set_placeholder_text(ta, "Message to Public");
+  lv_obj_set_pos(ta, 8, 38);
+  lv_obj_set_size(ta, 320 - 16, 34);
+  lv_obj_set_style_bg_color(ta, lv_color_hex(0x18202c), 0);
+  lv_obj_set_style_border_color(ta, lv_color_hex(MD_PRIMARY), 0);
+  lv_obj_set_style_border_width(ta, 1, 0);
+  lv_obj_set_style_text_color(ta, lv_color_hex(UI_TEXT), 0);
+  s_compose_ta = ta;
+
+  lv_obj_t* kb = lv_keyboard_create(scr);
+  lv_keyboard_set_mode(kb, LV_KEYBOARD_MODE_TEXT_LOWER);
+  lv_keyboard_set_textarea(kb, ta);
+  lv_obj_set_size(kb, 320, 150);
+  lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+  lv_obj_add_event_cb(kb, compose_ready, LV_EVENT_READY, NULL);
+  lv_obj_add_event_cb(kb, compose_cancel, LV_EVENT_CANCEL, NULL);
 }

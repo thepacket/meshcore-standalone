@@ -90,6 +90,19 @@ bool lvd_disc_get(int i, lvd_disc_t* out);
 void lvd_disc_add(int i);       // promote candidate i to a saved contact
 void lvd_disc_announce(void);   // zero-hop self-advert to prompt neighbours to respond
 
+// ---- chat: Public channel conversation (v1) --------------------------------
+typedef struct {
+  char sender[24];   // "" for channel msgs (sender is embedded in text)
+  char text[124];
+  int  outgoing;     // 1 = sent by us
+} lvd_msg_t;
+
+int      lvd_chat_count(void);                 // messages in the Public channel
+bool     lvd_chat_get(int i, lvd_msg_t* out);  // oldest..newest
+unsigned lvd_chat_total(void);                 // monotonic, for refresh detection
+const char* lvd_chat_last_preview(void);       // last Public msg text (for the list row)
+void     lvd_chat_send_public(const char* text);
+
 #ifdef __cplusplus
 }
 #endif

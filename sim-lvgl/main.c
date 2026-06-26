@@ -94,6 +94,21 @@ bool lvd_disc_get(int i, lvd_disc_t* out) {
 void lvd_disc_add(int i) { (void)i; }
 void lvd_disc_announce(void) {}
 
+static const lvd_msg_t MOCK_MSGS[] = {
+  {"Alice", "Anyone around the north side?", 0},
+  {"Bob",   "Yep, copy you 5 by 9",          0},
+  {"",      "On the hill now, strong signal", 1},
+};
+int lvd_chat_count(void) { return (int)(sizeof(MOCK_MSGS)/sizeof(MOCK_MSGS[0])); }
+bool lvd_chat_get(int i, lvd_msg_t* out) {
+  if (i < 0 || i >= lvd_chat_count()) return false;
+  *out = MOCK_MSGS[i];
+  return true;
+}
+unsigned lvd_chat_total(void) { return (unsigned)lvd_chat_count(); }
+const char* lvd_chat_last_preview(void) { return "On the hill now, strong signal"; }
+void lvd_chat_send_public(const char* text) { (void)text; }
+
 #define W 320
 #define H 240
 

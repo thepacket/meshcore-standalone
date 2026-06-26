@@ -27,6 +27,7 @@ extern "C" {
   void lv_home_create(lv_obj_t* scr);
   void lv_chat_list_create(lv_obj_t* scr);
   void lv_chat_conv_create(lv_obj_t* scr);
+  void lv_chat_compose_create(lv_obj_t* scr);
   void lv_settings_create(lv_obj_t* scr);
   void lv_settings_group_create(lv_obj_t* scr, int idx);
   void lv_settings_edit_create(lv_obj_t* scr);
@@ -56,6 +57,7 @@ static void build_screen(const char* name) {
   if (!strcmp(name, "home")) lv_home_create(s);
   else if (!strcmp(name, "chat")) lv_chat_list_create(s);
   else if (!strcmp(name, "conv")) lv_chat_conv_create(s);
+  else if (!strcmp(name, "compose")) lv_chat_compose_create(s);
   else if (!strcmp(name, "contacts")) lv_contacts_create(s);
   else if (!strcmp(name, "settings")) lv_settings_create(s);
   else if (!strcmp(name, "edit")) lv_settings_edit_create(s);
@@ -518,3 +520,58 @@ extern "C" void lvd_disc_add(int i) {
   if (i >= 0 && i < g_disc_n) the_mesh.addHeardContact(g_disc[i].id.pub_key);
 }
 extern "C" void lvd_disc_announce(void) { the_mesh.advert(); }
+
+// ---- chat store (Public channel v1) ----------------------------------------
+#define MSG_LOG 24
+struct MsgRec { bool is_ch; int ch; char who[24]; char text[124]; bool out; };
+static MsgRec s_msg[MSG_LOG];
+static int s_msg_head = 0, s_msg_n = 0;
+static unsigned s_msg_total = 0;
+
+void ui_store_message(bool is_ch, int ch, const char* who, const char* text, bool out) {
+  MsgRec& m = s_msg[s_msg_head];
+  m.is_ch = is_ch; m.ch = ch; m.out = out;
+  strncpy(m.who,  who  ? who  : "", sizeof(m.who)  - 1); m.who[sizeof(m.who)   - 1] = 0;
+  strncpy(m.text, text ? text : "", sizeof(m.text) - 1); m.text[sizeof(m.text) - 1] = 0;
+  s_msg_head = (s_msg_head + 1) % MSG_LOG;
+  if (s_msg_n < MSG_LOG) s_msg_n++;
+  s_msg_total++;
+}
+
+// map the j-th oldest Public-channel message to a ring index, or -1
+static int public_msg_idx(int j) {
+  int seen = 0;
+  for (int k = 0; k < s_msg_n; k++) {
+    int idx = (s_msg_head - s_msg_n + k + MSG_LOG * 2) % MSG_LOG;
+    if (s_msg[idx].is_ch && s_msg[idx].ch == 0) { if (seen == j) return idx; seen++; }
+  }
+  return -1;
+}
+
+extern "C" int lvd_chat_count(void) {
+  int n = 0;
+  for (int k = 0; k < s_msg_n; k++) {
+    int idx = (s_msg_head - s_msg_n + k + MSG_LOG * 2) % MSG_LOG;
+    if (s_msg[idx].is_ch && s_msg[idx].ch == 0) n++;
+  }
+  return n;
+}
+extern "C" bool lvd_chat_get(int i, lvd_msg_t* out) {
+  int idx = public_msg_idx(i);
+  if (idx < 0) return false;
+  strncpy(out->sender, s_msg[idx].who,  sizeof(out->sender) - 1); out->sender[sizeof(out->sender) - 1] = 0;
+  strncpy(out->text,   s_msg[idx].text, sizeof(out->text)  - 1); out->text[sizeof(out->text)   - 1] = 0;
+  out->outgoing = s_msg[idx].out ? 1 : 0;
+  return true;
+}
+extern "C" unsigned lvd_chat_total(void) { return s_msg_total; }
+extern "C" const char* lvd_chat_last_preview(void) {
+  int n = lvd_chat_count();
+  if (n <= 0) return "No messages yet";
+  int idx = public_msg_idx(n - 1);
+  return idx >= 0 ? s_msg[idx].text : "";
+}
+extern "C" void lvd_chat_send_public(const char* text) {
+  if (text && text[0] && the_mesh.sendChannelText(0, text))
+    ui_store_message(true, 0, "You", text, true);
+}
