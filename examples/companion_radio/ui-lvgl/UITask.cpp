@@ -42,6 +42,7 @@ extern "C" {
   void lv_terminal_set_tab(int t);
   void lv_stats_create(lv_obj_t* scr);
   void lv_discover_create(lv_obj_t* scr);
+  void lv_disc_create(lv_obj_t* scr);
   void lv_contacts_create(lv_obj_t* scr);
 }
 
@@ -71,6 +72,7 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "packets")) { lv_terminal_set_tab(1); lv_terminal_create(s); }
   else if (!strcmp(name, "stats")) lv_stats_create(s);
   else if (!strcmp(name, "discover")) lv_discover_create(s);
+  else if (!strcmp(name, "disc")) lv_disc_create(s);
   else lv_home_create(s);
 }
 
@@ -488,3 +490,31 @@ extern "C" bool lvd_packet_get(int i, lvd_packet_t* out) {
            rt, r.len, r.rssi, snr10 < 0 ? "-" : "", sa / 10, sa % 10, agebuf);
   return true;
 }
+
+// ---- discover (heard-but-unsaved nodes) ------------------------------------
+static const char* adv_type_name(int t) {
+  return t == ADV_TYPE_CHAT     ? "Companion" :
+         t == ADV_TYPE_REPEATER ? "Repeater"  :
+         t == ADV_TYPE_ROOM     ? "Room"      :
+         t == ADV_TYPE_SENSOR   ? "Sensor"    : "Node";
+}
+
+static ContactInfo g_disc[16];
+static int         g_disc_n = 0;
+
+extern "C" int lvd_disc_count(void) {
+  g_disc_n = the_mesh.getHeardCandidates(g_disc, 16);
+  return g_disc_n;
+}
+extern "C" bool lvd_disc_get(int i, lvd_disc_t* out) {
+  if (i < 0 || i >= g_disc_n) return false;
+  ContactInfo& c = g_disc[i];
+  strncpy(out->name, c.name, sizeof(out->name) - 1); out->name[sizeof(out->name) - 1] = 0;
+  out->type = c.type;
+  snprintf(out->subtitle, sizeof(out->subtitle), "%s  -  tap to add", adv_type_name(c.type));
+  return true;
+}
+extern "C" void lvd_disc_add(int i) {
+  if (i >= 0 && i < g_disc_n) the_mesh.addHeardContact(g_disc[i].id.pub_key);
+}
+extern "C" void lvd_disc_announce(void) { the_mesh.advert(); }

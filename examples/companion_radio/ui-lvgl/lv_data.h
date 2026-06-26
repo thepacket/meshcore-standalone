@@ -78,6 +78,18 @@ int      lvd_packet_count(void);
 unsigned lvd_packet_total(void);                 // monotonic count, for refresh detection
 bool     lvd_packet_get(int i, lvd_packet_t* out);   // i = 0 is the newest
 
+// ---- discover (recently-heard nodes not yet saved as contacts) -------------
+typedef struct {
+  char name[32];
+  char subtitle[40];   // "<type>  -  tap to add"
+  int  type;           // ADV_TYPE_*
+} lvd_disc_t;
+
+int  lvd_disc_count(void);
+bool lvd_disc_get(int i, lvd_disc_t* out);
+void lvd_disc_add(int i);       // promote candidate i to a saved contact
+void lvd_disc_announce(void);   // zero-hop self-advert to prompt neighbours to respond
+
 #ifdef __cplusplus
 }
 #endif

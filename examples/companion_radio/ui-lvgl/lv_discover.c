@@ -14,10 +14,7 @@ typedef struct {
 
 static const Tool TOOLS[] = {
   {ICON_TRACE,     "Trace path",          "Trace a path through chosen repeaters; see each hop's SNR.", "trace"},
-  {ICON_CONTACTS,  "Discover companions", "Announce and list nearby (one-hop) companion nodes.", NULL},
-  {ICON_REPEATERS, "Discover repeaters",  "Announce and list nearby (one-hop) repeaters.", NULL},
-  {ICON_CHAT,      "Discover room servers","Announce and list nearby (one-hop) room servers.", NULL},
-  {ICON_NOISE,     "Discover sensors",    "Announce and list nearby (one-hop) sensors.", NULL},
+  {ICON_ADVERT,    "Discover nodes",      "Announce, then list nearby nodes not yet in contacts; tap to add.", "disc"},
 };
 #define N_TOOLS ((int)(sizeof(TOOLS)/sizeof(TOOLS[0])))
 

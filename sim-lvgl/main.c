@@ -81,6 +81,19 @@ bool lvd_packet_get(int i, lvd_packet_t* out) {
   return true;
 }
 
+static const lvd_disc_t MOCK_DISC[] = {
+  {"New-Repeater", "Repeater  -  tap to add", 2},
+  {"Field-Sensor", "Sensor  -  tap to add",   4},
+};
+int lvd_disc_count(void) { return (int)(sizeof(MOCK_DISC)/sizeof(MOCK_DISC[0])); }
+bool lvd_disc_get(int i, lvd_disc_t* out) {
+  if (i < 0 || i >= lvd_disc_count()) return false;
+  *out = MOCK_DISC[i];
+  return true;
+}
+void lvd_disc_add(int i) { (void)i; }
+void lvd_disc_announce(void) {}
+
 #define W 320
 #define H 240
 
