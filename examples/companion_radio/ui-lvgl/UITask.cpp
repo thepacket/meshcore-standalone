@@ -350,3 +350,61 @@ extern "C" int lvd_stats_noise_history(int* out, int max) {
 
 extern "C" int      lvd_noise_floor(void) { return radio_driver.getNoiseFloor(); }
 extern "C" unsigned lvd_pkt_recv(void)    { return radio_driver.getPacketsRecv(); }
+
+// ---- packet monitor --------------------------------------------------------
+#define PKT_LOG 32
+struct PktRec { uint8_t header; int rssi; int snr_q; int len; uint32_t t; };
+static PktRec s_pkt[PKT_LOG];
+static int s_pkt_head = 0, s_pkt_n = 0;
+static unsigned s_pkt_total = 0;   // monotonic, for change detection
+
+void ui_log_packet(float snr, float rssi, const uint8_t* raw, int len) {
+  PktRec& r = s_pkt[s_pkt_head];
+  r.header = (len > 0) ? raw[0] : 0;
+  r.rssi = (int)rssi;
+  r.snr_q = (int)(snr * 4.0f);
+  r.len = len;
+  r.t = millis();
+  s_pkt_head = (s_pkt_head + 1) % PKT_LOG;
+  if (s_pkt_n < PKT_LOG) s_pkt_n++;
+  s_pkt_total++;
+}
+
+extern "C" int      lvd_packet_count(void) { return s_pkt_n; }
+extern "C" unsigned lvd_packet_total(void) { return s_pkt_total; }
+
+extern "C" bool lvd_packet_get(int i, lvd_packet_t* out) {
+  if (i < 0 || i >= s_pkt_n) return false;
+  int idx = (s_pkt_head - 1 - i + PKT_LOG * 2) % PKT_LOG;   // newest first
+  const PktRec& r = s_pkt[idx];
+
+  uint8_t pt = (r.header >> 2) & 0x0F;   // PH_TYPE_SHIFT / PH_TYPE_MASK
+  const char* ty; uint32_t col;
+  switch (pt) {
+    case 0x02: ty = "TXT"; col = UI_BLUE;   break;   // PAYLOAD_TYPE_TXT_MSG
+    case 0x03: ty = "ACK"; col = UI_GREEN;  break;   // ACK
+    case 0x04: ty = "ADV"; col = UI_PURPLE; break;   // ADVERT
+    case 0x05: case 0x06: ty = "GRP"; col = UI_CYAN; break;  // GRP_TXT / GRP_DATA
+    case 0x08: ty = "PTH"; col = UI_INDIGO; break;   // PATH
+    case 0x09: ty = "TRC"; col = UI_AMBER;  break;   // TRACE
+    case 0x00: ty = "REQ"; col = UI_MUTED;  break;
+    case 0x01: ty = "RSP"; col = UI_MUTED;  break;
+    case 0x07: ty = "ANR"; col = UI_MUTED;  break;
+    case 0x0B: ty = "CTL"; col = UI_TEAL;   break;   // CONTROL
+    default:   ty = "?";   col = UI_MUTED;  break;
+  }
+  strncpy(out->type, ty, sizeof(out->type) - 1); out->type[sizeof(out->type) - 1] = 0;
+  out->color = col;
+
+  static const char* RT[4] = { "TFL", "FLD", "DIR", "TDR" };  // route type (header & 0x03)
+  const char* rt = RT[r.header & 0x03];
+  int snr10 = r.snr_q * 10 / 4;   // snr*10 for "%d.%d"
+  int sa = snr10 < 0 ? -snr10 : snr10;
+  uint32_t age = (millis() - r.t) / 1000;
+  char agebuf[10];
+  if (age < 60) snprintf(agebuf, sizeof(agebuf), "%us", (unsigned)age);
+  else          snprintf(agebuf, sizeof(agebuf), "%um", (unsigned)(age / 60));
+  snprintf(out->meta, sizeof(out->meta), "%s  len%d  %ddBm  %s%d.%d  %s",
+           rt, r.len, r.rssi, snr10 < 0 ? "-" : "", sa / 10, sa % 10, agebuf);
+  return true;
+}

@@ -9,6 +9,9 @@
 // hooks) is wired incrementally in later phases.
 #include "../AbstractUITask.h"
 
+// records a received packet into the packet-monitor ring buffer (UITask.cpp)
+void ui_log_packet(float snr, float rssi, const uint8_t* raw, int len);
+
 class UITask : public AbstractUITask {
   DisplayDriver* _display = nullptr;
   SensorManager* _sensors = nullptr;
@@ -32,5 +35,8 @@ public:
   void msgRead(int msgcount) override {}
   void newMsg(uint8_t path_len, const char* from_name, const char* text, int msgcount) override {}
   void notify(UIEventType t = UIEventType::none) override {}
-  void onRawRx(float snr, float rssi, const uint8_t* raw, int len) override { _last_rssi = (int)rssi; }
+  void onRawRx(float snr, float rssi, const uint8_t* raw, int len) override {
+    _last_rssi = (int)rssi;
+    ui_log_packet(snr, rssi, raw, len);
+  }
 };

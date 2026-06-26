@@ -1,5 +1,6 @@
 // LVGL tools: Trace route, and Terminal (Console + Packets tabs / packet monitor).
 #include "lv_ui.h"
+#include "lv_data.h"
 #include <stdio.h>
 
 static lv_obj_t* full_list(lv_obj_t* scr, int top) {
@@ -94,6 +95,32 @@ static void pkt_row(lv_obj_t* list, const char* type, uint32_t tcol, const char*
   lv_obj_set_style_text_color(m, lv_color_hex(UI_MUTED), 0);
 }
 
+// live packet-monitor list (valid only while the Packets tab is active)
+static lv_obj_t* s_pkt_list = NULL;
+static unsigned  s_pkt_last = 0;
+
+static void packets_fill(lv_obj_t* list) {
+  int n = lvd_packet_count();
+  s_pkt_last = lvd_packet_total();
+  if (n <= 0) {
+    lv_obj_t* hint = lv_label_create(list);
+    lv_label_set_text(hint, "No packets yet");
+    lv_obj_set_style_text_color(hint, lv_color_hex(MD_MUTED), 0);
+    return;
+  }
+  lvd_packet_t p;
+  for (int i = 0; i < n; i++)
+    if (lvd_packet_get(i, &p)) pkt_row(list, p.type, p.color, p.meta);
+}
+
+// rebuild when a new packet arrives (monotonic total changed)
+static void packets_tick(void) {
+  if (s_pkt_list && lvd_packet_total() != s_pkt_last) {
+    lv_obj_clean(s_pkt_list);
+    packets_fill(s_pkt_list);
+  }
+}
+
 void lv_terminal_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
   lv_ui_md_topbar(scr, "Terminal");
@@ -140,11 +167,8 @@ void lv_terminal_create(lv_obj_t* scr) {
     lv_obj_set_style_text_font(in, &lv_font_montserrat_14, 0);
     lv_obj_set_style_text_color(in, lv_color_hex(UI_MUTED), 0);
   } else {
-    lv_obj_t* list = full_list(scr, 70);
-    pkt_row(list, "TXT", UI_BLUE,   "FLD  h2  pl16  -78dBm  9.0  3s");
-    pkt_row(list, "ADV", UI_PURPLE, "FLD  h0  pl10  -99dBm  4.7  17s");
-    pkt_row(list, "GRP", UI_CYAN,   "TFL  h1  pl8   -78dBm  9.2  20s");
-    pkt_row(list, "ACK", UI_GREEN,  "DIR  h3  pl2   -105dBm 2.5  1m");
-    pkt_row(list, "TRC", UI_AMBER,  "FLD  h4  pl5   -70dBm  11.0 2m");
+    s_pkt_list = full_list(scr, 70);
+    packets_fill(s_pkt_list);
+    lv_ui_set_refresh(packets_tick);
   }
 }

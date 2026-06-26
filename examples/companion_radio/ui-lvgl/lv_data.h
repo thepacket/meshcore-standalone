@@ -67,6 +67,17 @@ int  lvd_stats_noise_history(int* out, int max);   // oldest..newest; returns co
 int      lvd_noise_floor(void);   // current noise floor, dBm (0 = unknown)
 unsigned lvd_pkt_recv(void);      // total packets received (drives the activity rate)
 
+// ---- packet monitor (Terminal > Packets) -----------------------------------
+typedef struct {
+  char     type[6];   // payload type: "TXT","ADV","ACK","GRP","TRC",...
+  char     meta[44];  // pre-formatted "<route>  len<n>  <rssi>dBm  <snr>  <age>"
+  uint32_t color;     // pill colour for the type tag
+} lvd_packet_t;
+
+int      lvd_packet_count(void);
+unsigned lvd_packet_total(void);                 // monotonic count, for refresh detection
+bool     lvd_packet_get(int i, lvd_packet_t* out);   // i = 0 is the newest
+
 #ifdef __cplusplus
 }
 #endif

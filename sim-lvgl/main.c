@@ -66,6 +66,21 @@ int lvd_stats_noise_history(int* out, int max) {
 int lvd_noise_floor(void) { return -104; }
 unsigned lvd_pkt_recv(void) { static unsigned r = 1900; return r += 2; }
 
+static const lvd_packet_t MOCK_PKTS[] = {
+  {"TXT", "FLD  len41  -78dBm  9.0  3s",   UI_BLUE},
+  {"ADV", "FLD  len27  -99dBm  4.7  17s",  UI_PURPLE},
+  {"GRP", "TFL  len33  -78dBm  9.2  20s",  UI_CYAN},
+  {"ACK", "DIR  len8   -105dBm  2.5  1m",  UI_GREEN},
+  {"TRC", "FLD  len42  -70dBm  11.0  2m",  UI_AMBER},
+};
+int lvd_packet_count(void) { return (int)(sizeof(MOCK_PKTS)/sizeof(MOCK_PKTS[0])); }
+unsigned lvd_packet_total(void) { return (unsigned)lvd_packet_count(); }
+bool lvd_packet_get(int i, lvd_packet_t* out) {
+  if (i < 0 || i >= lvd_packet_count()) return false;
+  *out = MOCK_PKTS[i];
+  return true;
+}
+
 #define W 320
 #define H 240
 
