@@ -55,9 +55,6 @@ chips, charts/gauges, real widgets). Live on-device:
 - **Input & feedback** — physical keyboard typing into focused fields; press
   feedback + confirmation toasts on every action
 
-The LVGL screens are also runnable in a desktop simulator (see
-[`sim-lvgl/`](sim-lvgl/README.md)).
-
 See [ROADMAP.md](ROADMAP.md) for the full milestone map.
 
 ## Build & flash (LilyGo T-Deck Plus)
