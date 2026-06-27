@@ -385,10 +385,12 @@ static int cmp_contact_idx(const void* a, const void* b) {
   return ci_strcmp(ca.name, cb.name);
 }
 static char     g_cfilter[24] = "";              // contacts name filter ("" = all)
+static bool     g_fav_only = false;              // show only favourites when set
 static uint16_t g_corder[MAX_CONTACTS];
 static int      g_corder_n = -1;
 static int      g_corder_total = -1;             // contact count the order was built for
 static char     g_corder_filter[24] = "\x01";    // filter it was built for (impossible init)
+static int      g_corder_fav = -1;               // fav-only mode the order was built for
 
 // case-insensitive "needle is a substring of hay"
 static bool ci_contains(const char* hay, const char* needle) {
@@ -421,21 +423,27 @@ extern "C" bool lvd_name_match(const char* hay, const char* needle) {
 static void build_contact_order(void) {
   int total = the_mesh.getNumContacts();
   if (total > MAX_CONTACTS) total = MAX_CONTACTS;
-  if (total == g_corder_total && strcmp(g_cfilter, g_corder_filter) == 0) return;   // cached
+  if (total == g_corder_total && g_corder_fav == (int)g_fav_only &&
+      strcmp(g_cfilter, g_corder_filter) == 0) return;   // cached
   int m = 0;
   for (int i = 0; i < total; i++) {
     ContactInfo c;
-    if (the_mesh.getContactByIdx((uint32_t)i, c) && lvd_name_match(c.name, g_cfilter)) g_corder[m++] = (uint16_t)i;
+    if (!the_mesh.getContactByIdx((uint32_t)i, c)) continue;
+    if (g_fav_only && !(c.flags & 0x01)) continue;       // favourites-only filter
+    if (lvd_name_match(c.name, g_cfilter)) g_corder[m++] = (uint16_t)i;
   }
   qsort(g_corder, m, sizeof(g_corder[0]), cmp_contact_idx);
   g_corder_n = m;
   g_corder_total = total;
+  g_corder_fav = (int)g_fav_only;
   strncpy(g_corder_filter, g_cfilter, sizeof(g_corder_filter) - 1); g_corder_filter[sizeof(g_corder_filter) - 1] = 0;
 }
 extern "C" void        lvd_contact_set_filter(const char* s) {
   strncpy(g_cfilter, s ? s : "", sizeof(g_cfilter) - 1); g_cfilter[sizeof(g_cfilter) - 1] = 0;
 }
 extern "C" const char* lvd_contact_filter(void) { return g_cfilter; }
+extern "C" void        lvd_contact_set_fav_only(int on) { g_fav_only = (on != 0); }
+extern "C" int         lvd_contact_fav_only(void) { return g_fav_only ? 1 : 0; }
 extern "C" int         lvd_contact_total(void)  { return the_mesh.getNumContacts(); }
 
 extern "C" int lvd_contact_count(void) {
@@ -448,6 +456,7 @@ extern "C" bool lvd_contact_get(int i, lvd_contact_t* out) {
   if (i < 0 || i >= g_corder_n || !the_mesh.getContactByIdx(g_corder[i], c)) return false;
   strncpy(out->name, c.name, sizeof(out->name) - 1); out->name[sizeof(out->name) - 1] = 0;
   out->type = c.type;
+  out->fav = (c.flags & 0x01) ? 1 : 0;   // LSB of flags is the favourite bit
 
   const char* t = c.type == ADV_TYPE_CHAT     ? "Chat"     :
                   c.type == ADV_TYPE_REPEATER ? "Repeater" :
@@ -1489,6 +1498,8 @@ extern "C" bool lvd_peer_get(const char* name, lvd_peer_t* out) {
     else if (age < 86400) snprintf(out->lastheard, sizeof(out->lastheard), "%uh", (unsigned)(age / 3600));
     else snprintf(out->lastheard, sizeof(out->lastheard), "%ud", (unsigned)(age / 86400));
   } else snprintf(out->lastheard, sizeof(out->lastheard), "--");
+
+  out->fav = (c.flags & 0x01) ? 1 : 0;   // LSB of flags is the favourite bit
   return true;
 }
 
@@ -1498,6 +1509,9 @@ extern "C" bool lvd_peer_share(const char* name) {
 }
 extern "C" bool lvd_peer_reset_path(const char* name) {
   ContactInfo c; return find_contact_by_name(name, c) && the_mesh.uiResetPath(c.id.pub_key);
+}
+extern "C" bool lvd_peer_set_fav(const char* name, int on) {
+  ContactInfo c; return find_contact_by_name(name, c) && the_mesh.setContactFavourite(c.id.pub_key, on != 0);
 }
 extern "C" bool lvd_peer_remove(const char* name) {
   ContactInfo c; return find_contact_by_name(name, c) && the_mesh.uiRemoveContact(c.id.pub_key);

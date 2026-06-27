@@ -39,6 +39,10 @@ static void contact_row(lv_obj_t* list, const lvd_contact_t* ct, int idx) {
   lv_obj_set_pos(row, 0, 4 + idx * 42);        // manual y: list has no flex, scroll is pure offset
   lv_obj_set_style_pad_all(row, 8, 0);
   lv_obj_set_style_radius(row, 0, 0);          // square corners: no per-frame AA corner mask
+  if (ct->fav) {                               // favourites: faint blue wash (no extra objects/glyphs -> zero scroll cost)
+    lv_obj_set_style_bg_color(row, lv_color_hex(UI_BLUE), 0);
+    lv_obj_set_style_bg_opa(row, 38, 0);
+  }
   lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(row, contact_clicked, LV_EVENT_LONG_PRESSED, (void*)(intptr_t)idx);   // open on hold only (a drag can't long-press)
 
@@ -59,6 +63,41 @@ static int       s_last = -1;
 
 static void contacts_fill(lv_obj_t* list);   // fwd
 
+static lv_obj_t* s_fav_pill = NULL;          // the FAV toggle pill (restyled on tap)
+
+// paint the FAV pill for the current filter state: filled blue + white outline/text
+// when active, faint blue + gray text when off
+static void fav_pill_apply(bool on) {
+  if (!s_fav_pill) return;
+  lv_obj_set_style_bg_opa(s_fav_pill, on ? 230 : 30, 0);
+  lv_obj_set_style_border_color(s_fav_pill, lv_color_hex(on ? 0xffffff : UI_BLUE), 0);
+  lv_obj_set_style_border_opa(s_fav_pill, on ? 255 : 180, 0);
+  lv_obj_set_style_border_width(s_fav_pill, on ? 2 : 1, 0);
+  lv_obj_t* l = lv_obj_get_child(s_fav_pill, 0);          // the pill's label
+  if (l) lv_obj_set_style_text_color(l, lv_color_hex(on ? 0xffffff : UI_MUTED), 0);
+}
+
+// favourites-only toggle: flip the filter, restyle the pill, refill the list
+static void do_fav_toggle_cb(void* p) {
+  (void)p;
+  bool on = !lvd_contact_fav_only();
+  lvd_contact_set_fav_only(on);
+  fav_pill_apply(on);
+  if (s_list) { lv_obj_clean(s_list); contacts_fill(s_list); }
+}
+static void fav_toggle_clicked(lv_event_t* e) { (void)e; lv_async_call(do_fav_toggle_cb, NULL); }
+
+// favourites-only toggle on the search row: a proper blue pill, filled when active
+static void fav_toggle(lv_obj_t* scr) {
+  s_fav_pill = lv_ui_pill(scr, "FAV", UI_BLUE);
+  lv_obj_set_size(s_fav_pill, 46, 28);
+  lv_obj_set_pos(s_fav_pill, 320 - 8 - 46, 38 + (34 - 28) / 2);   // right edge, vertically centered on the search line
+  lv_obj_add_flag(s_fav_pill, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(s_fav_pill, fav_toggle_clicked, LV_EVENT_CLICKED, NULL);
+  lv_ui_press_fx(s_fav_pill);
+  fav_pill_apply(lvd_contact_fav_only());
+}
+
 static void open_search(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("contact_search"); }
 static void do_clear_cb(void* p) { (void)p; lvd_contact_set_filter(""); if (s_list) { lv_obj_clean(s_list); contacts_fill(s_list); } }
 static void clear_search(lv_event_t* e) { (void)e; lv_async_call(do_clear_cb, NULL); }
@@ -69,7 +108,7 @@ static void search_field(lv_obj_t* scr) {
   const char* f = lvd_contact_filter();
   bool active = f && f[0];
   lv_obj_t* sf = lv_ui_md_card(scr);
-  lv_obj_set_size(sf, 320 - 16, 34);
+  lv_obj_set_size(sf, 320 - 16 - 54, 34);       // leave room for the favourites toggle on the right
   lv_obj_set_pos(sf, 8, 38);                    // fixed, just below the topbar
   lv_obj_set_flex_flow(sf, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(sf, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -106,7 +145,8 @@ static void contacts_fill(lv_obj_t* list) {
   if (n <= 0) {
     const char* f = lvd_contact_filter();
     lv_obj_t* hint = lv_label_create(list);
-    lv_label_set_text(hint, (f && f[0]) ? "No contacts match" : "No contacts yet");
+    lv_label_set_text(hint, lvd_contact_fav_only() ? "No favourites yet" :
+                            (f && f[0]) ? "No contacts match" : "No contacts yet");
     lv_obj_set_style_text_color(hint, lv_color_hex(MD_MUTED), 0);
     return;
   }
@@ -158,6 +198,7 @@ void lv_contacts_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
   lv_ui_md_topbar(scr, "Contacts");
   search_field(scr);                            // fixed above the list (does not scroll)
+  fav_toggle(scr);                              // favourites-only toggle, same line as search
 
   s_list = lv_obj_create(scr);                  // scrollable list below the search field
   lv_obj_set_pos(s_list, 0, 76);

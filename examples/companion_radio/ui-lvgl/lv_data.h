@@ -36,12 +36,15 @@ typedef struct {
   char name[32];
   char subtitle[40];   // pre-formatted "Chat / direct", "Repeater / 2 hops", ...
   int  type;           // ADV_TYPE_*: 1=chat 2=repeater 3=room 4=sensor (0=other)
+  int  fav;            // 1 if flagged as a favourite
 } lvd_contact_t;
 
 int  lvd_contact_count(void);
 bool lvd_contact_get(int i, lvd_contact_t* out);
 void        lvd_contact_set_filter(const char* s);  // name substring filter ("" = all)
 const char* lvd_contact_filter(void);
+void        lvd_contact_set_fav_only(int on);       // show only favourites when set
+int         lvd_contact_fav_only(void);
 int         lvd_contact_total(void);                // total contacts (ignores the filter)
 // match a name against space-separated OR tokens ("sky hull" => sky OR hull)
 bool        lvd_name_match(const char* hay, const char* needle);
@@ -187,11 +190,13 @@ typedef struct {
   char type[16];        // "Chat contact", "Repeater", ...
   char rssi[12], snr[12], dist[12], hops[12], lastheard[14], path[12];
   char lat[16], lon[16], pubkey[72];
+  int  fav;             // 1 if flagged as a favourite
 } lvd_peer_t;
 bool lvd_peer_get(const char* name, lvd_peer_t* out);   // false if not a saved contact
 // contact ops (by name)
 bool        lvd_peer_share(const char* name);       // re-advertise the contact (zero-hop)
 bool        lvd_peer_reset_path(const char* name);  // forget the learned return path
+bool        lvd_peer_set_fav(const char* name, int on);  // toggle favourite (persists)
 bool        lvd_peer_remove(const char* name);      // delete the contact
 const char* lvd_peer_export_hex(const char* name);  // advert card as hex (for QR + display)
 

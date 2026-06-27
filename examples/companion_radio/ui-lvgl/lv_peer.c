@@ -77,6 +77,19 @@ static void kv_block(lv_obj_t* list, const char* k, const char* v, bool wrap) {
   if (wrap) { lv_label_set_long_mode(vl, LV_LABEL_LONG_WRAP); lv_obj_set_width(vl, lv_pct(100)); }
 }
 
+// toggle handler: persist the new favourite state to the contact store
+static void fav_toggled(lv_event_t* e) {
+  lv_obj_t* b = lv_event_get_target(e);
+  bool on = lv_obj_has_state(b, LV_STATE_CHECKED);
+  if (!lvd_peer_set_fav(lv_chat_active_peer(), on ? 1 : 0)) {
+    // save failed: revert the visual toggle so the UI stays truthful
+    if (on) lv_obj_remove_state(b, LV_STATE_CHECKED); else lv_obj_add_state(b, LV_STATE_CHECKED);
+    lv_ui_toast("Couldn't update favourite");
+  } else {
+    lv_ui_toast(on ? "Added to favourites" : "Removed from favourites");
+  }
+}
+
 // checkable favourite button: faint when off, filled/lighter when favourited
 static void fav_btn(lv_obj_t* row, bool is_fav) {
   lv_obj_t* b = lv_ui_card(row, -1, 0, 0, 0);
@@ -90,6 +103,7 @@ static void fav_btn(lv_obj_t* row, bool is_fav) {
   lv_obj_add_flag(b, LV_OBJ_FLAG_CHECKABLE);               // LVGL toggles LV_STATE_CHECKED
   lv_ui_press_fx(b);
   if (is_fav) lv_obj_add_state(b, LV_STATE_CHECKED);
+  lv_obj_add_event_cb(b, fav_toggled, LV_EVENT_VALUE_CHANGED, NULL);
   lv_obj_t* l = lv_label_create(b);
   lv_label_set_text(l, LV_SYMBOL_OK "  Favourite");
   lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
@@ -124,6 +138,7 @@ void lv_peer_create(lv_obj_t* scr) {
     snprintf(p.lastheard, sizeof(p.lastheard), "--"); snprintf(p.path, sizeof(p.path), "--");
     snprintf(p.lat, sizeof(p.lat), "--"); snprintf(p.lon, sizeof(p.lon), "--");
     snprintf(p.pubkey, sizeof(p.pubkey), "(unknown)");
+    p.fav = 0;
   }
   lv_ui_screen_bg(scr);
   lv_ui_md_topbar(scr, name);
@@ -168,7 +183,7 @@ void lv_peer_create(lv_obj_t* scr) {
     lv_obj_add_event_cb(msg_btn, message_clicked, LV_EVENT_CLICKED, NULL);
     lv_ui_press_fx(msg_btn);
   }
-  fav_btn(acts, true);   // checkable: filled when favourite, toggles on tap
+  fav_btn(acts, p.fav != 0);   // checkable: filled when favourite, toggles on tap
 
   // contact ops row (mirrors the Android long-press menu)
   lv_obj_t* ops = lv_obj_create(list);
