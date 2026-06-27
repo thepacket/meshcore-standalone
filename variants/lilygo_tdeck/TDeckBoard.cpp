@@ -7,9 +7,16 @@ void TDeckBoard::begin() {
   
   ESP32Board::begin();
   
-  // Enable peripheral power
+  // Power-CYCLE the peripheral rail (not just enable it). On a soft reset
+  // (RTC_SW_SYS_RST) the rail stays HIGH, so the radio/display/touch keep the
+  // wedged state from the previous run and their init can hang -> watchdog boot
+  // loop / frozen black screen that only a manual power-cycle cleared. Driving
+  // the rail LOW->HIGH here cold-starts every peripheral on every boot.
   pinMode(PIN_PERF_POWERON, OUTPUT);
+  digitalWrite(PIN_PERF_POWERON, LOW);
+  delay(100);
   digitalWrite(PIN_PERF_POWERON, HIGH);
+  delay(50);
 
   // Configure user button
   pinMode(PIN_USER_BTN, INPUT);
