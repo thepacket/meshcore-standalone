@@ -133,7 +133,7 @@ void lv_peer_create(lv_obj_t* scr) {
 
   // header: avatar + name + type
   lv_obj_t* head = lv_ui_md_card(list);
-  lv_obj_set_width(head, lv_pct(100)); lv_obj_set_height(head, 54);
+  lv_obj_set_width(head, lv_pct(100)); lv_obj_set_height(head, LV_SIZE_CONTENT);
   lv_obj_set_style_min_height(head, 0, 0); lv_obj_set_style_pad_all(head, 8, 0);
   lv_obj_set_flex_flow(head, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(head, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -142,7 +142,8 @@ void lv_peer_create(lv_obj_t* scr) {
   lv_obj_t* col = lv_obj_create(head);
   lv_obj_remove_flag(col, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(col, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_style_bg_opa(col, 0, 0); lv_obj_set_style_border_width(col, 0, 0);
-  lv_obj_set_style_pad_all(col, 0, 0); lv_obj_set_flex_grow(col, 1); lv_obj_set_height(col, 40);
+  lv_obj_set_style_pad_all(col, 0, 0); lv_obj_set_flex_grow(col, 1); lv_obj_set_height(col, LV_SIZE_CONTENT);
+  lv_obj_set_style_pad_row(col, 3, 0);
   lv_obj_set_flex_flow(col, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(col, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_t* nm = lv_label_create(col);
@@ -158,10 +159,15 @@ void lv_peer_create(lv_obj_t* scr) {
   lv_obj_set_style_bg_opa(acts, 0, 0); lv_obj_set_style_border_width(acts, 0, 0);
   lv_obj_set_style_pad_all(acts, 0, 0);
   lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(acts, 5, 0);
-  lv_obj_t* msg_btn = act_btn(acts, LV_SYMBOL_RIGHT, "Message", UI_BLUE, NULL);
-  lv_obj_add_flag(msg_btn, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(msg_btn, message_clicked, LV_EVENT_CLICKED, NULL);
-  lv_ui_press_fx(msg_btn);
+  // Message only for real chat targets: chat contacts and room servers. Repeaters
+  // and sensors aren't DM'd (manage repeaters via login/CLI on the Repeaters screen).
+  bool messageable = strcmp(p.type, "Repeater") != 0 && strcmp(p.type, "Sensor") != 0;
+  if (messageable) {
+    lv_obj_t* msg_btn = act_btn(acts, LV_SYMBOL_RIGHT, "Message", UI_BLUE, NULL);
+    lv_obj_add_flag(msg_btn, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(msg_btn, message_clicked, LV_EVENT_CLICKED, NULL);
+    lv_ui_press_fx(msg_btn);
+  }
   fav_btn(acts, true);   // checkable: filled when favourite, toggles on tap
 
   // contact ops row (mirrors the Android long-press menu)

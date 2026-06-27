@@ -77,9 +77,10 @@ void lv_ui_toast(const char* msg) {
 }
 
 void lv_ui_screen_bg(lv_obj_t* scr) {
-  lv_obj_set_style_bg_color(scr, lv_color_hex(0x0a0e14), 0);
-  lv_obj_set_style_bg_grad_color(scr, lv_color_hex(0x000000), 0);
-  lv_obj_set_style_bg_grad_dir(scr, LV_GRAD_DIR_VER, 0);
+  // Solid fill, NOT a gradient: a full-screen vertical gradient is recomputed
+  // per-pixel every frame by the software renderer and tanks scroll FPS.
+  lv_obj_set_style_bg_color(scr, lv_color_hex(0x070b11), 0);
+  lv_obj_set_style_bg_grad_dir(scr, LV_GRAD_DIR_NONE, 0);
   lv_obj_remove_flag(scr, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_style_pad_all(scr, 0, 0);
 }

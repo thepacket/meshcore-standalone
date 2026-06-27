@@ -13,49 +13,43 @@ void lv_chat_set_peer(const char* name);  // peer-details target (lv_chat.c / lv
 static uint32_t type_color(int t) {
   return t == 2 ? UI_PURPLE : t == 3 ? UI_CYAN : t == 4 ? UI_ORANGE : UI_BLUE;
 }
-static const char* type_icon(int t) {
-  return t == 2 ? ICON_REPEATERS : t == 3 ? ICON_CHAT : t == 4 ? ICON_NOISE : ICON_CONTACTS;
+// short text tag instead of an icon-font glyph -- the 22px icons_fa glyph is the
+// priciest thing to rasterise per row and tanked scroll FPS; a montserrat text
+// pill (like the packet monitor uses) renders far cheaper.
+static const char* type_tag(int t) {
+  return t == 2 ? "RPT" : t == 3 ? "RM" : t == 4 ? "SNS" : "CHAT";
 }
 
+// Open on a plain tap (or long-press). Safe now because the list no longer
+// touch-scrolls -- scrolling is done with the on-screen arrows, so the finger
+// is never dragging across a row.
 static void contact_clicked(lv_event_t* e) {
   int idx = (int)(intptr_t)lv_event_get_user_data(e);
   lvd_contact_t c;
   if (lvd_contact_get(idx, &c)) { lv_chat_set_peer(c.name); if (lv_nav_cb) lv_nav_cb("peer"); }
 }
 
+// Lightweight row for the (possibly 100+) contacts list: fixed height, NO flex
+// layout and NO press-fx (both churn during a scroll drag and starve the touch
+// gesture detector, causing accidental row taps). Children are manually aligned.
 static void contact_row(lv_obj_t* list, const lvd_contact_t* ct, int idx) {
   lv_obj_t* row = lv_ui_md_card(list);
-  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_layout(row, LV_LAYOUT_NONE);      // manual positioning, no per-row flex
+  lv_obj_set_size(row, lv_pct(100), 38);
+  lv_obj_set_pos(row, 0, 4 + idx * 42);        // manual y: list has no flex, scroll is pure offset
+  lv_obj_set_style_pad_all(row, 8, 0);
+  lv_obj_set_style_radius(row, 0, 0);          // square corners: no per-frame AA corner mask
   lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(row, contact_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
-  lv_ui_press_fx(row);
+  lv_obj_add_event_cb(row, contact_clicked, LV_EVENT_LONG_PRESSED, (void*)(intptr_t)idx);   // open on hold only (a drag can't long-press)
 
-  lv_obj_t* ic = lv_label_create(row);
-  lv_label_set_text(ic, type_icon(ct->type));
-  lv_obj_set_style_text_font(ic, &icons_fa, 0);
-  lv_obj_set_style_text_color(ic, lv_color_hex(type_color(ct->type)), 0);
-  lv_obj_set_style_margin_right(ic, 14, 0);
+  lv_obj_t* pill = lv_ui_pill(row, type_tag(ct->type), type_color(ct->type));
+  lv_obj_align(pill, LV_ALIGN_LEFT_MID, 0, 0);
 
-  lv_obj_t* mid = lv_obj_create(row);
-  lv_obj_remove_flag(mid, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(mid, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_set_style_bg_opa(mid, 0, 0); lv_obj_set_style_border_width(mid, 0, 0);
-  lv_obj_set_style_pad_all(mid, 0, 0); lv_obj_set_flex_grow(mid, 1); lv_obj_set_height(mid, LV_SIZE_CONTENT);
-  lv_obj_set_flex_flow(mid, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_flex_align(mid, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-  lv_obj_set_style_pad_row(mid, 2, 0);
-  lv_obj_t* nm = lv_label_create(mid);
+  lv_obj_t* nm = lv_label_create(row);          // single line: just the name, centered
   lv_label_set_text(nm, ct->name);
   lv_obj_set_style_text_font(nm, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(nm, lv_color_hex(MD_ON), 0);
-  lv_obj_t* ty = lv_label_create(mid);
-  lv_label_set_text(ty, ct->subtitle);
-  lv_obj_set_style_text_font(ty, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(ty, lv_color_hex(MD_MUTED), 0);
-
-  lv_obj_t* chev = lv_label_create(row);
-  lv_label_set_text(chev, LV_SYMBOL_RIGHT);
-  lv_obj_set_style_text_color(chev, lv_color_hex(MD_MUTED), 0);
+  lv_obj_align(nm, LV_ALIGN_LEFT_MID, 60, 0);
 }
 
 // outlined button (M3 OutlinedButton look) used for the Import action
@@ -69,11 +63,14 @@ static void open_search(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("cont
 static void do_clear_cb(void* p) { (void)p; lvd_contact_set_filter(""); if (s_list) { lv_obj_clean(s_list); contacts_fill(s_list); } }
 static void clear_search(lv_event_t* e) { (void)e; lv_async_call(do_clear_cb, NULL); }
 
-// a tappable search field row (magnifier + filter text / placeholder + clear)
-static void search_field(lv_obj_t* list) {
+// a tappable search field row (magnifier + filter text / placeholder + clear),
+// fixed on the screen above the list so it does not scroll away
+static void search_field(lv_obj_t* scr) {
   const char* f = lvd_contact_filter();
   bool active = f && f[0];
-  lv_obj_t* sf = lv_ui_md_card(list);
+  lv_obj_t* sf = lv_ui_md_card(scr);
+  lv_obj_set_size(sf, 320 - 16, 34);
+  lv_obj_set_pos(sf, 8, 38);                    // fixed, just below the topbar
   lv_obj_set_flex_flow(sf, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(sf, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_add_flag(sf, LV_OBJ_FLAG_CLICKABLE);
@@ -104,8 +101,6 @@ static void search_field(lv_obj_t* list) {
 }
 
 static void contacts_fill(lv_obj_t* list) {
-  search_field(list);
-
   int n = lvd_contact_count();
   s_last = n;
   if (n <= 0) {
@@ -154,18 +149,24 @@ void lv_contact_search_create(lv_obj_t* scr) {
   }
 }
 
-// rebuild only when the contact count changes (e.g. a new node was added)
-static void contacts_tick(void) {
-  if (s_list && lvd_contact_count() != s_last) {
-    lv_obj_clean(s_list);
-    contacts_fill(s_list);
-  }
-}
+// The contact list is a SNAPSHOT taken on screen entry -- we deliberately do not
+// re-read contacts or rebuild the list while the user is browsing (that re-ran the
+// whole sort/build and reset the scroll position when discovery added a node). A
+// newly-added contact shows up next time the screen is opened.
 
 void lv_contacts_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
   lv_ui_md_topbar(scr, "Contacts");
-  s_list = lv_ui_md_scroll(scr);
-  contacts_fill(s_list);
-  lv_ui_set_refresh(contacts_tick);
+  search_field(scr);                            // fixed above the list (does not scroll)
+
+  s_list = lv_obj_create(scr);                  // scrollable list below the search field
+  lv_obj_set_pos(s_list, 0, 76);
+  lv_obj_set_size(s_list, 320, 240 - 76);
+  lv_obj_set_style_bg_opa(s_list, 0, 0);
+  lv_obj_set_style_border_width(s_list, 0, 0);
+  lv_obj_set_style_pad_hor(s_list, 12, 0);
+  lv_obj_set_style_pad_ver(s_list, 2, 0);
+  lv_obj_set_layout(s_list, LV_LAYOUT_NONE);    // manual row positioning -> no flex relayout on scroll
+  contacts_fill(s_list);                        // drag to scroll
+  // no refresh hook: the list is a snapshot, not re-read while browsing
 }

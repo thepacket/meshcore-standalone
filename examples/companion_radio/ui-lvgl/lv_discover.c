@@ -21,9 +21,10 @@ static void act_advert_flood(void) { lvd_disc_announce_flood(); }
 
 static const Tool TOOLS[] = {
   // Trace path lives on the home grid (amber TRACE tile); not duplicated here.
-  {ICON_ADVERT, "Discover nodes",        "Announce, then list nearby nodes not yet in contacts; tap to add.", "disc", NULL, NULL},
-  {ICON_ADVERT, "Advert - Zero Hop",     "Advertise this node to direct neighbours only (one hop).",          NULL, act_advert_zero,  "Zero-hop advert sent"},
-  {ICON_ADVERT, "Advert - Flood Routed", "Advertise this node mesh-wide; relayed across repeaters.",           NULL, act_advert_flood, "Flood advert sent"},
+  {ICON_ADVERT,  "Discover nodes",        "Announce, then list nearby nodes not yet in contacts; tap to add.", "disc", NULL, NULL},
+  {ICON_NOISE,   "RF Scope",             "Live plot of the channel RF level, with a scale slider.",           "rfscope", NULL, NULL},
+  {ICON_ADVERT,  "Advert - Zero Hop",     "Advertise this node to direct neighbours only (one hop).",          NULL, act_advert_zero,  "Zero-hop advert sent"},
+  {ICON_ADVERT,  "Advert - Flood Routed", "Advertise this node mesh-wide; relayed across repeaters.",           NULL, act_advert_flood, "Flood advert sent"},
 };
 #define N_TOOLS ((int)(sizeof(TOOLS)/sizeof(TOOLS[0])))
 

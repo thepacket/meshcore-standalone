@@ -94,6 +94,8 @@ unsigned lvd_pkt_recv(void) { static unsigned r = 1900; return r += 2; }
 unsigned lvd_pkt_sent(void) { static unsigned s = 230; return s += 1; }
 unsigned lvd_pkt_recv_err(void) { return 7; }
 int lvd_last_rssi(void) { return -78; }
+unsigned lvd_free_ram_kb(void) { return 142; }
+unsigned lvd_free_flash_kb(void) { return 1180; }
 int lvd_last_snr_q(void) { return 36; }   /* 9.0 dB */
 
 static const lvd_packet_t MOCK_PKTS[] = {
@@ -165,7 +167,20 @@ static const lvd_msg_t MOCK_MSGS[] = {
   {"",      "On the hill now, strong signal", 1},
 };
 void lvd_chat_open_public(void) {}
+void lvd_chat_open_channel(int i) { (void)i; }
 void lvd_chat_open_dm(const char* contact_name) { (void)contact_name; }
+int  lvd_chat_chan_count(void) { return lvd_chan_count(); }
+bool lvd_chat_chan_get(int i, lvd_chan_t* out) { return lvd_chan_get(i, out); }
+const char* lvd_chat_chan_preview(int i) { (void)i; return "No messages yet"; }
+static const char* MOCK_DM[] = { "GW-Hertford", "Alice" };
+int  lvd_dm_count(void) { return 2; }
+bool lvd_dm_get(int i, lvd_dm_t* out) {
+  if (i < 0 || i >= 2) return false;
+  snprintf(out->name, sizeof(out->name), "%s", MOCK_DM[i]);
+  snprintf(out->preview, sizeof(out->preview), "%s", i ? "see you there" : "ack, received");
+  return true;
+}
+void lvd_dm_open(int i) { (void)i; }
 const char* lvd_chat_title(void) { return "Public"; }
 int lvd_chat_count(void) { return (int)(sizeof(MOCK_MSGS)/sizeof(MOCK_MSGS[0])); }
 bool lvd_chat_get(int i, lvd_msg_t* out) {

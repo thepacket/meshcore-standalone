@@ -53,20 +53,28 @@ static uint32_t name_color(const char* s) {
 // =============================================================================
 typedef struct { const char* name; const char* preview; const char* time; int unread; uint32_t color; bool channel; } Row;
 
-static void open_public_conv(lv_event_t* e) {
-  (void)e;
-  lvd_chat_open_public();
+static int s_chat_tab = 0;   // 0 = Channels, 1 = DMs
+void lv_chat_list_create(lv_obj_t* scr);   // fwd (rebuilt on tab switch)
+
+static void open_chan_conv(lv_event_t* e) {
+  int i = (int)(intptr_t)lv_event_get_user_data(e);
+  lvd_chat_open_channel(i);
+  if (lv_nav_cb) lv_nav_cb("conv");
+}
+static void open_dm_conv(lv_event_t* e) {
+  int i = (int)(intptr_t)lv_event_get_user_data(e);
+  lvd_dm_open(i);
   if (lv_nav_cb) lv_nav_cb("conv");
 }
 
-static void add_row(lv_obj_t* list, const Row* r) {
+static void add_row(lv_obj_t* list, const Row* r, int idx, bool is_dm) {
   lv_obj_t* row = lv_ui_md_card(list);
   lv_obj_set_width(row, lv_pct(100));
   lv_obj_set_height(row, 54);
   lv_obj_set_style_min_height(row, 0, 0);
   lv_obj_set_style_pad_all(row, 8, 0);
   lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(row, open_public_conv, LV_EVENT_CLICKED, NULL);
+  lv_obj_add_event_cb(row, is_dm ? open_dm_conv : open_chan_conv, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
   lv_ui_press_fx(row);
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -120,7 +128,13 @@ static void add_row(lv_obj_t* list, const Row* r) {
   }
 }
 
-static void seg_tab(lv_obj_t* parent, const char* txt, bool active) {
+static void chat_rebuild_cb(void* p) { (void)p; lv_obj_t* s = lv_screen_active(); lv_obj_clean(s); lv_chat_list_create(s); }
+static void tab_clicked(lv_event_t* e) {
+  int tab = (int)(intptr_t)lv_event_get_user_data(e);
+  if (tab != s_chat_tab) { s_chat_tab = tab; lv_async_call(chat_rebuild_cb, NULL); }
+}
+static void seg_tab(lv_obj_t* parent, const char* txt, int tab) {
+  bool active = (tab == s_chat_tab);
   lv_obj_t* t = lv_obj_create(parent);
   lv_obj_remove_flag(t, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_flex_grow(t, 1);
@@ -130,6 +144,9 @@ static void seg_tab(lv_obj_t* parent, const char* txt, bool active) {
   lv_obj_set_style_bg_opa(t, active ? 200 : 0, 0);
   lv_obj_set_style_border_width(t, 0, 0);
   lv_obj_set_style_pad_all(t, 0, 0);
+  lv_obj_add_flag(t, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(t, tab_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)tab);
+  lv_ui_press_fx(t);
   lv_obj_t* l = lv_label_create(t);
   lv_label_set_text(l, txt);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
@@ -153,8 +170,8 @@ void lv_chat_list_create(lv_obj_t* scr) {
   lv_obj_set_style_pad_all(seg, 3, 0);
   lv_obj_set_flex_flow(seg, LV_FLEX_FLOW_ROW);
   lv_obj_set_style_pad_column(seg, 4, 0);
-  seg_tab(seg, "Channels", true);
-  seg_tab(seg, "DMs", false);
+  seg_tab(seg, "Channels", 0);
+  seg_tab(seg, "DMs", 1);
 
   // list
   lv_obj_t* list = lv_obj_create(scr);
@@ -167,18 +184,34 @@ void lv_chat_list_create(lv_obj_t* scr) {
   lv_obj_set_flex_flow(list, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_style_pad_row(list, 8, 0);
 
-  // Public channel row (live last-message preview). DMs are reached via a
-  // contact's details > Message; other channels are not wired yet.
-  Row pub = {"Public", lvd_chat_last_preview(), "", 0, UI_BLUE, true};
-  add_row(list, &pub);
-
-  lv_obj_t* hint = lv_label_create(list);
-  lv_label_set_text(hint, "Open a contact and tap Message to start a DM.");
-  lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
-  lv_obj_set_width(hint, lv_pct(100));
-  lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(hint, lv_color_hex(UI_MUTED), 0);
-  lv_obj_set_style_pad_top(hint, 8, 0);
+  if (s_chat_tab == 0) {
+    // one row per channel (Public + named group channels), live last-message preview
+    int nch = lvd_chat_chan_count();
+    for (int i = 0; i < nch; i++) {
+      lvd_chan_t c;
+      if (!lvd_chat_chan_get(i, &c)) continue;
+      Row r = { c.name, lvd_chat_chan_preview(i), "", 0, c.is_public ? UI_BLUE : UI_PURPLE, true };
+      add_row(list, &r, i, false);
+    }
+  } else {
+    // DM threads: distinct peers we've messaged. Start a new one from a contact's Message button.
+    int ndm = lvd_dm_count();
+    lvd_dm_t d;
+    for (int i = 0; i < ndm; i++) {
+      if (!lvd_dm_get(i, &d)) continue;
+      Row r = { d.name, d.preview, "", 0, UI_GREEN, false };
+      add_row(list, &r, i, true);
+    }
+    if (ndm == 0) {
+      lv_obj_t* hint = lv_label_create(list);
+      lv_label_set_text(hint, "No direct messages yet.\nOpen a contact and tap Message to start one.");
+      lv_label_set_long_mode(hint, LV_LABEL_LONG_WRAP);
+      lv_obj_set_width(hint, lv_pct(100));
+      lv_obj_set_style_text_font(hint, &lv_font_montserrat_12, 0);
+      lv_obj_set_style_text_color(hint, lv_color_hex(UI_MUTED), 0);
+      lv_obj_set_style_pad_top(hint, 8, 0);
+    }
+  }
 }
 
 // =============================================================================

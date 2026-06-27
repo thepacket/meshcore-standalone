@@ -248,6 +248,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   lv_indev_t* indev = lv_indev_create();
   lv_indev_set_type(indev, LV_INDEV_TYPE_POINTER);
   lv_indev_set_read_cb(indev, touch_read_cb);
+  lv_indev_set_scroll_limit(indev, 4);   // small drag = scroll (not an accidental row tap)
 
 #if defined(UI_HAS_KEYBOARD)
   // physical keyboard: a keypad device feeding the shared focus group, so the
@@ -279,6 +280,13 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 
 void UITask::loop() {
   if (!_lvgl_ready) return;
+  // lv_timer_handler() has ~26us fixed overhead per call; the main loop spins it
+  // tens of thousands of times a second, burning >50% CPU on nothing. Throttle to
+  // ~5ms (LVGL's refresh period is 16ms) so the rest of the CPU is free to render.
+  static uint32_t s_last_lv = 0;
+  uint32_t lv_now = millis();
+  if (lv_now - s_last_lv < 5) return;
+  s_last_lv = lv_now;
 
 #if defined(UI_HAS_TRACKBALL)
   // drain the edge counters and scroll the active list (left/right intentionally unused)
@@ -639,6 +647,11 @@ extern "C" unsigned lvd_pkt_sent(void)    { return radio_driver.getPacketsSent()
 extern "C" unsigned lvd_pkt_recv_err(void) { return radio_driver.getPacketsRecvErrors(); }
 extern "C" int      lvd_last_rssi(void)    { return (int)radio_driver.getLastRSSI(); }
 extern "C" int      lvd_last_snr_q(void)   { return (int)(radio_driver.getLastSNR() * 4.0f); }
+extern "C" unsigned lvd_free_ram_kb(void)  { return (unsigned)(ESP.getFreeHeap() / 1024); }
+extern "C" unsigned lvd_free_flash_kb(void) {
+  uint16_t mv; uint32_t used, total; the_mesh.getBattAndStorage(mv, used, total);
+  return (unsigned)(total > used ? total - used : 0);
+}
 
 // ---- packet monitor --------------------------------------------------------
 #define PKT_LOG 32
@@ -1021,11 +1034,12 @@ static MsgRec s_msg[MSG_LOG];
 static int s_msg_head = 0, s_msg_n = 0;
 static unsigned s_msg_total = 0;
 
-// active conversation: Public channel, or a DM with a specific contact
-static bool        s_conv_public = true;
+// active conversation: a channel (s_conv_ch >= 0 = channel slot, 0 = Public) or a DM
+static int         s_conv_ch = 0;
 static uint8_t     s_conv_peer[6];
 static ContactInfo s_conv_contact;
 static bool        s_conv_has_contact = false;
+static char        s_conv_chname[32] = "Public";
 
 void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who, const char* text, bool out) {
   MsgRec& m = s_msg[s_msg_head];
@@ -1041,7 +1055,7 @@ void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who,
 // does message at ring index idx belong to the active conversation?
 static bool in_active_conv(int idx) {
   const MsgRec& m = s_msg[idx];
-  if (s_conv_public) return m.is_ch && m.ch == 0;
+  if (s_conv_ch >= 0) return m.is_ch && m.ch == s_conv_ch;
   return !m.is_ch && memcmp(m.peer6, s_conv_peer, 6) == 0;
 }
 // also: does a message belong to the Public channel (for the list preview)?
@@ -1074,15 +1088,40 @@ static bool find_contact_by_name(const char* name, ContactInfo& out) {
   return false;
 }
 
-extern "C" void lvd_chat_open_public(void) { s_conv_public = true; }
+extern "C" void lvd_chat_open_public(void) { s_conv_ch = 0; strncpy(s_conv_chname, "Public", sizeof(s_conv_chname)); }
+extern "C" void lvd_chat_open_channel(int i) {     // i = display index from the chat list
+  chan_build();
+  if (i < 0 || i >= g_chan_n) { lvd_chat_open_public(); return; }
+  s_conv_ch = g_chan_idx[i];
+  ChannelDetails c; the_mesh.getChannel(s_conv_ch, c);
+  strncpy(s_conv_chname, c.name[0] ? c.name : "(unnamed)", sizeof(s_conv_chname) - 1);
+  s_conv_chname[sizeof(s_conv_chname) - 1] = 0;
+}
 extern "C" void lvd_chat_open_dm(const char* contact_name) {
-  s_conv_public = false;
+  s_conv_ch = -1;
   s_conv_has_contact = find_contact_by_name(contact_name, s_conv_contact);
   if (s_conv_has_contact) memcpy(s_conv_peer, s_conv_contact.id.pub_key, 6);
   else memset(s_conv_peer, 0, 6);
 }
 extern "C" const char* lvd_chat_title(void) {
-  return s_conv_public ? "Public" : (s_conv_has_contact ? s_conv_contact.name : "Direct");
+  if (s_conv_ch >= 0) return s_conv_chname;
+  return s_conv_has_contact ? s_conv_contact.name : "Direct";
+}
+// chat list: enumerate channels (reuses the channel index map) + per-channel last preview
+extern "C" int  lvd_chat_chan_count(void) { return lvd_chan_count(); }
+extern "C" bool lvd_chat_chan_get(int i, lvd_chan_t* out) { return lvd_chan_get(i, out); }
+extern "C" const char* lvd_chat_chan_preview(int i) {
+  static char buf[124];
+  chan_build();
+  if (i < 0 || i >= g_chan_n) return "";
+  int slot = g_chan_idx[i];
+  for (int k = s_msg_n - 1; k >= 0; k--) {
+    int idx = (s_msg_head - s_msg_n + k + MSG_LOG * 2) % MSG_LOG;
+    if (s_msg[idx].is_ch && s_msg[idx].ch == slot) {
+      strncpy(buf, s_msg[idx].text, sizeof(buf) - 1); buf[sizeof(buf) - 1] = 0; return buf;
+    }
+  }
+  return "No messages yet";
 }
 
 extern "C" int  lvd_chat_count(void) { return count_idx(in_active_conv); }
@@ -1103,13 +1142,62 @@ extern "C" const char* lvd_chat_last_preview(void) {
 }
 extern "C" void lvd_chat_send(const char* text) {
   if (!text || !text[0]) return;
-  if (s_conv_public) {
-    if (the_mesh.sendChannelText(0, text)) ui_store_message(true, 0, NULL, "You", text, true);
+  if (s_conv_ch >= 0) {
+    if (the_mesh.sendChannelText(s_conv_ch, text)) ui_store_message(true, s_conv_ch, NULL, "You", text, true);
   } else if (s_conv_has_contact) {
     uint32_t ack, timeout;
     if (the_mesh.sendTextTo(s_conv_contact, text, ack, timeout))
       ui_store_message(false, -1, s_conv_peer, "You", text, true);
   }
+}
+
+// ---- DM threads (distinct peers we have message history with) ---------------
+static uint8_t g_dm_peer[16][6];
+static int     g_dm_n = 0;
+static bool find_contact_by_pubkey6(const uint8_t* p6, ContactInfo& out) {
+  int n = the_mesh.getNumContacts();
+  for (int i = 0; i < n; i++) {
+    ContactInfo c;
+    if (the_mesh.getContactByIdx((uint32_t)i, c) && memcmp(c.id.pub_key, p6, 6) == 0) { out = c; return true; }
+  }
+  return false;
+}
+static void dm_build(void) {       // distinct DM peers, most-recent first
+  g_dm_n = 0;
+  for (int k = s_msg_n - 1; k >= 0 && g_dm_n < 16; k--) {
+    int idx = (s_msg_head - s_msg_n + k + MSG_LOG * 2) % MSG_LOG;
+    const MsgRec& m = s_msg[idx];
+    if (m.is_ch) continue;
+    bool seen = false;
+    for (int j = 0; j < g_dm_n; j++) if (memcmp(g_dm_peer[j], m.peer6, 6) == 0) { seen = true; break; }
+    if (!seen) memcpy(g_dm_peer[g_dm_n++], m.peer6, 6);
+  }
+}
+extern "C" int lvd_dm_count(void) { dm_build(); return g_dm_n; }
+extern "C" bool lvd_dm_get(int i, lvd_dm_t* out) {
+  if (i < 0 || i >= g_dm_n) return false;
+  ContactInfo c;
+  if (find_contact_by_pubkey6(g_dm_peer[i], c)) {
+    strncpy(out->name, c.name, sizeof(out->name) - 1); out->name[sizeof(out->name) - 1] = 0;
+  } else {
+    snprintf(out->name, sizeof(out->name), "%02X%02X%02X%02X",
+             g_dm_peer[i][0], g_dm_peer[i][1], g_dm_peer[i][2], g_dm_peer[i][3]);
+  }
+  out->preview[0] = 0;             // last message in this thread
+  for (int k = s_msg_n - 1; k >= 0; k--) {
+    int idx = (s_msg_head - s_msg_n + k + MSG_LOG * 2) % MSG_LOG;
+    const MsgRec& m = s_msg[idx];
+    if (!m.is_ch && memcmp(m.peer6, g_dm_peer[i], 6) == 0) {
+      strncpy(out->preview, m.text, sizeof(out->preview) - 1); out->preview[sizeof(out->preview) - 1] = 0; break;
+    }
+  }
+  return true;
+}
+extern "C" void lvd_dm_open(int i) {
+  if (i < 0 || i >= g_dm_n) return;
+  s_conv_ch = -1;
+  memcpy(s_conv_peer, g_dm_peer[i], 6);
+  s_conv_has_contact = find_contact_by_pubkey6(g_dm_peer[i], s_conv_contact);
 }
 
 // ---- trace route -----------------------------------------------------------

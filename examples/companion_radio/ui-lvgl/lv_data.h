@@ -80,6 +80,8 @@ unsigned lvd_pkt_sent(void);      // total packets transmitted
 unsigned lvd_pkt_recv_err(void);  // total receive errors
 int      lvd_last_rssi(void);     // dBm of the last received packet
 int      lvd_last_snr_q(void);    // SNR*4 of the last received packet
+unsigned lvd_free_ram_kb(void);   // free heap (KB)
+unsigned lvd_free_flash_kb(void); // free filesystem storage (KB)
 
 // ---- packet monitor (Terminal > Packets) -----------------------------------
 typedef struct {
@@ -122,11 +124,12 @@ typedef struct {
   int  outgoing;     // 1 = sent by us
 } lvd_msg_t;
 
-// The conversation screen shows one "active" conversation: the Public channel or
-// a direct message with a contact. Open one before showing the conversation.
+// The conversation screen shows one "active" conversation: a channel (Public or a
+// named group channel) or a direct message. Open one before showing the conversation.
 void        lvd_chat_open_public(void);
+void        lvd_chat_open_channel(int i);      // open channel by chat-list display index
 void        lvd_chat_open_dm(const char* contact_name);
-const char* lvd_chat_title(void);              // "Public" or the DM peer name
+const char* lvd_chat_title(void);              // channel name or the DM peer name
 
 int      lvd_chat_count(void);                 // messages in the active conversation
 bool     lvd_chat_get(int i, lvd_msg_t* out);  // oldest..newest
@@ -204,6 +207,16 @@ bool        lvd_chan_add(const char* name, const char* psk_b64);   // join/creat
 bool        lvd_chan_remove(int i);                                // delete (not the Public channel)
 const char* lvd_chan_psk(int i);                                   // channel PSK as base64 (share/QR)
 const char* lvd_chan_new_psk(void);                                // fresh random 128-bit key (base64)
+// chat list: the channels to show as conversations (Public + named group channels)
+int         lvd_chat_chan_count(void);
+bool        lvd_chat_chan_get(int i, lvd_chan_t* out);             // name + is_public
+const char* lvd_chat_chan_preview(int i);                          // last message in channel i
+
+// chat list: DM threads (distinct peers we have message history with)
+typedef struct { char name[32]; char preview[100]; } lvd_dm_t;
+int         lvd_dm_count(void);
+bool        lvd_dm_get(int i, lvd_dm_t* out);                      // name + last-message preview
+void        lvd_dm_open(int i);                                    // make DM i the active conversation
 
 // ---- signal coverage (per repeater/room) -----------------------------------
 typedef struct {

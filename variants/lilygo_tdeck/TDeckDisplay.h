@@ -26,7 +26,7 @@ public:
       auto cfg = _bus.config();
       cfg.spi_host   = SPI3_HOST;
       cfg.spi_mode   = 0;
-      cfg.freq_write = 40000000;
+      cfg.freq_write = 80000000;   // ST7789 handles 80MHz; halves flush time (scroll perf)
       cfg.freq_read  = 16000000;
       cfg.spi_3wire  = false;
       cfg.use_lock   = true;
