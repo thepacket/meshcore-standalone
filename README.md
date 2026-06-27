@@ -70,6 +70,26 @@ brew install sdl2          # macOS
 ./sim-lvgl/lvglsim
 ```
 
+## Build & flash (LilyGo T-Deck Plus)
+
+The firmware builds with [PlatformIO](https://platformio.org/) (`pip install platformio`
+or the VS Code extension). The standalone LVGL build is the
+`LilyGo_TDeck_companion_radio_usb_lvgl` environment:
+
+```sh
+# build
+pio run -e LilyGo_TDeck_companion_radio_usb_lvgl
+
+# build + flash over USB (auto-detects the port; or pass --upload-port /dev/cu.usbmodemXXXX)
+pio run -e LilyGo_TDeck_companion_radio_usb_lvgl -t upload
+
+# serial monitor
+pio device monitor -b 115200
+```
+
+Connect the T-Deck over USB-C first. On macOS the port shows up as
+`/dev/cu.usbmodem*`; on Linux as `/dev/ttyACM*`.
+
 ## Credits & relationship to MeshCore
 
 This is an **independent derivative** of [MeshCore](https://github.com/meshcore-dev/MeshCore)
