@@ -31,28 +31,28 @@ entirely from its screen — no phone or web app — over touch or the built-in 
 Built for an Android-app-quality look (black theme, per-feature colour-coded icon
 chips, charts/gauges, real widgets). Live on-device:
 
-- ✅ **Home** — colour icon-grid launcher; live status bar (RX/RE/TX/CT counters,
+- **Home** — colour icon-grid launcher; live status bar (RX/RE/TX/CT counters,
   clock, battery); a **live RF signal scope** (instantaneous channel RSSI) that
   taps through to a full-screen scope with a max-scale slider
-- ✅ **Chat** — Public channel **and** direct messages (send + live receive), speech bubbles
-- ✅ **Contacts** — live contact list with name search (space-separated OR tokens)
-- ✅ **Channels** — manage group channels: list, view/share a channel's key as a
+- **Chat** — Public channel **and** direct messages (send + live receive), speech bubbles
+- **Contacts** — live contact list with name search (space-separated OR tokens)
+- **Channels** — manage group channels: list, view/share a channel's key as a
   QR, and add (join or create) by name + key
-- ✅ **Heard** — recently-heard stations with SNR/RSSI/age, auto-refreshing
-- ✅ **Discover / Tools** — active node discovery (paced zero-hop `NODE_DISCOVER_REQ`,
+- **Heard** — recently-heard stations with SNR/RSSI/age, auto-refreshing
+- **Discover / Tools** — active node discovery (paced zero-hop `NODE_DISCOVER_REQ`,
   auto-repeated every 60s; responders auto-added as contacts) plus zero-hop /
   flood self-advert actions
-- ✅ **Stats** — rolling noise-floor chart, last RSSI/SNR, packet counters, battery/uptime
-- ✅ **Packet monitor** — live decoded RX feed; tap a packet for the full breakdown + raw hex; path search
-- ✅ **Signal** — per-repeater coverage (RSSI bar + SNR), strongest first, stale hidden
-- ✅ **Settings** — every companion config field, editable **and persisted** (incl.
+- **Stats** — rolling noise-floor chart, last RSSI/SNR, packet counters, battery/uptime
+- **Packet monitor** — live decoded RX feed; tap a packet for the full breakdown + raw hex; path search
+- **Signal** — per-repeater coverage (RSSI bar + SNR), strongest first, stale hidden
+- **Settings** — every companion config field, editable **and persisted** (incl.
   radio params); on-screen-keyboard toggle
-- ✅ **Repeaters** — Saved/Scan list + detail with remote login, live status, and a CLI console
-- ✅ **Trace** — build a path through chosen repeaters and trace it, with a 10s
+- **Repeaters** — Saved/Scan list + detail with remote login, live status, and a CLI console
+- **Trace** — build a path through chosen repeaters and trace it, with a 10s
   timeout and friendly per-hop names + SNR
-- ✅ **Peer details** — tap a contact for type/path/RSSI/SNR/distance/last-heard/
+- **Peer details** — tap a contact for type/path/RSSI/SNR/distance/last-heard/
   location/public key, plus Share / Reset-path / Export (QR) / Remove actions
-- ✅ **Input & feedback** — physical keyboard typing into focused fields; press
+- **Input & feedback** — physical keyboard typing into focused fields; press
   feedback + confirmation toasts on every action
 
 The LVGL screens are also runnable in a desktop simulator (see
