@@ -75,7 +75,13 @@ void lv_noise_create(lv_obj_t* scr) {
 }
 
 // ---- Signal: per-repeater coverage gauges (live, from the heard table) ------
-static void coverage_row(lv_obj_t* list, const lvd_sig_t* r) {
+static void sig_clicked(lv_event_t* e) {
+  int i = (int)(intptr_t)lv_event_get_user_data(e);
+  lvd_sig_t s;
+  if (lvd_signal_get(i, &s)) { lv_chat_set_peer(s.name); if (lv_nav_cb) lv_nav_cb("peer"); }
+}
+
+static void coverage_row(lv_obj_t* list, const lvd_sig_t* r, int idx) {
   lv_obj_t* row = lv_ui_card(list, -1, 0, 0, 60);
   lv_obj_set_width(row, lv_pct(100));
   lv_obj_set_height(row, 58);
@@ -84,6 +90,9 @@ static void coverage_row(lv_obj_t* list, const lvd_sig_t* r) {
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_set_style_pad_row(row, 4, 0);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);                     // tap -> peer/contact card
+  lv_obj_add_event_cb(row, sig_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
+  lv_ui_press_fx(row);
 
   lv_obj_t* head = lv_obj_create(row);
   lv_obj_remove_flag(head, LV_OBJ_FLAG_SCROLLABLE);
@@ -132,7 +141,7 @@ static void sig_fill(lv_obj_t* list) {
     return;
   }
   lvd_sig_t s;
-  for (int i = 0; i < n; i++) if (lvd_signal_get(i, &s)) coverage_row(list, &s);
+  for (int i = 0; i < n; i++) if (lvd_signal_get(i, &s)) coverage_row(list, &s, i);
 }
 static void sig_tick(void) {
   if (!s_sig_list) return;
