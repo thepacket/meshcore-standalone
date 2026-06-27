@@ -55,29 +55,19 @@ chips, charts/gauges, real widgets). Live on-device:
 - ✅ **Input & feedback** — physical keyboard typing into focused fields; press
   feedback + confirmation toasts on every action
 
-A portable bitmap UI ([`examples/companion_radio/ui-new/`](examples/companion_radio/ui-new))
-also still builds and remains the lightweight option for mono/non-touch boards. The
-LVGL screens are additionally runnable in a desktop simulator (see
+The LVGL screens are also runnable in a desktop simulator (see
 [`sim-lvgl/`](sim-lvgl/README.md)).
 
 See [ROADMAP.md](ROADMAP.md) for the full milestone map.
 
 ## Try it without hardware
 
-**New LVGL UI** (interactive — mouse = touch; tap tiles to navigate):
+The LVGL UI runs in a desktop simulator (interactive — mouse = touch; tap tiles to navigate):
 
 ```sh
 brew install sdl2          # macOS
 ./sim-lvgl/build.sh        # first run fetches LVGL (cached after)
 ./sim-lvgl/lvglsim
-```
-
-**Original bitmap UI** (also interactive, fully wired with demo data):
-
-```sh
-brew install sdl2 sdl2_ttf
-./sim/build.sh
-./sim/uisim                # mouse = touch, arrows/Enter/Esc/typing = device input
 ```
 
 ## Credits & relationship to MeshCore
