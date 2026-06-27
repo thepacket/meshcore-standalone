@@ -60,16 +60,6 @@ The LVGL screens are also runnable in a desktop simulator (see
 
 See [ROADMAP.md](ROADMAP.md) for the full milestone map.
 
-## Try it without hardware
-
-The LVGL UI runs in a desktop simulator (interactive — mouse = touch; tap tiles to navigate):
-
-```sh
-brew install sdl2          # macOS
-./sim-lvgl/build.sh        # first run fetches LVGL (cached after)
-./sim-lvgl/lvglsim
-```
-
 ## Build & flash (LilyGo T-Deck Plus)
 
 The firmware builds with [PlatformIO](https://platformio.org/) (`pip install platformio`
