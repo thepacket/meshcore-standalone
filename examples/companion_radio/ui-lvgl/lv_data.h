@@ -85,6 +85,7 @@ void lvd_stats_get(lvd_stats_t* out);              // sample now (advances noise
 int  lvd_stats_noise_history(int* out, int max);   // oldest..newest; returns count
 int  lvd_stats_batt_history(int* out, int max);    // battery mV, oldest..newest; returns count
 const char* lvd_stats_err_str(void);               // radio error flags, human-readable ("None" if clear)
+void lvd_stats_reset(void);                        // zero the packet counters + error flags
 
 // ---- home hero widgets -----------------------------------------------------
 int      lvd_rf_rssi(void);       // instantaneous RF level on the listening freq, dBm

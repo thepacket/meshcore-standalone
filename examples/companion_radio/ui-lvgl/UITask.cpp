@@ -877,6 +877,10 @@ extern "C" const char* lvd_stats_err_str(void) {
   if (!k) snprintf(b, sizeof(b), "0x%04X", f);
   return b;
 }
+extern "C" void lvd_stats_reset(void) {
+  radio_driver.resetStats();   // recv / sent / recv-errors
+  the_mesh.resetStats();       // flood/direct counters + err flags (Dispatcher)
+}
 extern "C" int lvd_stats_batt_history(int* out, int max) {
   int n = s_batt_n < max ? s_batt_n : max;
   for (int i = 0; i < n; i++) {

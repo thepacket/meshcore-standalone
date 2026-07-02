@@ -64,6 +64,15 @@ static void stats_tick(void) {
   stats_apply(&st, 1);
 }
 
+// Reset counters: zero packet counts + error flags, then refresh in place.
+static void stats_reset_clicked(lv_event_t* e) {
+  (void)e;
+  lvd_stats_reset();
+  lv_ui_toast("Counters reset");
+  lvd_stats_t st; lvd_stats_get(&st);
+  stats_apply(&st, 0);
+}
+
 void lv_stats_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
   lv_ui_md_topbar(scr, "Statistics");
@@ -154,6 +163,20 @@ void lv_stats_create(lv_obj_t* scr) {
   s_errs = lv_ui_md_row_v(pk, "Recv errors", "--", MD_ON);
   s_loss = lv_ui_md_row_v(pk, "Loss rate",   "--", MD_ON);
   s_radioerr = lv_ui_md_row_v(pk, "Radio errors", "--", MD_ON);
+  // reset counters button
+  lv_obj_t* rb = lv_ui_md_card(pk);
+  lv_obj_set_height(rb, 36); lv_obj_set_style_min_height(rb, 0, 0);
+  lv_obj_set_style_bg_color(rb, lv_color_hex(UI_RED), 0); lv_obj_set_style_bg_opa(rb, 40, 0);
+  lv_obj_set_style_border_color(rb, lv_color_hex(UI_RED), 0); lv_obj_set_style_border_opa(rb, 200, 0);
+  lv_obj_set_style_border_width(rb, 1, 0);
+  lv_obj_add_flag(rb, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(rb, stats_reset_clicked, LV_EVENT_CLICKED, NULL);
+  lv_ui_press_fx(rb);
+  lv_obj_t* rl = lv_label_create(rb);
+  lv_label_set_text(rl, LV_SYMBOL_REFRESH "  Reset counters");
+  lv_obj_set_style_text_font(rl, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(rl, lv_color_hex(0xffffff), 0);
+  lv_obj_center(rl);
 
   // ---- Memory ----
   lv_obj_t* mem = lv_ui_md_section(list, "Memory", 0);
