@@ -2489,6 +2489,12 @@ void MyMesh::setCADEnabled(bool on) {
   savePrefs();
 }
 
+void MyMesh::setRxBoostedGain(bool on) {
+  _prefs.rx_boosted_gain = on ? 1 : 0;
+  radio_driver.setRxBoostedGainMode(on);   // apply live
+  savePrefs();
+}
+
 void MyMesh::setMultiAcks(uint8_t v) {
   _prefs.multi_acks = v;
   savePrefs();
