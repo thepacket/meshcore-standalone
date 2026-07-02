@@ -75,9 +75,16 @@ typedef struct {
   unsigned pkt_recv, pkt_sent, pkt_recv_err;
   unsigned batt_mv;
   unsigned uptime_secs;
+  unsigned free_ram_kb;            // free heap (KB)
+  unsigned flash_used_kb, flash_total_kb;   // filesystem usage
+  unsigned err_flags;              // ERR_EVENT_* bitmask (radio dispatcher)
+  int      num_contacts, max_contacts;      // contact-slot usage
+  int      num_channels;           // configured group channels
 } lvd_stats_t;
-void lvd_stats_get(lvd_stats_t* out);              // sample now (advances noise history)
+void lvd_stats_get(lvd_stats_t* out);              // sample now (advances noise + battery history)
 int  lvd_stats_noise_history(int* out, int max);   // oldest..newest; returns count
+int  lvd_stats_batt_history(int* out, int max);    // battery mV, oldest..newest; returns count
+const char* lvd_stats_err_str(void);               // radio error flags, human-readable ("None" if clear)
 
 // ---- home hero widgets -----------------------------------------------------
 int      lvd_rf_rssi(void);       // instantaneous RF level on the listening freq, dBm

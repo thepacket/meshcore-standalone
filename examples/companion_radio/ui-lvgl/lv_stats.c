@@ -9,10 +9,12 @@
 
 // live widgets (valid only while the Stats screen is active)
 static lv_obj_t* s_chart;  static lv_chart_series_t* s_series;
+static lv_obj_t* s_bchart; static lv_chart_series_t* s_bseries;
 static lv_obj_t* s_noise_cur, *s_noise_mm;
 static lv_obj_t* s_rssi, *s_snr;
 static lv_obj_t* s_tel_batt, *s_dev_batt, *s_uptime;
-static lv_obj_t* s_recv, *s_sent, *s_errs;
+static lv_obj_t* s_recv, *s_sent, *s_errs, *s_loss, *s_radioerr;
+static lv_obj_t* s_ram, *s_flash, *s_contacts, *s_channels;
 
 static void fmt_batt_pct(char* b, int n, unsigned mv) {
   int pct = (int)((mv - 3300) * 100 / 900);   // 3.30V..4.20V
@@ -41,8 +43,19 @@ static void stats_apply(const lvd_stats_t* st, int push_chart) {
   snprintf(b, sizeof(b), "%u", st->pkt_recv);                            lv_label_set_text(s_recv, b);
   snprintf(b, sizeof(b), "%u", st->pkt_sent);                            lv_label_set_text(s_sent, b);
   snprintf(b, sizeof(b), "%u", st->pkt_recv_err);                        lv_label_set_text(s_errs, b);
-  if (push_chart)
+  { unsigned den = st->pkt_recv + st->pkt_recv_err;                      // RX loss rate
+    if (den) snprintf(b, sizeof(b), "%u.%u%%", st->pkt_recv_err * 100 / den, (st->pkt_recv_err * 1000 / den) % 10);
+    else     snprintf(b, sizeof(b), "--");
+    lv_label_set_text(s_loss, b); }
+  lv_label_set_text(s_radioerr, lvd_stats_err_str());
+  snprintf(b, sizeof(b), "%u KB", st->free_ram_kb);                      lv_label_set_text(s_ram, b);
+  snprintf(b, sizeof(b), "%u / %u KB", st->flash_used_kb, st->flash_total_kb); lv_label_set_text(s_flash, b);
+  snprintf(b, sizeof(b), "%d / %d", st->num_contacts, st->max_contacts); lv_label_set_text(s_contacts, b);
+  snprintf(b, sizeof(b), "%d", st->num_channels);                        lv_label_set_text(s_channels, b);
+  if (push_chart) {
     lv_chart_set_next_value(s_chart, s_series, st->noise_floor ? st->noise_floor : LV_CHART_POINT_NONE);
+    lv_chart_set_next_value(s_bchart, s_bseries, st->batt_mv ? (int)st->batt_mv : LV_CHART_POINT_NONE);
+  }
 }
 
 static void stats_tick(void) {
@@ -103,6 +116,27 @@ void lv_stats_create(lv_obj_t* scr) {
   lv_obj_set_style_text_font(s_noise_mm, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(s_noise_mm, lv_color_hex(MD_MUTED), 0);
 
+  // ---- Battery: rolling mV trend ----
+  lv_obj_t* bs = lv_ui_md_card(list);
+  lv_obj_t* bt = lv_label_create(bs);
+  lv_label_set_text(bt, "Battery trend");
+  lv_obj_set_style_text_font(bt, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_color(bt, lv_color_hex(MD_ON), 0);
+  s_bchart = lv_chart_create(bs);
+  lv_obj_set_width(s_bchart, lv_pct(100)); lv_obj_set_height(s_bchart, 60);
+  lv_obj_set_style_bg_opa(s_bchart, 0, 0); lv_obj_set_style_border_width(s_bchart, 0, 0);
+  lv_obj_set_style_size(s_bchart, 0, 0, LV_PART_INDICATOR);
+  lv_chart_set_div_line_count(s_bchart, 2, 0);
+  lv_obj_set_style_line_color(s_bchart, lv_color_hex(0x223046), LV_PART_MAIN);
+  lv_chart_set_type(s_bchart, LV_CHART_TYPE_LINE);
+  lv_chart_set_point_count(s_bchart, 40);
+  lv_chart_set_range(s_bchart, LV_CHART_AXIS_PRIMARY_Y, 3200, 4250);   // typical Li-ion mV span
+  s_bseries = lv_chart_add_series(s_bchart, lv_color_hex(UI_GREEN), LV_CHART_AXIS_PRIMARY_Y);
+  lv_obj_set_style_line_width(s_bchart, 3, LV_PART_ITEMS);
+  { int hist[40]; int n = lvd_stats_batt_history(hist, 40);
+    for (int i = 0; i < n; i++)
+      lv_chart_set_next_value(s_bchart, s_bseries, hist[i] ? hist[i] : LV_CHART_POINT_NONE); }
+
   // ---- Radio ----
   lv_obj_t* rad = lv_ui_md_section(list, "Radio", 0);
   s_rssi = lv_ui_md_row_v(rad, "Last RSSI", "--", MD_ON);
@@ -118,6 +152,18 @@ void lv_stats_create(lv_obj_t* scr) {
   s_recv = lv_ui_md_row_v(pk, "Received",    "--", MD_ON);
   s_sent = lv_ui_md_row_v(pk, "Sent",        "--", MD_ON);
   s_errs = lv_ui_md_row_v(pk, "Recv errors", "--", MD_ON);
+  s_loss = lv_ui_md_row_v(pk, "Loss rate",   "--", MD_ON);
+  s_radioerr = lv_ui_md_row_v(pk, "Radio errors", "--", MD_ON);
+
+  // ---- Memory ----
+  lv_obj_t* mem = lv_ui_md_section(list, "Memory", 0);
+  s_ram   = lv_ui_md_row_v(mem, "RAM free",   "--", MD_ON);
+  s_flash = lv_ui_md_row_v(mem, "Flash used", "--", MD_ON);
+
+  // ---- Mesh ----
+  lv_obj_t* msh = lv_ui_md_section(list, "Mesh", 0);
+  s_contacts = lv_ui_md_row_v(msh, "Contacts", "--", MD_ON);
+  s_channels = lv_ui_md_row_v(msh, "Channels", "--", MD_ON);
 
   lvd_stats_t st; lvd_stats_get(&st);
   stats_apply(&st, 0);   // chart already seeded above

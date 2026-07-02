@@ -818,6 +818,9 @@ extern "C" void lvd_factory_reset(void) {   // called only after the UI confirm 
 static int s_noise_hist[STATS_HIST];
 static int s_noise_head = 0;   // next write slot
 static int s_noise_n    = 0;   // valid samples
+static int s_batt_hist[STATS_HIST];   // battery mV, same rolling window
+static int s_batt_head = 0;
+static int s_batt_n     = 0;
 
 extern "C" void lvd_stats_get(lvd_stats_t* out) {
   int nf = radio_driver.getNoiseFloor();
@@ -844,6 +847,15 @@ extern "C" void lvd_stats_get(lvd_stats_t* out) {
   uint16_t mv; uint32_t used, total; the_mesh.getBattAndStorage(mv, used, total);
   out->batt_mv = mv;
   out->uptime_secs = millis() / 1000;
+  out->free_ram_kb = (unsigned)(ESP.getFreeHeap() / 1024);
+  out->flash_used_kb = used; out->flash_total_kb = total;
+  out->err_flags = the_mesh.getErrFlags();
+  out->num_contacts = the_mesh.getNumContacts(); out->max_contacts = MAX_CONTACTS;
+  out->num_channels = lvd_chan_count();
+  // roll the battery history alongside the noise history
+  s_batt_hist[s_batt_head] = mv;
+  s_batt_head = (s_batt_head + 1) % STATS_HIST;
+  if (s_batt_n < STATS_HIST) s_batt_n++;
 }
 
 extern "C" int lvd_stats_noise_history(int* out, int max) {
@@ -851,6 +863,25 @@ extern "C" int lvd_stats_noise_history(int* out, int max) {
   for (int i = 0; i < n; i++) {
     int idx = (s_noise_head - n + i + STATS_HIST * 2) % STATS_HIST;
     out[i] = s_noise_hist[idx];
+  }
+  return n;
+}
+extern "C" const char* lvd_stats_err_str(void) {
+  static char b[48];
+  uint16_t f = the_mesh.getErrFlags();
+  if (f == 0) { strcpy(b, "None"); return b; }
+  int k = 0; b[0] = 0;
+  if (f & ERR_EVENT_FULL)            k += snprintf(b + k, sizeof(b) - k, "%sQueue full", k ? ", " : "");
+  if (f & ERR_EVENT_CAD_TIMEOUT)     k += snprintf(b + k, sizeof(b) - k, "%sCAD timeout", k ? ", " : "");
+  if (f & ERR_EVENT_STARTRX_TIMEOUT) k += snprintf(b + k, sizeof(b) - k, "%sRX-start timeout", k ? ", " : "");
+  if (!k) snprintf(b, sizeof(b), "0x%04X", f);
+  return b;
+}
+extern "C" int lvd_stats_batt_history(int* out, int max) {
+  int n = s_batt_n < max ? s_batt_n : max;
+  for (int i = 0; i < n; i++) {
+    int idx = (s_batt_head - n + i + STATS_HIST * 2) % STATS_HIST;
+    out[i] = s_batt_hist[idx];
   }
   return n;
 }
