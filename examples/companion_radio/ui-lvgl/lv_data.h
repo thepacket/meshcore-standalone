@@ -2,8 +2,7 @@
 
 // C-callable view-model bridge between the (C) LVGL screens and the live data.
 // The firmware implements these in ui-lvgl/UITask.cpp (pulling from MyMesh /
-// rtc_clock / radio_driver); the desktop sim implements them in sim-lvgl/main.c
-// with mock data, so the screens stay shared and data-source-agnostic.
+// rtc_clock / radio_driver), so the screens stay data-source-agnostic.
 #include <stdint.h>
 #include <stdbool.h>
 
@@ -16,7 +15,6 @@ const char* lvd_node_name(void);       // this node's name
 const char* lvd_device_label(void);    // e.g. "TDeck+"
 void        lvd_clock_hhmm(char* out, int len);   // "HH:MM" (or "--:--")
 int         lvd_batt_pct(void);        // 0..100, -1 = unknown
-int         lvd_signal_bars(void);     // 0..4
 int         lvd_unread_count(void);     // total unread (Chat badge)
 
 // ---- heard stations (Heard screen) -----------------------------------------
@@ -76,7 +74,6 @@ void lvd_stats_get(lvd_stats_t* out);              // sample now (advances noise
 int  lvd_stats_noise_history(int* out, int max);   // oldest..newest; returns count
 
 // ---- home hero widgets -----------------------------------------------------
-int      lvd_noise_floor(void);   // current noise floor, dBm (0 = unknown)
 int      lvd_rf_rssi(void);       // instantaneous RF level on the listening freq, dBm
 unsigned lvd_pkt_recv(void);      // total packets received (drives the activity rate)
 unsigned lvd_pkt_sent(void);      // total packets transmitted
@@ -137,7 +134,6 @@ const char* lvd_chat_title(void);              // channel name or the DM peer na
 int      lvd_chat_count(void);                 // messages in the active conversation
 bool     lvd_chat_get(int i, lvd_msg_t* out);  // oldest..newest
 unsigned lvd_chat_total(void);                 // monotonic, for refresh detection
-const char* lvd_chat_last_preview(void);       // last Public msg text (for the list row)
 void     lvd_chat_send(const char* text);      // send to the active conversation
 
 // ---- trace route -----------------------------------------------------------
@@ -150,7 +146,6 @@ typedef struct {
 // build a path (chain of repeaters) then trace through it
 void        lvd_trace_path_clear(void);
 void        lvd_trace_path_add(int i);          // add saved repeater/room i (from lvd_rep_get(0,i))
-void        lvd_trace_path_add_name(const char* name);   // add a contact by name
 int         lvd_trace_path_len(void);
 const char* lvd_trace_path_str(void);           // "A > B" chain being built
 void        lvd_trace_go(void);                 // send the trace along the built path

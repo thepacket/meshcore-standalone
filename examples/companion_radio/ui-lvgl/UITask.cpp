@@ -71,13 +71,18 @@ extern "C" {
   void lv_contact_search_create(lv_obj_t* scr);
 }
 
+// incoming messages since the chat list / a conversation was last viewed
+// (drives the home Chat tile badge)
+static unsigned s_unread = 0;
+
 // ===========================================================================
-// screen dispatch (mirrors sim-lvgl/main.c build())
+// screen dispatch
 // ===========================================================================
 static void build_screen(const char* name) {
   lv_obj_t* s = lv_screen_active();
   lv_ui_set_refresh(NULL);   // drop the previous screen's live-refresh hook
   lv_obj_clean(s);
+  if (!strcmp(name, "chat") || !strcmp(name, "conv")) s_unread = 0;   // user is looking at chats
   if (!strcmp(name, "home")) lv_home_create(s);
   else if (!strcmp(name, "chat")) lv_chat_list_create(s);
   else if (!strcmp(name, "conv")) lv_chat_conv_create(s);
@@ -326,15 +331,7 @@ extern "C" int lvd_batt_pct(void) {
   int pct = (mv - BATT_MIN_MILLIVOLTS) * 100 / (BATT_MAX_MILLIVOLTS - BATT_MIN_MILLIVOLTS);
   return pct < 0 ? 0 : (pct > 100 ? 100 : pct);
 }
-extern "C" int lvd_signal_bars(void) {
-  int r = g_ui ? g_ui->lastRssi() : 0;
-  if (r == 0) return 0;
-  if (r >= -70) return 4;
-  if (r >= -85) return 3;
-  if (r >= -100) return 2;
-  return 1;
-}
-extern "C" int lvd_unread_count(void) { return 0; }
+extern "C" int lvd_unread_count(void) { return (int)s_unread; }
 
 // getRecentlyHeard() returns the WHOLE table including empty slots, so filter to
 // real entries (a used slot has a name or a recv timestamp) and cache them; the
@@ -793,7 +790,6 @@ extern "C" int lvd_stats_noise_history(int* out, int max) {
   return n;
 }
 
-extern "C" int      lvd_noise_floor(void) { return radio_driver.getNoiseFloor(); }
 extern "C" int      lvd_rf_rssi(void)     { return (int)radio_driver.getCurrentRSSI(); }  // instantaneous channel RSSI
 extern "C" unsigned lvd_pkt_recv(void)    { return radio_driver.getPacketsRecv(); }
 extern "C" unsigned lvd_pkt_sent(void)    { return radio_driver.getPacketsSent(); }
@@ -1202,6 +1198,10 @@ static bool        s_conv_has_contact = false;
 static char        s_conv_chname[32] = "Public";
 
 void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who, const char* text, bool out) {
+  if (!out) {   // count as unread unless the user is already looking at chats
+    const char* cur = g_nav_sp > 0 ? g_nav_stack[g_nav_sp - 1] : "";
+    if (strcmp(cur, "conv") != 0 && strcmp(cur, "chat") != 0) s_unread++;
+  }
   MsgRec& m = s_msg[s_msg_head];
   m.is_ch = is_ch; m.ch = ch; m.out = out;
   if (peer6) memcpy(m.peer6, peer6, 6); else memset(m.peer6, 0, 6);
@@ -1294,12 +1294,6 @@ extern "C" bool lvd_chat_get(int i, lvd_msg_t* out) {
   return true;
 }
 extern "C" unsigned lvd_chat_total(void) { return s_msg_total; }
-extern "C" const char* lvd_chat_last_preview(void) {
-  int n = count_idx(is_public_msg);
-  if (n <= 0) return "No messages yet";
-  int idx = nth_idx(n - 1, is_public_msg);
-  return idx >= 0 ? s_msg[idx].text : "";
-}
 extern "C" void lvd_chat_send(const char* text) {
   if (!text || !text[0]) return;
   if (s_conv_ch >= 0) {
@@ -1395,11 +1389,6 @@ extern "C" void lvd_trace_path_add(int i) {   // i = index in the saved repeater
   if (s_tpath_n >= TRACE_MAX) return;
   ContactInfo c;
   if (rep_nth(0, i, c)) { s_tpath[s_tpath_n++] = c.id.pub_key[0]; }
-}
-extern "C" void lvd_trace_path_add_name(const char* name) {   // add a contact by name
-  if (s_tpath_n >= TRACE_MAX) return;
-  ContactInfo c;
-  if (find_contact_by_name(name, c)) { s_tpath[s_tpath_n++] = c.id.pub_key[0]; }
 }
 extern "C" int  lvd_trace_path_len(void) { return s_tpath_n; }
 extern "C" const char* lvd_trace_path_str(void) {
