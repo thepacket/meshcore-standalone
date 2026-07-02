@@ -98,6 +98,50 @@ static void fav_toggle(lv_obj_t* scr) {
   fav_pill_apply(lvd_contact_fav_only());
 }
 
+// ---- node-type filter chips: All / Chats / Repeaters / Rooms ----------------
+static lv_obj_t* s_type_chips[4];
+static const char* const TYPE_LABELS[4] = { "All", "Chats", "Repeaters", "Rooms" };
+
+static void type_chips_apply(void) {
+  int sel = lvd_contact_type();
+  for (int i = 0; i < 4; i++) {
+    lv_obj_t* p = s_type_chips[i];
+    if (!p) continue;
+    bool on = (i == sel);
+    lv_obj_set_style_bg_opa(p, on ? 230 : 30, 0);
+    lv_obj_set_style_border_color(p, lv_color_hex(on ? 0xffffff : UI_BLUE), 0);
+    lv_obj_set_style_border_opa(p, on ? 255 : 160, 0);
+    lv_obj_t* l = lv_obj_get_child(p, 0);
+    if (l) lv_obj_set_style_text_color(l, lv_color_hex(on ? 0xffffff : UI_TEXT), 0);
+  }
+}
+static void do_type_cb(void* p) {
+  lvd_contact_set_type((int)(intptr_t)p);
+  type_chips_apply();
+  if (s_list) { lv_obj_clean(s_list); contacts_fill(s_list); }
+}
+static void type_chip_clicked(lv_event_t* e) {
+  lv_async_call(do_type_cb, lv_event_get_user_data(e));
+}
+static void type_filter_bar(lv_obj_t* scr) {
+  lv_obj_t* bar = lv_obj_create(scr);
+  lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_pos(bar, 8, 74); lv_obj_set_size(bar, 320 - 16, 28);
+  lv_obj_set_style_bg_opa(bar, 0, 0); lv_obj_set_style_border_width(bar, 0, 0);
+  lv_obj_set_style_pad_all(bar, 0, 0);
+  lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  for (int i = 0; i < 4; i++) {
+    lv_obj_t* p = lv_ui_pill(bar, TYPE_LABELS[i], UI_BLUE);
+    lv_obj_set_height(p, 26); lv_obj_set_style_min_height(p, 0, 0);
+    lv_obj_add_flag(p, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(p, type_chip_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+    lv_ui_press_fx(p);
+    s_type_chips[i] = p;
+  }
+  type_chips_apply();
+}
+
 static void open_search(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("contact_search"); }
 static void do_clear_cb(void* p) { (void)p; lvd_contact_set_filter(""); if (s_list) { lv_obj_clean(s_list); contacts_fill(s_list); } }
 static void clear_search(lv_event_t* e) { (void)e; lv_async_call(do_clear_cb, NULL); }
@@ -199,10 +243,11 @@ void lv_contacts_create(lv_obj_t* scr) {
   lv_ui_md_topbar(scr, "Contacts");
   search_field(scr);                            // fixed above the list (does not scroll)
   fav_toggle(scr);                              // favourites-only toggle, same line as search
+  type_filter_bar(scr);                         // node-type filter chips (All/Chats/Repeaters/Rooms)
 
-  s_list = lv_obj_create(scr);                  // scrollable list below the search field
-  lv_obj_set_pos(s_list, 0, 76);
-  lv_obj_set_size(s_list, 320, 240 - 76);
+  s_list = lv_obj_create(scr);                  // scrollable list below the search + filter row
+  lv_obj_set_pos(s_list, 0, 104);
+  lv_obj_set_size(s_list, 320, 240 - 104);
   lv_obj_set_style_bg_opa(s_list, 0, 0);
   lv_obj_set_style_border_width(s_list, 0, 0);
   lv_obj_set_style_pad_hor(s_list, 12, 0);

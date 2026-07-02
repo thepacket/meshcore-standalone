@@ -455,11 +455,13 @@ static int cmp_contact_idx(const void* a, const void* b) {
 }
 static char     g_cfilter[24] = "";              // contacts name filter ("" = all)
 static bool     g_fav_only = false;              // show only favourites when set
+static int      g_type_filter = 0;               // 0 all, 1 chats, 2 repeaters, 3 rooms
 static uint16_t g_corder[MAX_CONTACTS];
 static int      g_corder_n = -1;
 static int      g_corder_total = -1;             // contact count the order was built for
 static char     g_corder_filter[24] = "\x01";    // filter it was built for (impossible init)
 static int      g_corder_fav = -1;               // fav-only mode the order was built for
+static int      g_corder_type = -1;              // type filter the order was built for
 
 // case-insensitive "needle is a substring of hay"
 static bool ci_contains(const char* hay, const char* needle) {
@@ -492,7 +494,7 @@ extern "C" bool lvd_name_match(const char* hay, const char* needle) {
 static void build_contact_order(void) {
   int total = the_mesh.getNumContacts();
   if (total > MAX_CONTACTS) total = MAX_CONTACTS;
-  if (total == g_corder_total && g_corder_fav == (int)g_fav_only &&
+  if (total == g_corder_total && g_corder_fav == (int)g_fav_only && g_corder_type == g_type_filter &&
       strcmp(g_cfilter, g_corder_filter) == 0) return;   // cached
   int m = 0;
   // real contacts occupy absolute slots [MAX_ANON_CONTACTS, total); getContactByIdx
@@ -502,12 +504,16 @@ static void build_contact_order(void) {
     if (!the_mesh.getContactByIdx((uint32_t)i, c)) continue;
     if (c.type == ADV_TYPE_NONE || c.name[0] == 0) continue;   // skip empty/anon slots
     if (g_fav_only && !(c.flags & 0x01)) continue;       // favourites-only filter
+    if (g_type_filter == 1 && c.type != ADV_TYPE_CHAT)     continue;   // Chats
+    if (g_type_filter == 2 && c.type != ADV_TYPE_REPEATER) continue;   // Repeaters
+    if (g_type_filter == 3 && c.type != ADV_TYPE_ROOM)     continue;   // Rooms
     if (lvd_name_match(c.name, g_cfilter)) g_corder[m++] = (uint16_t)i;
   }
   qsort(g_corder, m, sizeof(g_corder[0]), cmp_contact_idx);
   g_corder_n = m;
   g_corder_total = total;
   g_corder_fav = (int)g_fav_only;
+  g_corder_type = g_type_filter;
   strncpy(g_corder_filter, g_cfilter, sizeof(g_corder_filter) - 1); g_corder_filter[sizeof(g_corder_filter) - 1] = 0;
 }
 extern "C" void        lvd_contact_set_filter(const char* s) {
@@ -516,6 +522,8 @@ extern "C" void        lvd_contact_set_filter(const char* s) {
 extern "C" const char* lvd_contact_filter(void) { return g_cfilter; }
 extern "C" void        lvd_contact_set_fav_only(int on) { g_fav_only = (on != 0); }
 extern "C" int         lvd_contact_fav_only(void) { return g_fav_only ? 1 : 0; }
+extern "C" void        lvd_contact_set_type(int t) { g_type_filter = (t < 0 || t > 3) ? 0 : t; }  // 0 all,1 chats,2 repeaters,3 rooms
+extern "C" int         lvd_contact_type(void) { return g_type_filter; }
 extern "C" int         lvd_contact_total(void)  { return the_mesh.getNumContacts(); }
 
 extern "C" int lvd_contact_count(void) {
@@ -1500,10 +1508,24 @@ extern "C" const char* lvd_chan_hashtag_psk(const char* name) {  // hashtag chan
 
 // ---- chat store (Public channel + DMs) -------------------------------------
 #define MSG_LOG 32
-struct MsgRec { bool is_ch; int ch; uint8_t peer6[6]; char who[24]; char text[124]; bool out; };
+// state: 0 incoming, 1 sent (channel / no ack), 2 pending (DM awaiting ack), 3 delivered
+struct MsgRec { bool is_ch; int ch; uint8_t peer6[6]; char who[24]; char text[124]; bool out;
+                uint32_t ts; uint32_t ack; uint32_t sent_ms; uint8_t state; };
 static MsgRec s_msg[MSG_LOG];
 static int s_msg_head = 0, s_msg_n = 0;
 static unsigned s_msg_total = 0;
+#define ACK_TIMEOUT_MS 30000
+
+// per-thread unread counters (channels by slot; DMs by pubkey prefix)
+static int     s_ch_unread[MAX_GROUP_CHANNELS];
+static struct { uint8_t pk6[6]; int n; } s_dm_unread[16];
+static int     s_dm_unread_n = 0;
+static int*    dm_unread_slot(const uint8_t* pk6, bool create) {
+  for (int i = 0; i < s_dm_unread_n; i++) if (memcmp(s_dm_unread[i].pk6, pk6, 6) == 0) return &s_dm_unread[i].n;
+  if (!create || s_dm_unread_n >= 16) return NULL;
+  memcpy(s_dm_unread[s_dm_unread_n].pk6, pk6, 6); s_dm_unread[s_dm_unread_n].n = 0;
+  return &s_dm_unread[s_dm_unread_n++].n;
+}
 
 // active conversation: a channel (s_conv_ch >= 0 = channel slot, 0 = Public) or a DM
 static int         s_conv_ch = 0;
@@ -1512,20 +1534,35 @@ static ContactInfo s_conv_contact;
 static bool        s_conv_has_contact = false;
 static char        s_conv_chname[32] = "Public";
 
+// is the conversation screen currently open on this exact thread?
+static bool viewing_thread(bool is_ch, int ch, const uint8_t* peer6) {
+  const char* cur = g_nav_sp > 0 ? g_nav_stack[g_nav_sp - 1] : "";
+  if (strcmp(cur, "conv") != 0) return false;
+  if (s_conv_ch >= 0) return is_ch && ch == s_conv_ch;
+  return !is_ch && peer6 && memcmp(peer6, s_conv_peer, 6) == 0;
+}
+
 void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who, const char* text, bool out) {
-  if (!out) {   // count as unread unless the user is already looking at chats
+  if (!out && !viewing_thread(is_ch, ch, peer6)) {   // unread unless already viewing this thread
     const char* cur = g_nav_sp > 0 ? g_nav_stack[g_nav_sp - 1] : "";
-    if (strcmp(cur, "conv") != 0 && strcmp(cur, "chat") != 0) s_unread++;
+    if (strcmp(cur, "conv") != 0 && strcmp(cur, "chat") != 0) s_unread++;   // home-tile badge
+    if (is_ch) { if (ch >= 0 && ch < MAX_GROUP_CHANNELS) s_ch_unread[ch]++; }
+    else if (peer6) { int* u = dm_unread_slot(peer6, true); if (u) (*u)++; }   // per-thread badge
   }
   MsgRec& m = s_msg[s_msg_head];
   m.is_ch = is_ch; m.ch = ch; m.out = out;
   if (peer6) memcpy(m.peer6, peer6, 6); else memset(m.peer6, 0, 6);
   strncpy(m.who,  who  ? who  : "", sizeof(m.who)  - 1); m.who[sizeof(m.who)   - 1] = 0;
   strncpy(m.text, text ? text : "", sizeof(m.text) - 1); m.text[sizeof(m.text) - 1] = 0;
+  m.ts = rtc_clock.getCurrentTime();
+  m.ack = 0; m.sent_ms = millis();
+  m.state = out ? 1 : 0;   // outgoing defaults to "sent"; DM upgraded to pending by lvd_chat_send
   s_msg_head = (s_msg_head + 1) % MSG_LOG;
   if (s_msg_n < MSG_LOG) s_msg_n++;
   s_msg_total++;
 }
+static int last_msg_idx(void) { return (s_msg_head - 1 + MSG_LOG) % MSG_LOG; }
+static void fmt_hhmm(uint32_t e, char* out, int len);   // defined below
 
 // does message at ring index idx belong to the active conversation?
 static bool in_active_conv(int idx) {
@@ -1562,11 +1599,12 @@ static bool find_contact_by_name(const char* name, ContactInfo& out) {
   return false;
 }
 
-extern "C" void lvd_chat_open_public(void) { s_conv_ch = 0; strncpy(s_conv_chname, "Public", sizeof(s_conv_chname)); }
+extern "C" void lvd_chat_open_public(void) { s_conv_ch = 0; strncpy(s_conv_chname, "Public", sizeof(s_conv_chname)); s_ch_unread[0] = 0; }
 extern "C" void lvd_chat_open_channel(int i) {     // i = display index from the chat list
   chan_build();
   if (i < 0 || i >= g_chan_n) { lvd_chat_open_public(); return; }
   s_conv_ch = g_chan_idx[i];
+  if (s_conv_ch >= 0 && s_conv_ch < MAX_GROUP_CHANNELS) s_ch_unread[s_conv_ch] = 0;   // mark read
   ChannelDetails c; the_mesh.getChannel(s_conv_ch, c);
   strncpy(s_conv_chname, c.name[0] ? c.name : "(unnamed)", sizeof(s_conv_chname) - 1);
   s_conv_chname[sizeof(s_conv_chname) - 1] = 0;
@@ -1576,6 +1614,7 @@ extern "C" void lvd_chat_open_dm(const char* contact_name) {
   s_conv_has_contact = find_contact_by_name(contact_name, s_conv_contact);
   if (s_conv_has_contact) memcpy(s_conv_peer, s_conv_contact.id.pub_key, 6);
   else memset(s_conv_peer, 0, 6);
+  int* u = dm_unread_slot(s_conv_peer, false); if (u) *u = 0;   // mark read
 }
 extern "C" const char* lvd_chat_title(void) {
   if (s_conv_ch >= 0) return s_conv_chname;
@@ -1597,15 +1636,53 @@ extern "C" const char* lvd_chat_chan_preview(int i) {
   }
   return "No messages yet";
 }
+extern "C" int lvd_chat_chan_unread(int i) {
+  chan_build();
+  if (i < 0 || i >= g_chan_n) return 0;
+  int slot = g_chan_idx[i];
+  return (slot >= 0 && slot < MAX_GROUP_CHANNELS) ? s_ch_unread[slot] : 0;
+}
+extern "C" const char* lvd_chat_chan_time(int i) {
+  static char t[8]; t[0] = 0;
+  chan_build();
+  if (i < 0 || i >= g_chan_n) return t;
+  int slot = g_chan_idx[i];
+  for (int k = s_msg_n - 1; k >= 0; k--) {
+    int idx = (s_msg_head - s_msg_n + k + MSG_LOG * 2) % MSG_LOG;
+    if (s_msg[idx].is_ch && s_msg[idx].ch == slot) { fmt_hhmm(s_msg[idx].ts, t, sizeof(t)); break; }
+  }
+  return t;
+}
 
 extern "C" int  lvd_chat_count(void) { return count_idx(in_active_conv); }
+// "HH:MM" from an RTC epoch, or "" if the clock isn't set
+static void fmt_hhmm(uint32_t e, char* out, int len) {
+  if (e < 1000000) { out[0] = 0; return; }
+  snprintf(out, len, "%02u:%02u", (unsigned)((e / 3600) % 24), (unsigned)((e / 60) % 60));
+}
 extern "C" bool lvd_chat_get(int i, lvd_msg_t* out) {
   int idx = nth_idx(i, in_active_conv);
   if (idx < 0) return false;
-  strncpy(out->sender, s_msg[idx].who,  sizeof(out->sender) - 1); out->sender[sizeof(out->sender) - 1] = 0;
-  strncpy(out->text,   s_msg[idx].text, sizeof(out->text)  - 1); out->text[sizeof(out->text)   - 1] = 0;
-  out->outgoing = s_msg[idx].out ? 1 : 0;
+  const MsgRec& m = s_msg[idx];
+  strncpy(out->sender, m.who,  sizeof(out->sender) - 1); out->sender[sizeof(out->sender) - 1] = 0;
+  strncpy(out->text,   m.text, sizeof(out->text)  - 1); out->text[sizeof(out->text)   - 1] = 0;
+  out->outgoing = m.out ? 1 : 0;
+  fmt_hhmm(m.ts, out->time, sizeof(out->time));
+  // status: 0 none, 1 sent, 2 pending, 3 delivered, 4 failed
+  if (!m.out)            out->status = 0;
+  else if (m.state == 3) out->status = 3;
+  else if (m.state == 2) out->status = (millis() - m.sent_ms > ACK_TIMEOUT_MS) ? 4 : 2;
+  else                   out->status = 1;
   return true;
+}
+// true while any outbound DM in the active conversation is still awaiting an ack
+// (so the conversation keeps refreshing until it flips to delivered/failed)
+extern "C" int lvd_chat_has_pending(void) {
+  for (int i = 0; i < s_msg_n; i++) {
+    int idx = (s_msg_head - s_msg_n + i + MSG_LOG * 2) % MSG_LOG;
+    if (s_msg[idx].state == 2 && in_active_conv(idx)) return 1;
+  }
+  return 0;
 }
 extern "C" unsigned lvd_chat_total(void) { return s_msg_total; }
 // Emergency position share: plain text so EVERY client renders it (there is no
@@ -1626,8 +1703,18 @@ extern "C" void lvd_chat_send(const char* text) {
     uint32_t ack, timeout;
     if (the_mesh.sendTextTo(s_conv_contact, text, ack, timeout)) {
       ui_store_message(false, -1, s_conv_peer, "You", text, true);
-      if (ack) { s_our_acks[s_our_ack_head] = ack; s_our_ack_head = (s_our_ack_head + 1) % OUR_ACKS; }
+      if (ack) {
+        s_our_acks[s_our_ack_head] = ack; s_our_ack_head = (s_our_ack_head + 1) % OUR_ACKS;
+        MsgRec& m = s_msg[last_msg_idx()]; m.ack = ack; m.state = 2;   // awaiting delivery ack
+      }
     }
+  }
+}
+// delivery confirmation: an ack for one of our outbound DMs arrived
+void ui_msg_confirmed(uint32_t ack) {
+  for (int i = 0; i < s_msg_n; i++) {
+    int idx = (s_msg_head - s_msg_n + i + MSG_LOG * 2) % MSG_LOG;
+    if (s_msg[idx].state == 2 && s_msg[idx].ack == ack) { s_msg[idx].state = 3; s_msg_total++; return; }
   }
 }
 
@@ -1662,14 +1749,17 @@ extern "C" bool lvd_dm_get(int i, lvd_dm_t* out) {
     snprintf(out->name, sizeof(out->name), "%02X%02X%02X%02X",
              g_dm_peer[i][0], g_dm_peer[i][1], g_dm_peer[i][2], g_dm_peer[i][3]);
   }
-  out->preview[0] = 0;             // last message in this thread
+  out->preview[0] = 0; out->time[0] = 0;   // last message in this thread + its time
   for (int k = s_msg_n - 1; k >= 0; k--) {
     int idx = (s_msg_head - s_msg_n + k + MSG_LOG * 2) % MSG_LOG;
     const MsgRec& m = s_msg[idx];
     if (!m.is_ch && memcmp(m.peer6, g_dm_peer[i], 6) == 0) {
-      strncpy(out->preview, m.text, sizeof(out->preview) - 1); out->preview[sizeof(out->preview) - 1] = 0; break;
+      strncpy(out->preview, m.text, sizeof(out->preview) - 1); out->preview[sizeof(out->preview) - 1] = 0;
+      fmt_hhmm(m.ts, out->time, sizeof(out->time));
+      break;
     }
   }
+  int* u = dm_unread_slot(g_dm_peer[i], false); out->unread = u ? *u : 0;
   return true;
 }
 extern "C" void lvd_dm_open(int i) {
@@ -1677,6 +1767,7 @@ extern "C" void lvd_dm_open(int i) {
   s_conv_ch = -1;
   memcpy(s_conv_peer, g_dm_peer[i], 6);
   s_conv_has_contact = find_contact_by_pubkey6(g_dm_peer[i], s_conv_contact);
+  int* u = dm_unread_slot(s_conv_peer, false); if (u) *u = 0;   // mark read
 }
 
 // ---- trace route -----------------------------------------------------------

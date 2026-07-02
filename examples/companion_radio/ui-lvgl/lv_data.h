@@ -49,6 +49,8 @@ void        lvd_contact_set_filter(const char* s);  // name substring filter (""
 const char* lvd_contact_filter(void);
 void        lvd_contact_set_fav_only(int on);       // show only favourites when set
 int         lvd_contact_fav_only(void);
+void        lvd_contact_set_type(int t);            // node-type filter: 0 all, 1 chats, 2 repeaters, 3 rooms
+int         lvd_contact_type(void);
 int         lvd_contact_total(void);                // total contacts (ignores the filter)
 // match a name against space-separated OR tokens ("sky hull" => sky OR hull)
 bool        lvd_name_match(const char* hay, const char* needle);
@@ -142,6 +144,8 @@ typedef struct {
   char sender[24];   // "" for channel msgs (sender is embedded in text)
   char text[124];
   int  outgoing;     // 1 = sent by us
+  char time[8];      // "HH:MM" (or "" if clock unset)
+  int  status;       // outgoing only: 0 none, 1 sent, 2 pending, 3 delivered, 4 failed
 } lvd_msg_t;
 
 // The conversation screen shows one "active" conversation: a channel (Public or a
@@ -154,6 +158,7 @@ const char* lvd_chat_title(void);              // channel name or the DM peer na
 int      lvd_chat_count(void);                 // messages in the active conversation
 bool     lvd_chat_get(int i, lvd_msg_t* out);  // oldest..newest
 unsigned lvd_chat_total(void);                 // monotonic, for refresh detection
+int      lvd_chat_has_pending(void);           // 1 while an active-conv DM awaits its ack
 void     lvd_chat_send(const char* text);      // send to the active conversation
 bool     lvd_chat_send_location(void);         // emergency position share (text); false if no position
 
@@ -251,11 +256,13 @@ void        lvd_factory_reset(void);                               // formats FS
 int         lvd_chat_chan_count(void);
 bool        lvd_chat_chan_get(int i, lvd_chan_t* out);             // name + is_public
 const char* lvd_chat_chan_preview(int i);                          // last message in channel i
+int         lvd_chat_chan_unread(int i);                           // unread count for channel row i
+const char* lvd_chat_chan_time(int i);                             // "HH:MM" of last message (or "")
 
 // chat list: DM threads (distinct peers we have message history with)
-typedef struct { char name[32]; char preview[100]; } lvd_dm_t;
+typedef struct { char name[32]; char preview[100]; char time[8]; int unread; } lvd_dm_t;
 int         lvd_dm_count(void);
-bool        lvd_dm_get(int i, lvd_dm_t* out);                      // name + last-message preview
+bool        lvd_dm_get(int i, lvd_dm_t* out);                      // name + last-message preview + time + unread
 void        lvd_dm_open(int i);                                    // make DM i the active conversation
 
 // ---- signal coverage (per repeater/room) -----------------------------------

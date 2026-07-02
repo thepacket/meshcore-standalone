@@ -190,7 +190,8 @@ void lv_chat_list_create(lv_obj_t* scr) {
     for (int i = 0; i < nch; i++) {
       lvd_chan_t c;
       if (!lvd_chat_chan_get(i, &c)) continue;
-      Row r = { c.name, lvd_chat_chan_preview(i), "", 0, c.is_public ? UI_BLUE : UI_PURPLE, true };
+      Row r = { c.name, lvd_chat_chan_preview(i), lvd_chat_chan_time(i), lvd_chat_chan_unread(i),
+                c.is_public ? UI_BLUE : UI_PURPLE, true };
       add_row(list, &r, i, false);
     }
   } else {
@@ -199,7 +200,7 @@ void lv_chat_list_create(lv_obj_t* scr) {
     lvd_dm_t d;
     for (int i = 0; i < ndm; i++) {
       if (!lvd_dm_get(i, &d)) continue;
-      Row r = { d.name, d.preview, "", 0, UI_GREEN, false };
+      Row r = { d.name, d.preview, d.time, d.unread, UI_GREEN, false };
       add_row(list, &r, i, true);
     }
     if (ndm == 0) {
@@ -267,12 +268,13 @@ static void add_bubble(lv_obj_t* scroll, const char* sender, const char* text,
   lv_obj_set_style_text_font(t, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(t, lv_color_hex(outgoing ? 0xffffff : UI_TEXT), 0);
 
-  if (outgoing && status) {
+  // footer: timestamp (+ delivery glyph for outgoing), right-aligned + muted
+  if (status && status[0]) {
     lv_obj_t* st = lv_label_create(bub);
     lv_label_set_text(st, status);
     lv_obj_set_style_text_font(st, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(st, lv_color_hex(0xd6e2ff), 0);
-    lv_obj_set_style_align(st, LV_ALIGN_RIGHT_MID, 0);
+    lv_obj_set_style_text_color(st, lv_color_hex(outgoing ? 0xd6e2ff : UI_MUTED), 0);
+    lv_obj_set_style_align(st, outgoing ? LV_ALIGN_RIGHT_MID : LV_ALIGN_LEFT_MID, 0);
   }
 }
 
@@ -291,13 +293,27 @@ static void conv_fill(lv_obj_t* scroll) {
   }
   lvd_msg_t m;
   for (int i = 0; i < n; i++)
-    if (lvd_chat_get(i, &m))
-      add_bubble(scroll, m.sender[0] ? m.sender : NULL, m.text, m.outgoing != 0, NULL);
+    if (lvd_chat_get(i, &m)) {
+      char foot[28];
+      if (m.outgoing) {
+        const char* g = m.status == 3 ? LV_SYMBOL_OK LV_SYMBOL_OK :   // delivered
+                        m.status == 4 ? LV_SYMBOL_WARNING :           // failed / timed out
+                        m.status == 2 ? LV_SYMBOL_REFRESH :           // pending
+                                        LV_SYMBOL_OK;                 // sent
+        if (m.time[0]) snprintf(foot, sizeof(foot), "%s  %s", m.time, g);
+        else           snprintf(foot, sizeof(foot), "%s", g);
+      } else {
+        snprintf(foot, sizeof(foot), "%s", m.time);
+      }
+      add_bubble(scroll, m.sender[0] ? m.sender : NULL, m.text, m.outgoing != 0, foot);
+    }
   lv_obj_scroll_to_view(lv_obj_get_child(scroll, -1), LV_ANIM_OFF);   // pin to newest
 }
 
 static void conv_tick(void) {
-  if (s_conv_scroll && lvd_chat_total() != s_conv_last) {
+  // redraw on new messages, and while an outbound DM is still awaiting its ack
+  // (so pending flips to delivered/failed on screen)
+  if (s_conv_scroll && (lvd_chat_total() != s_conv_last || lvd_chat_has_pending())) {
     lv_obj_clean(s_conv_scroll);
     conv_fill(s_conv_scroll);
   }

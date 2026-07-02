@@ -24,6 +24,8 @@ void ui_rep_on_status(const uint8_t* pk6, const uint8_t* data, uint8_t len);
 void ui_rep_on_cmdreply(const uint8_t* pk6, const char* text);
 // telemetry response for the peer card (UITask.cpp)
 void ui_peer_on_telemetry(const uint8_t* pk6, const uint8_t* data, uint8_t len);
+// delivery ack for one of our outbound DMs (UITask.cpp)
+void ui_msg_confirmed(uint32_t ack);
 
 class UITask : public AbstractUITask {
   DisplayDriver* _display = nullptr;
@@ -47,6 +49,7 @@ public:
   void loop() override;
   void msgRead(int msgcount) override {}
   void newMsg(uint8_t path_len, const char* from_name, const char* text, int msgcount) override {}
+  void onMsgSendConfirmed(uint32_t ack, uint32_t trip_millis) override { ui_msg_confirmed(ack); }
   void notify(UIEventType t = UIEventType::none) override {}
   void onRawRx(float snr, float rssi, const uint8_t* raw, int len) override {
     _last_rssi = (int)rssi;
