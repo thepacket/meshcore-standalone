@@ -159,6 +159,8 @@ void lv_chan_detail_create(lv_obj_t* scr) {
 // channel. Typed via the physical keyboard (tap a field to focus it).
 static lv_obj_t* s_name_ta = NULL;
 static lv_obj_t* s_psk_ta  = NULL;
+static lv_obj_t* s_name_lbl = NULL, * s_key_lbl = NULL;
+static lv_obj_t* s_kb = NULL;      // on-screen keyboard (only when enabled in settings)
 static char s_rand_psk[50];   // the random-key preset, restored when name isn't a '#hashtag'
 
 static void name_changed(lv_event_t* e) {
@@ -167,6 +169,31 @@ static void name_changed(lv_event_t* e) {
   const char* nm = lv_textarea_get_text(s_name_ta);
   if (nm && nm[0] == '#' && nm[1]) lv_textarea_set_text(s_psk_ta, lvd_chan_hashtag_psk(nm));
   else lv_textarea_set_text(s_psk_ta, s_rand_psk);
+}
+
+// The 150px keyboard covers everything below the topbar except one field, so
+// while it is open only the active field is shown, parked just above the keys.
+// Closing the keyboard (checkmark or hide key) restores the normal layout.
+static void kb_close(lv_event_t* e) {
+  (void)e;
+  if (!s_kb) return;
+  lv_obj_add_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
+  if (s_name_lbl) lv_obj_clear_flag(s_name_lbl, LV_OBJ_FLAG_HIDDEN);
+  if (s_key_lbl)  lv_obj_clear_flag(s_key_lbl, LV_OBJ_FLAG_HIDDEN);
+  if (s_name_ta) { lv_obj_set_pos(s_name_ta, 8, 56);  lv_obj_clear_flag(s_name_ta, LV_OBJ_FLAG_HIDDEN); }
+  if (s_psk_ta)  { lv_obj_set_pos(s_psk_ta, 8, 130);  lv_obj_clear_flag(s_psk_ta, LV_OBJ_FLAG_HIDDEN); }
+}
+static void field_clicked(lv_event_t* e) {
+  if (!s_kb) return;
+  lv_obj_t* ta = (lv_obj_t*)lv_event_get_target(e);
+  lv_keyboard_set_textarea(s_kb, ta);
+  lv_ui_kbd_focus(ta);   // physical keyboard follows too
+  lv_obj_t* other = (ta == s_name_ta) ? s_psk_ta : s_name_ta;
+  if (other) lv_obj_add_flag(other, LV_OBJ_FLAG_HIDDEN);
+  if (s_name_lbl) lv_obj_add_flag(s_name_lbl, LV_OBJ_FLAG_HIDDEN);
+  if (s_key_lbl)  lv_obj_add_flag(s_key_lbl, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_set_pos(ta, 8, 48);
+  lv_obj_clear_flag(s_kb, LV_OBJ_FLAG_HIDDEN);
 }
 
 static lv_obj_t* add_field(lv_obj_t* scr, int y, const char* placeholder, const char* preset) {
@@ -200,6 +227,7 @@ void lv_chan_add_create(lv_obj_t* scr) {
   lv_obj_set_style_text_font(nlbl, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(nlbl, lv_color_hex(MD_MUTED), 0);
   lv_obj_set_pos(nlbl, 10, 40);
+  s_name_lbl = nlbl;
   s_name_ta = add_field(scr, 56, "Channel name (#name = public hashtag)", NULL);
   lv_obj_add_event_cb(s_name_ta, name_changed, LV_EVENT_VALUE_CHANGED, NULL);
 
@@ -209,6 +237,7 @@ void lv_chan_add_create(lv_obj_t* scr) {
   lv_obj_set_style_text_font(klbl, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(klbl, lv_color_hex(MD_MUTED), 0);
   lv_obj_set_pos(klbl, 10, 98);
+  s_key_lbl = klbl;
   strncpy(s_rand_psk, lvd_chan_new_psk(), sizeof(s_rand_psk) - 1);
   s_rand_psk[sizeof(s_rand_psk) - 1] = 0;
   s_psk_ta = add_field(scr, 130, "Key (base64)", s_rand_psk);
@@ -225,6 +254,19 @@ void lv_chan_add_create(lv_obj_t* scr) {
   lv_obj_set_style_text_font(ml, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(ml, lv_color_hex(0xffffff), 0);
   lv_obj_center(ml);
+
+  s_kb = NULL;
+  if (lvd_osk_enabled()) {
+    s_kb = lv_keyboard_create(scr);
+    lv_keyboard_set_mode(s_kb, LV_KEYBOARD_MODE_TEXT_LOWER);
+    lv_obj_set_size(s_kb, 320, 150);
+    lv_obj_align(s_kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_add_flag(s_kb, LV_OBJ_FLAG_HIDDEN);   // opens when a field is tapped
+    lv_obj_add_event_cb(s_kb, kb_close, LV_EVENT_READY, NULL);
+    lv_obj_add_event_cb(s_kb, kb_close, LV_EVENT_CANCEL, NULL);
+    lv_obj_add_event_cb(s_name_ta, field_clicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(s_psk_ta, field_clicked, LV_EVENT_CLICKED, NULL);
+  }
 
   lv_ui_kbd_focus(s_name_ta);   // start in the name field
 }
