@@ -167,6 +167,10 @@ bool        lvd_trace_get(int i, lvd_hop_t* out);
 unsigned    lvd_trace_seq(void);      // monotonic, for refresh detection
 const char* lvd_trace_summary(void);  // result: "3 hops - RTT 1.4 s - weakest -3.0 dB"
 unsigned    lvd_trace_elapsed_ms(void); // ms since the in-flight trace was sent (live timer)
+// traceable contacts (those we hold a routed multi-hop path to)
+int         lvd_trace_contact_count(void);
+bool        lvd_trace_contact_get(int i, char* name, int name_len, int* hops);
+int         lvd_trace_contact_go(int i);   // trace contact i over its learned path; 0 sent
 
 // ---- repeater / room admin -------------------------------------------------
 typedef struct { char name[32]; char type[6]; int fav; } lvd_replist_t;

@@ -2044,19 +2044,53 @@ extern "C" int lvd_peer_telem_get(lvd_kv_t* out, int max) {
 }
 
 // ---- one-tap trace over a contact's learned path ----------------------------
+// start a trace over a contact's learned path; seeds the trace-screen state
+static int trace_contact(const ContactInfo& c) {   // 0 sent, 2 no routed path / failed
+  if (c.out_path_len == OUT_PATH_UNKNOWN || c.out_path_len == 0) return 2;  // flood or direct: nothing to trace
+  s_tpath_n = 0;
+  for (int i = 0; i < c.out_path_len && i < TRACE_MAX; i++) s_tpath[s_tpath_n++] = c.out_path[i];
+  strncpy(s_tr_target, c.name, sizeof(s_tr_target) - 1); s_tr_target[sizeof(s_tr_target) - 1] = 0;
+  s_tr_hops = 0; s_tr_seq++;
+  uint32_t tag;
+  if (the_mesh.sendTrace((ContactInfo&)c, tag)) { s_tr_tag = tag; s_tr_state = 1; s_tr_sent_ms = millis(); return 0; }
+  s_tr_state = 3;
+  return 2;
+}
 extern "C" int lvd_peer_trace(const char* name) {  // 0 sent, 1 unknown contact, 2 no routed path
   ContactInfo c;
   if (!find_contact_by_name(name, c)) return 1;
-  if (c.out_path_len == OUT_PATH_UNKNOWN || c.out_path_len == 0) return 2;  // flood or direct: nothing to trace
-  // seed the trace-screen state so it shows this run (same fields lvd_trace_go uses)
-  s_tpath_n = 0;
-  for (int i = 0; i < c.out_path_len && i < TRACE_MAX; i++) s_tpath[s_tpath_n++] = c.out_path[i];
-  strncpy(s_tr_target, name, sizeof(s_tr_target) - 1); s_tr_target[sizeof(s_tr_target) - 1] = 0;
-  s_tr_hops = 0; s_tr_seq++;
-  uint32_t tag;
-  if (the_mesh.sendTrace(c, tag)) { s_tr_tag = tag; s_tr_state = 1; s_tr_sent_ms = millis(); return 0; }
-  s_tr_state = 3;
-  return 2;
+  return trace_contact(c);
+}
+
+// ---- traceable contacts: those we hold a multi-hop (routed) path to ----------
+// Lets the Trace screen target a contact directly, not just a hand-built
+// repeater chain. Rebuilt each time the count is queried.
+static uint16_t g_trc_idx[MAX_CONTACTS];
+static int      g_trc_n = 0;
+static void trc_build(void) {
+  g_trc_n = 0;
+  int n = the_mesh.getNumContacts();
+  for (int i = 0; i < n && g_trc_n < MAX_CONTACTS; i++) {
+    ContactInfo c;
+    if (the_mesh.getContactByIdx((uint32_t)i, c) &&
+        c.out_path_len != OUT_PATH_UNKNOWN && c.out_path_len > 0)
+      g_trc_idx[g_trc_n++] = (uint16_t)i;
+  }
+}
+extern "C" int lvd_trace_contact_count(void) { trc_build(); return g_trc_n; }
+extern "C" bool lvd_trace_contact_get(int i, char* name, int len, int* hops) {
+  if (i < 0 || i >= g_trc_n) return false;
+  ContactInfo c;
+  if (!the_mesh.getContactByIdx(g_trc_idx[i], c)) return false;
+  strncpy(name, c.name, len - 1); name[len - 1] = 0;
+  if (hops) *hops = c.out_path_len;
+  return true;
+}
+extern "C" int lvd_trace_contact_go(int i) {   // 0 sent, 2 failed/unknown
+  if (i < 0 || i >= g_trc_n) return 2;
+  ContactInfo c;
+  if (!the_mesh.getContactByIdx(g_trc_idx[i], c)) return 2;
+  return trace_contact(c);
 }
 
 // ---- signal coverage (saved repeaters/rooms we've actually heard) ----------

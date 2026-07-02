@@ -66,6 +66,7 @@ static void tr_add_clicked(lv_event_t* e)  { lvd_trace_path_add((int)(intptr_t)l
 static void tr_send_clicked(lv_event_t* e) { (void)e; lvd_trace_go();        trace_rebuild(); }
 static void tr_clear_clicked(lv_event_t* e){ (void)e; lvd_trace_path_clear(); trace_rebuild(); }
 static void tr_repeat_clicked(lv_event_t* e){ (void)e; lvd_trace_go();        trace_rebuild(); }  // re-run same path
+static void tr_contact_clicked(lv_event_t* e){ lvd_trace_contact_go((int)(intptr_t)lv_event_get_user_data(e)); trace_rebuild(); }  // trace a contact via its path
 
 // repeater-name filter for the builder list (this screen only)
 static char s_tr_repfilter[24] = "";
@@ -174,8 +175,36 @@ static void trace_build(lv_obj_t* scr) {
     lv_obj_add_event_cb(tr_btn(br, "Clear", UI_RED), tr_clear_clicked, LV_EVENT_CLICKED, NULL);
   }
 
+  // Quick option: trace a saved contact directly over the path we already
+  // learned for it (no chain-building needed). Only contacts with a routed path.
+  int cn = lvd_trace_contact_count();
+  if (cn > 0) {
+    trace_note(list, "Or trace a saved contact via its known path:");
+    char cname[32]; int chops;
+    for (int i = 0; i < cn; i++) {
+      if (!lvd_trace_contact_get(i, cname, sizeof(cname), &chops)) continue;
+      lv_obj_t* c = lv_ui_md_card(list);
+      lv_obj_set_width(c, lv_pct(100)); lv_obj_set_height(c, 40); lv_obj_set_style_min_height(c, 0, 0);
+      lv_obj_set_flex_flow(c, LV_FLEX_FLOW_ROW);
+      lv_obj_set_flex_align(c, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+      lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
+      lv_obj_add_event_cb(c, tr_contact_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+      lv_ui_press_fx(c);
+      lv_obj_t* nm = lv_label_create(c);
+      lv_label_set_text(nm, cname);
+      lv_obj_set_style_text_font(nm, &lv_font_montserrat_16, 0);
+      lv_obj_set_style_text_color(nm, lv_color_hex(MD_ON), 0);
+      char hb[16]; snprintf(hb, sizeof(hb), "%d hop%s", chops, chops == 1 ? "" : "s");
+      lv_ui_pill(c, hb, UI_PURPLE);
+    }
+  }
+
   int rn = lvd_rep_count(0);
-  if (rn == 0) { trace_note(list, "No repeaters or rooms saved to build a path."); return; }
+  if (rn == 0) {
+    if (cn == 0) trace_note(list, "No repeaters/rooms to build a path, and no contacts with a known route yet.");
+    return;
+  }
+  trace_note(list, "Or build a path from repeaters:");
 
   // search field to filter the repeater list
   bool fa = s_tr_repfilter[0] != 0;
