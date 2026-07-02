@@ -1,15 +1,23 @@
-// LVGL Discover results: announces this node (zero-hop self-advert) on entry,
-// then lists recently-heard nodes not yet saved as contacts. Tap a row to add it
-// to contacts (it then moves to the Contacts screen). Bound to the firmware via
-// the lvd_disc_* bridge (getHeardCandidates / addHeardContact).
+// LVGL Discover results: actively polls direct neighbours (zero-hop
+// NODE_DISCOVER_REQ) on entry and every 60s. Responders are auto-added as
+// contacts; tap a row to open its peer card (trace / telemetry / message).
 #include "lv_ui.h"
 #include "lv_data.h"
 #include <stdio.h>
+
+void lv_chat_set_peer(const char* name);  // peer-details target (lv_chat.c)
 
 static lv_obj_t* s_list = NULL;
 static int       s_last = -1;
 
 static void disc_fill(lv_obj_t* list);   // fwd
+
+// tap a responder to open its peer card (responders are already saved contacts)
+static void disc_clicked(lv_event_t* e) {
+  int i = (int)(intptr_t)lv_event_get_user_data(e);
+  lvd_disc_t d;
+  if (lvd_disc_get(i, &d)) { lv_chat_set_peer(d.name); if (lv_nav_cb) lv_nav_cb("peer"); }
+}
 
 static uint32_t type_color(int t) {
   return t == 2 ? UI_PURPLE : t == 3 ? UI_CYAN : t == 4 ? UI_ORANGE : UI_BLUE;
@@ -19,16 +27,26 @@ static const char* type_icon(int t) {
 }
 
 static void disc_row(lv_obj_t* list, const lvd_disc_t* d, int idx) {
-  (void)idx;
-  lv_obj_t* row = lv_ui_md_card(list);   // display-only: responders are auto-added as contacts
+  lv_obj_t* row = lv_ui_md_card(list);   // tap -> peer card (responders are contacts)
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(row, disc_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
+  lv_ui_press_fx(row);
+
+  // colour-graded signal dot (SNR bucket), matching the Heard screen
+  uint32_t sc = d->bars >= 3 ? 0x4ade80 : (d->bars == 2 ? 0xf59e0b : 0xfb7185);
+  lv_obj_t* dot = lv_obj_create(row);
+  lv_obj_remove_flag(dot, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(dot, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(dot, 10, 10); lv_obj_set_style_radius(dot, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(dot, lv_color_hex(sc), 0); lv_obj_set_style_border_width(dot, 0, 0);
+  lv_obj_set_style_margin_right(dot, 8, 0);
 
   lv_obj_t* ic = lv_label_create(row);
   lv_label_set_text(ic, type_icon(d->type));
   lv_obj_set_style_text_font(ic, &icons_fa, 0);
   lv_obj_set_style_text_color(ic, lv_color_hex(type_color(d->type)), 0);
-  lv_obj_set_style_margin_right(ic, 14, 0);
+  lv_obj_set_style_margin_right(ic, 12, 0);
 
   lv_obj_t* mid = lv_obj_create(row);
   lv_obj_remove_flag(mid, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(mid, LV_OBJ_FLAG_CLICKABLE);
@@ -45,9 +63,26 @@ static void disc_row(lv_obj_t* list, const lvd_disc_t* d, int idx) {
   lv_label_set_text(sb, d->subtitle);
   lv_obj_set_style_text_font(sb, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(sb, lv_color_hex(MD_MUTED), 0);
+
+  // age on the right
+  lv_obj_t* ag = lv_label_create(row);
+  lv_label_set_text(ag, d->age);
+  lv_obj_set_style_text_font(ag, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(ag, lv_color_hex(MD_MUTED), 0);
 }
 
-static int s_secs = 0;   // ticks (~1s) since the last auto discovery request
+static int        s_secs = 0;   // ticks (~1s) since the last auto discovery request
+static lv_obj_t*  s_status = NULL;  // header line: neighbour summary + next-scan countdown
+
+static void disc_update_status(void) {
+  if (!s_status) return;
+  int secs = lvd_disc_next_secs();
+  char b[80];
+  if (secs > 0) snprintf(b, sizeof(b), "Next scan %ds  \xC2\xB7  %s", secs, lvd_disc_summary());
+  else          snprintf(b, sizeof(b), "Scanning...  \xC2\xB7  %s", lvd_disc_summary());
+  lv_label_set_text(s_status, b);
+}
+static void disc_scan_cb(lv_event_t* e) { (void)e; s_secs = 0; lvd_disc_request(); disc_update_status(); }
 
 static void disc_fill(lv_obj_t* list) {
   int n = lvd_disc_count();
@@ -65,6 +100,7 @@ static void disc_fill(lv_obj_t* list) {
 static void disc_tick(void) {
   if (++s_secs >= 60) { s_secs = 0; lvd_disc_request(); }   // re-poll the mesh every 60s
   if (s_list && lvd_disc_count() != s_last) { lv_obj_clean(s_list); disc_fill(s_list); }
+  disc_update_status();   // refresh the countdown + summary each second
 }
 
 static void disc_clear_cb(lv_event_t* e) { (void)e; lvd_disc_clear(); if (s_list) { lv_obj_clean(s_list); disc_fill(s_list); } }
@@ -100,11 +136,13 @@ void lv_disc_create(lv_obj_t* scr) {
   lv_obj_set_style_pad_all(ctl, 0, 0);
   lv_obj_set_flex_flow(ctl, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(ctl, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_t* cap = lv_label_create(ctl);
-  lv_label_set_text(cap, "Auto-refresh every 60s");
-  lv_obj_set_style_text_font(cap, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(cap, lv_color_hex(MD_MUTED), 0);
-  lv_obj_set_flex_grow(cap, 1);
+  s_status = lv_label_create(ctl);
+  lv_label_set_long_mode(s_status, LV_LABEL_LONG_DOT);
+  lv_obj_set_style_text_font(s_status, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(s_status, lv_color_hex(MD_MUTED), 0);
+  lv_obj_set_flex_grow(s_status, 1);
+  disc_update_status();
+  disc_btn(ctl, "Scan now", UI_BLUE, disc_scan_cb);
   disc_btn(ctl, "Clear", UI_RED, disc_clear_cb);
 
   // responders, below the controls

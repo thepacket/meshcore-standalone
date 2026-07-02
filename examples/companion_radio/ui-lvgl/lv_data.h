@@ -109,16 +109,20 @@ const char* lvd_packet_hex(void);                      // raw hex of the selecte
 void        lvd_packet_set_path_filter(const char* s); // show only packets whose path matches
 const char* lvd_packet_path_filter(void);
 
-// ---- discover (recently-heard nodes not yet saved as contacts) -------------
+// ---- discover (direct neighbours that answered our discovery request) ------
 typedef struct {
   char name[32];
-  char subtitle[40];   // "<type>  -  tap to add"
+  char subtitle[40];   // "<type>  -  SNR x dB"
+  char age[12];        // "8s ago"
   int  type;           // ADV_TYPE_*
+  int  bars;           // 0..4 signal-dot bucket (from SNR)
 } lvd_disc_t;
 
 int  lvd_disc_count(void);      // responders to the last discovery request (SNR-sorted)
 bool lvd_disc_get(int i, lvd_disc_t* out);  // responders are auto-added as contacts
 int  lvd_disc_request(void);    // send a zero-hop discovery request (paced; 0=sent, else secs left)
+int  lvd_disc_next_secs(void);  // seconds until the next scan is allowed (0 = ready now)
+const char* lvd_disc_summary(void);  // "5 direct neighbours - 2 repeaters, 3 companions"
 void lvd_disc_clear(void);      // empty the discovered-nodes list
 void lvd_disc_announce(void);       // zero-hop self-advert to prompt neighbours to respond
 void lvd_disc_announce_flood(void); // flood-routed self-advert (reaches beyond direct range)

@@ -1315,23 +1315,53 @@ extern "C" bool lvd_disc_get(int i, lvd_disc_t* out) {
   int v10 = d.snr_q * 10 / 4, a = v10 < 0 ? -v10 : v10;
   snprintf(out->subtitle, sizeof(out->subtitle), "%s - SNR %s%d.%d dB",
            adv_type_name(d.type), v10 < 0 ? "-" : "", a / 10, a % 10);
+  uint32_t now = rtc_clock.getCurrentTime();
+  uint32_t age = (now > d.ts) ? now - d.ts : 0;
+  if (age < 60)        snprintf(out->age, sizeof(out->age), "%us ago", (unsigned)age);
+  else if (age < 3600) snprintf(out->age, sizeof(out->age), "%um ago", (unsigned)(age / 60));
+  else                 snprintf(out->age, sizeof(out->age), "%uh ago", (unsigned)(age / 3600));
+  int snr = d.snr_q / 4;
+  out->bars = (d.snr_q == 0) ? 1 : (snr >= 5 ? 4 : (snr >= 0 ? 2 : 1));
   return true;
+}
+extern "C" const char* lvd_disc_summary(void) {
+  static char b[56];
+  int rep = 0, comp = 0, other = 0;
+  for (int i = 0; i < g_disc_n; i++) {
+    if (g_disc[i].type == ADV_TYPE_REPEATER) rep++;
+    else if (g_disc[i].type == ADV_TYPE_CHAT) comp++;
+    else other++;
+  }
+  if (g_disc_n == 0) { strncpy(b, "No neighbours yet", sizeof(b)); return b; }
+  int k = snprintf(b, sizeof(b), "%d direct neighbour%s", g_disc_n, g_disc_n == 1 ? "" : "s");
+  if (rep || comp) {
+    k += snprintf(b + k, sizeof(b) - k, " \xC2\xB7 ");
+    bool first = true;
+    if (rep)  { k += snprintf(b + k, sizeof(b) - k, "%d repeater%s", rep, rep == 1 ? "" : "s"); first = false; }
+    if (comp) { k += snprintf(b + k, sizeof(b) - k, "%s%d companion%s", first ? "" : ", ", comp, comp == 1 ? "" : "s"); }
+  }
+  return b;
 }
 // Paced active discovery: repeaters rate-limit and will ignore us if we ask too
 // often, so enforce a single global 60s minimum between requests regardless of
-// caller (screen entry, the 60s auto-poll, or the manual button). Returns 0 when
-// a request was actually sent, else the seconds remaining until the next is allowed.
+// caller (screen entry, the 60s auto-poll, or the manual button).
 #define DISC_REQ_MIN_MS 60000UL
+static uint32_t s_disc_last_ms = 0;
+static bool     s_disc_ever    = false;
+static uint32_t disc_remaining_ms(void) {
+  if (!s_disc_ever) return 0;
+  uint32_t el = millis() - s_disc_last_ms;
+  return el < DISC_REQ_MIN_MS ? DISC_REQ_MIN_MS - el : 0;
+}
+// Returns 0 when a request was actually sent, else the seconds until allowed.
 extern "C" int lvd_disc_request(void) {
-  static uint32_t last_ms = 0;
-  static bool     ever    = false;
-  uint32_t now = millis();
-  if (ever && (now - last_ms) < DISC_REQ_MIN_MS)
-    return (int)((DISC_REQ_MIN_MS - (now - last_ms) + 999) / 1000);
+  uint32_t rem = disc_remaining_ms();
+  if (rem > 0) return (int)((rem + 999) / 1000);
   the_mesh.sendNodeDiscoverReq();
-  last_ms = now; ever = true;
+  s_disc_last_ms = millis(); s_disc_ever = true;
   return 0;
 }
+extern "C" int lvd_disc_next_secs(void) { return (int)((disc_remaining_ms() + 999) / 1000); }
 extern "C" void lvd_disc_clear(void)   { the_mesh.clearDiscoveredNodes(); }
 extern "C" void lvd_disc_announce(void) { the_mesh.advert(); }            // zero-hop self-advert
 extern "C" void lvd_disc_announce_flood(void) { the_mesh.advertFlood(); } // flood-routed self-advert
