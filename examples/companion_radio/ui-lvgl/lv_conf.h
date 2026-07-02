@@ -12,7 +12,10 @@
 
 // --- memory / OS ---
 #define LV_USE_OS LV_OS_NONE
-#define LV_USE_STDLIB_MALLOC  LV_STDLIB_CLIB   // use heap malloc (ESP32)
+// PSRAM-backed allocator (lv_mem_psram.c): widget/style/screen allocations go
+// to the 8MB PSRAM instead of the scarce internal DRAM heap (which the Wi-Fi
+// stack nearly exhausts). The render draw buffers stay internal (UITask statics).
+#define LV_USE_STDLIB_MALLOC  LV_STDLIB_CUSTOM
 #define LV_USE_STDLIB_STRING  LV_STDLIB_CLIB
 #define LV_USE_STDLIB_SPRINTF LV_STDLIB_CLIB
 

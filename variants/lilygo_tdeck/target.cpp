@@ -146,8 +146,13 @@ int tdeck_sd_read(const char* path, uint8_t* buf, int max) {
 // duration, then re-claims it for the radio.
 bool tdeck_sd_format() {
   if (!sd_mount()) return false;                 // registers the FatFs drive
-  static uint8_t work[4096];
-  FRESULT res = f_mkfs("0:", FM_FAT32, 0, work, sizeof(work));
+  // work buffer from PSRAM (internal DRAM is scarce); the SD SPI path copies
+  // bytes through the driver, so a PSRAM buffer is fine here
+  uint8_t* work = (uint8_t*)ps_malloc(4096);
+  if (!work) work = (uint8_t*)malloc(4096);
+  if (!work) return false;
+  FRESULT res = f_mkfs("0:", FM_FAT32, 0, work, 4096);
+  free(work);
   SD.end(); s_sd_mounted = false;                // drop the stale mount
   bool ok = (res == FR_OK);
   if (ok) { s_sd_mounted = SD.begin(P_SDCARD_CS, spi, 8000000U); ok = s_sd_mounted; }

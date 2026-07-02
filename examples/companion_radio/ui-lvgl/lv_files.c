@@ -113,8 +113,10 @@ static void ask_format(lv_event_t* e) {
 }
 
 // ---- rows ------------------------------------------------------------------
-static lvd_sd_t s_ent[SD_MAX];   // snapshot for row callbacks
-static int      s_ent_n = 0;
+// snapshot for row callbacks; ~4.6KB, so it lives on the lv_malloc heap
+// (PSRAM on device) instead of static DRAM
+static lvd_sd_t* s_ent = NULL;
+static int       s_ent_n = 0;
 
 static void row_clicked(lv_event_t* e) {
   int i = (int)(intptr_t)lv_event_get_user_data(e);
@@ -169,6 +171,10 @@ static void files_fill(void) {
   lv_obj_clean(s_list);
   if (s_usage) { char u[32]; lvd_sd_usage(u, sizeof(u)); lv_label_set_text(s_usage, u); }
 
+  if (!s_ent) {
+    s_ent = (lvd_sd_t*)lv_malloc(sizeof(lvd_sd_t) * SD_MAX);
+    if (!s_ent) { s_ent_n = 0; return; }
+  }
   s_ent_n = lvd_sd_list(s_path, s_ent, SD_MAX);
   if (s_ent_n < 0) {
     lv_obj_t* h = lv_label_create(s_list);

@@ -141,14 +141,21 @@ static const Group GROUPS[] = {
 static const char* SG_DEST[] = {"sg0","sg1","sg2","sg3","sg4","sg5","sg6","sg7","sg8","sg9","sg10","sg11","sg12"};
 
 // ---- mutable value overlay (prototype state; persists across navigation) ----
-// width fits a 63-char Wi-Fi passphrase (the longest editable value)
-static char g_val[N_GROUPS][MAX_FIELDS][68];
+// width fits a 63-char Wi-Fi passphrase (the longest editable value); ~7KB, so
+// it lives on the lv_malloc heap (PSRAM on device) instead of static DRAM
+typedef char val_row_t[MAX_FIELDS][68];
+static val_row_t* g_val = NULL;   // g_val[g][f] -> char[68]
 static int  g_sel[N_GROUPS][MAX_FIELDS];
 static bool g_inited = false;
 static int  g_edit_g = 0, g_edit_f = 0;   // field currently being edited
 
 static void store_init(void) {
   if (g_inited) return;
+  if (!g_val) {
+    g_val = (val_row_t*)lv_malloc(sizeof(val_row_t) * N_GROUPS);
+    if (!g_val) return;   // retried on the next screen build
+    lv_memzero(g_val, sizeof(val_row_t) * N_GROUPS);
+  }
   for (int g = 0; g < N_GROUPS; g++)
     for (int f = 0; f < GROUPS[g].n; f++) {
       const Field* fl = &GROUPS[g].fields[f];

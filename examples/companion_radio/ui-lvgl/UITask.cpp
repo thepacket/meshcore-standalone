@@ -242,11 +242,14 @@ static void refresh_timer_cb(lv_timer_t*) {
   if (f) f();
 }
 
+void ui_alloc_caches(void);   // PSRAM rings (chat + packet log), defined with them below
+
 void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* node_prefs) {
   _display = display;
   _sensors = sensors;
   _node_prefs = node_prefs;
   g_ui = this;
+  ui_alloc_caches();   // before the mesh loop can deliver packets/messages
 
   g_disp = display;
   g_gfx  = static_cast<LGFXDisplay*>(display)->gfxDevice();
@@ -857,6 +860,8 @@ extern "C" int lvd_sd_format(void) { return tdeck_sd_format() ? 1 : 0; }   // re
 #define SD_CONFIG_PATH  "/meshcore/config.txt"
 #define SD_APPDATA_PATH "/meshcore/appdata.txt"
 
+static void* big_alloc(size_t n);   // PSRAM-first allocator (defined with the UI caches)
+
 static bool data_backup_config(void) {
   if (!tdeck_sd_ok()) return false;
   tdeck_sd_mkdir("/meshcore");
@@ -876,7 +881,7 @@ static bool data_backup_config(void) {
 }
 static bool data_restore_config(void) {
   if (!tdeck_sd_ok()) return false;
-  char* buf = (char*)malloc(8192);
+  char* buf = (char*)big_alloc(8192);
   if (!buf) return false;
   int n = tdeck_sd_read(SD_CONFIG_PATH, (uint8_t*)buf, 8191);
   if (n <= 0) { free(buf); return false; }
@@ -962,7 +967,7 @@ static bool data_backup_appdata(void) {
 }
 static bool data_restore_appdata(void) {
   if (!tdeck_sd_ok()) return false;
-  char* buf = (char*)malloc(32768);
+  char* buf = (char*)big_alloc(32768);
   if (!buf) return false;
   int n = tdeck_sd_read(SD_APPDATA_PATH, (uint8_t*)buf, 32767);
   if (n <= 0) { free(buf); return false; }
@@ -1288,7 +1293,7 @@ struct PktRec { uint8_t header; int rssi; int snr_q; int len; uint32_t t;
                 uint32_t payhash;  // FNV-1a of type+payload (path excluded), for rebroadcast counting
                 int16_t  freq_err; // carrier offset of last RX, Hz/100 (INT16_MIN = unknown)
                 uint8_t raw[PKT_RAW]; uint8_t rawlen; };
-static PktRec s_pkt[PKT_LOG];
+static PktRec* s_pkt = NULL;   // PSRAM ring (7KB), allocated by ui_alloc_caches()
 static int s_pkt_head = 0, s_pkt_n = 0;
 static unsigned s_pkt_total = 0;   // monotonic, for change detection
 
@@ -1305,6 +1310,7 @@ static int pkt_payload_off(const uint8_t* b, int rl) {
 }
 
 void ui_log_packet(float snr, float rssi, const uint8_t* raw, int len) {
+  if (!s_pkt) return;
   PktRec& r = s_pkt[s_pkt_head];
   r.header = (len > 0) ? raw[0] : 0;
   r.rssi = (int)rssi;
@@ -1876,9 +1882,21 @@ struct MsgRec { bool is_ch; int ch; uint8_t peer6[6]; char who[24]; char text[12
                 uint32_t ts; uint32_t ack; uint32_t sent_ms; uint8_t state;
                 uint8_t path_len;   // inbound route (encoded; 0xFF = direct/unknown)
                 bool deleted; };
-static MsgRec s_msg[MSG_LOG];
+static MsgRec* s_msg = NULL;   // PSRAM ring (11.5KB), allocated by ui_alloc_caches()
 static int s_msg_head = 0, s_msg_n = 0;
 static unsigned s_msg_total = 0;
+
+// Big UI caches live in PSRAM: the Wi-Fi stack nearly exhausts internal DRAM,
+// so only the render draw buffers stay internal. Called once from UITask::begin
+// (before the mesh loop can deliver packets/messages); internal-heap fallback.
+static void* big_alloc(size_t n) {
+  void* p = ps_malloc(n);
+  return p ? p : malloc(n);
+}
+void ui_alloc_caches(void) {
+  if (!s_pkt) { s_pkt = (PktRec*)big_alloc(sizeof(PktRec) * PKT_LOG); if (s_pkt) memset(s_pkt, 0, sizeof(PktRec) * PKT_LOG); }
+  if (!s_msg) { s_msg = (MsgRec*)big_alloc(sizeof(MsgRec) * MSG_LOG); if (s_msg) memset(s_msg, 0, sizeof(MsgRec) * MSG_LOG); }
+}
 #define ACK_TIMEOUT_MS 30000
 
 // per-thread unread counters (channels by slot; DMs by pubkey prefix)
@@ -1908,6 +1926,7 @@ static bool viewing_thread(bool is_ch, int ch, const uint8_t* peer6) {
 }
 
 void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who, const char* text, bool out, uint8_t path_len) {
+  if (!s_msg) return;
   if (!out && !viewing_thread(is_ch, ch, peer6)) {   // unread unless already viewing this thread
     const char* cur = g_nav_sp > 0 ? g_nav_stack[g_nav_sp - 1] : "";
     if (strcmp(cur, "conv") != 0 && strcmp(cur, "chat") != 0) s_unread++;   // home-tile badge
@@ -2093,7 +2112,7 @@ extern "C" void lvd_chat_send(const char* text) {
     uint32_t ack, timeout;
     if (the_mesh.sendTextTo(s_conv_contact, text, ack, timeout)) {
       ui_store_message(false, -1, s_conv_peer, "You", text, true);
-      if (ack) {
+      if (ack && s_msg) {
         s_our_acks[s_our_ack_head] = ack; s_our_ack_head = (s_our_ack_head + 1) % OUR_ACKS;
         MsgRec& m = s_msg[last_msg_idx()]; m.ack = ack; m.state = 2;   // awaiting delivery ack
       }
