@@ -94,7 +94,9 @@ chips, charts/gauges, real widgets). Live on-device:
   auto status fetch), live parsed status, and a real **Console** terminal
   (scrollback + inline prompt) for remote CLI
 - **Input & feedback** — physical keyboard typing into focused fields; press
-  feedback + confirmation toasts on every action
+  feedback + confirmation toasts on every action; **audio notifications** on the
+  built-in speaker (distinct chirps for DMs vs channel messages, **Low/Med/High
+  volume** in Settings, silenced by the Buzzer-quiet toggle)
 
 See [ROADMAP.md](ROADMAP.md) for the full milestone map.
 

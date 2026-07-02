@@ -51,7 +51,7 @@ public:
   void msgRead(int msgcount) override {}
   void newMsg(uint8_t path_len, const char* from_name, const char* text, int msgcount) override {}
   void onMsgSendConfirmed(uint32_t ack, uint32_t trip_millis) override { ui_msg_confirmed(ack); }
-  void notify(UIEventType t = UIEventType::none) override {}
+  void notify(UIEventType t = UIEventType::none) override;   // speaker chirps (UITask.cpp)
   void onRawRx(float snr, float rssi, const uint8_t* raw, int len) override {
     _last_rssi = (int)rssi;
     ui_log_packet(snr, rssi, raw, len);
@@ -60,6 +60,10 @@ public:
                      const char* dm_name, const char* text, uint32_t timestamp,
                      uint8_t path_len, int8_t snr_q) override {
     ui_store_message(is_channel, channel_idx, dm_prefix6, dm_name, text, false, path_len);
+    // Chirp from here, not from MyMesh's notify(): that one is suppressed while
+    // "a companion app is connected", and the USB serial interface always
+    // reports connected -- on a standalone device the chirp must always fire.
+    notify(is_channel ? UIEventType::channelMessage : UIEventType::contactMessage);
   }
   void onTraceResult(uint32_t tag, const uint8_t* path_hashes, const uint8_t* path_snrs,
                      uint8_t path_len, uint8_t path_sz, int8_t final_snr_q) override {

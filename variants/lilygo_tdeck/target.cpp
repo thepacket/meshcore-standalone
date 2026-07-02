@@ -169,3 +169,79 @@ bool     tdeck_sd_remove(const char*) { return false; }
 int      tdeck_sd_read(const char*, uint8_t*, int) { return -1; }
 bool     tdeck_sd_format() { return false; }
 #endif
+
+// ---- I2S speaker (notification tones) ---------------------------------------
+// MAX98357 amp on I2S1 (BCK 7, WS 5, DOUT 6; powered by the peripheral rail).
+// The driver is installed per chirp: the synthesized samples fit entirely in
+// the DMA buffers so tdeck_tones_start returns as playback begins, and
+// tdeck_tones_poll() uninstalls the driver once the chirp has played out --
+// no DMA RAM is held between notifications.
+#include <driver/i2s.h>
+
+#define TONE_I2S_PORT  I2S_NUM_1
+#define TONE_I2S_BCK   7
+#define TONE_I2S_WS    5
+#define TONE_I2S_DOUT  6
+#define TONE_RATE      16000     // Hz, mono 16-bit
+
+static bool     s_tone_active = false;
+static uint32_t s_tone_end_ms = 0;
+
+bool tdeck_tones_start(const uint16_t* pairs, int n_notes, int amplitude) {
+  if (s_tone_active) return false;   // let the current chirp finish
+  if (amplitude < 0) amplitude = 0; else if (amplitude > 32767) amplitude = 32767;
+  int total_ms = 0;
+  for (int i = 0; i < n_notes; i++) total_ms += pairs[i * 2 + 1];
+
+  i2s_config_t cfg = {};
+  cfg.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX);
+  cfg.sample_rate = TONE_RATE;
+  cfg.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
+  cfg.channel_format = I2S_CHANNEL_FMT_ONLY_LEFT;
+  cfg.communication_format = I2S_COMM_FORMAT_STAND_I2S;
+  cfg.intr_alloc_flags = 0;
+  cfg.dma_buf_count = 8;         // 8 x 512 samples = 256ms of headroom at 16kHz
+  cfg.dma_buf_len = 512;
+  if (i2s_driver_install(TONE_I2S_PORT, &cfg, 0, NULL) != ESP_OK) return false;
+  i2s_pin_config_t pins = {};
+  pins.mck_io_num = I2S_PIN_NO_CHANGE;
+  pins.bck_io_num = TONE_I2S_BCK;
+  pins.ws_io_num = TONE_I2S_WS;
+  pins.data_out_num = TONE_I2S_DOUT;
+  pins.data_in_num = I2S_PIN_NO_CHANGE;
+  if (i2s_set_pin(TONE_I2S_PORT, &pins) != ESP_OK) {
+    i2s_driver_uninstall(TONE_I2S_PORT);
+    return false;
+  }
+
+  // synthesize note by note: sine with a 6ms attack/release envelope (no clicks)
+  const int ramp = TONE_RATE * 6 / 1000;
+  for (int i = 0; i < n_notes; i++) {
+    float w = 2.0f * (float)M_PI * pairs[i * 2] / TONE_RATE;
+    int ns = TONE_RATE * pairs[i * 2 + 1] / 1000;
+    int16_t buf[256];
+    for (int s = 0; s < ns; ) {
+      int n = (ns - s) < 256 ? (ns - s) : 256;
+      for (int j = 0; j < n; j++) {
+        int k = s + j;
+        float env = 1.0f;
+        if (k < ramp)           env = (float)k / ramp;
+        else if (ns - k < ramp) env = (float)(ns - k) / ramp;
+        buf[j] = (int16_t)(sinf(w * k) * amplitude * env);
+      }
+      size_t written;
+      i2s_write(TONE_I2S_PORT, buf, n * 2, &written, portMAX_DELAY);
+      s += n;
+    }
+  }
+  s_tone_active = true;
+  s_tone_end_ms = millis() + total_ms + 60;   // DMA drain margin
+  return true;
+}
+
+void tdeck_tones_poll() {
+  if (s_tone_active && (int32_t)(millis() - s_tone_end_ms) >= 0) {
+    i2s_driver_uninstall(TONE_I2S_PORT);
+    s_tone_active = false;
+  }
+}

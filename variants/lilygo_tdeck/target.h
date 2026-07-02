@@ -58,6 +58,16 @@ void radio_spi_claim();
 #ifndef P_SDCARD_CS
   #define P_SDCARD_CS 39
 #endif
+// ---- I2S speaker (notification tones) ---------------------------------------
+// The T-Deck's MAX98357 amp sits on I2S (BCK 7, WS 5, DOUT 6). tdeck_tones_start
+// synthesizes a short melody of (freq_hz, dur_ms) pairs into the DMA buffer and
+// returns immediately (DMA plays it out); the driver is installed per chirp and
+// released by tdeck_tones_poll() (call it from the UI loop) so no RAM is held
+// between notifications. Melodies longer than ~250ms will block in i2s_write.
+// amplitude = peak sample value (0..32767); ~1800 soft, ~5000 medium, ~12000 loud.
+bool tdeck_tones_start(const uint16_t* pairs, int n_notes, int amplitude);
+void tdeck_tones_poll();
+
 struct SdEntry { char name[64]; bool is_dir; uint32_t size; };
 bool     tdeck_sd_ok();                                        // card mounted & usable
 uint64_t tdeck_sd_bytes(uint64_t* used_out);                   // total bytes (fills used); 0 if none

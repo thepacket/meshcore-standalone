@@ -231,10 +231,13 @@ static void IRAM_ATTR tb_up_isr()   { s_tb_up++; }
 static void IRAM_ATTR tb_down_isr() { s_tb_down++; }
 #endif
 
-// two partial draw buffers (internal RAM); ~1/6 screen each
+// two partial draw buffers (internal RAM); ~1/6 screen each. MUST be aligned:
+// lv_display_set_buffers asserts LV_DRAW_BUF_ALIGN alignment, and LVGL's assert
+// handler is an infinite loop -- an unaligned byte array here hangs boot
+// silently whenever the .bss layout happens to shift (bit us 2026-07-02).
 #define LV_BUF_LINES 40
-static uint8_t g_buf1[320 * LV_BUF_LINES * 2];
-static uint8_t g_buf2[320 * LV_BUF_LINES * 2];
+static uint8_t g_buf1[320 * LV_BUF_LINES * 2] __attribute__((aligned(8)));
+static uint8_t g_buf2[320 * LV_BUF_LINES * 2] __attribute__((aligned(8)));
 
 // LVGL timer: tick the active screen's registered live-refresh hook (if any).
 static void refresh_timer_cb(lv_timer_t*) {
@@ -296,8 +299,47 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 
 void ui_wifi_poll(void);   // Wi-Fi manager, defined with the lvd_wifi_* bridge below
 
+// Notification chirps on the I2S speaker, gated by the "Buzzer quiet" setting:
+// a rising two-note chirp for direct messages, a single soft blip for channel
+// and room traffic. tdeck_tones_start is a no-op while a chirp is playing.
+// Volume is a UI-local preference (NVS): 0 Low / 1 Medium / 2 High.
+static const int NOTIFY_AMPS[3] = {1800, 5000, 12000};
+static bool s_nvol_loaded = false;
+static int  s_nvol = 1;
+static int notify_volume(void) {
+  if (!s_nvol_loaded) {
+    Preferences p; p.begin("ui", true);
+    s_nvol = p.getInt("nvol", 1);
+    p.end();
+    if (s_nvol < 0 || s_nvol > 2) s_nvol = 1;
+    s_nvol_loaded = true;
+  }
+  return s_nvol;
+}
+static const uint16_t DM_CHIRP[] = {1047, 80, 1568, 120};   // C6 -> G6
+static const uint16_t CH_BLIP[]  = {880, 90};               // A5
+static void notify_volume_set(int v) {
+  if (v < 0) v = 0; else if (v > 2) v = 2;
+  s_nvol = v; s_nvol_loaded = true;
+  Preferences p; p.begin("ui", false); p.putInt("nvol", v); p.end();
+  tdeck_tones_start(DM_CHIRP, 2, NOTIFY_AMPS[v]);   // sample the new level
+}
+
+void UITask::notify(UIEventType t) {
+  if (_node_prefs && _node_prefs->buzzer_quiet) return;
+  int amp = NOTIFY_AMPS[notify_volume()];
+  switch (t) {
+    case UIEventType::contactMessage:
+    case UIEventType::newContactMessage: tdeck_tones_start(DM_CHIRP, 2, amp); break;
+    case UIEventType::channelMessage:
+    case UIEventType::roomMessage:       tdeck_tones_start(CH_BLIP, 1, amp);  break;
+    default: break;
+  }
+}
+
 void UITask::loop() {
   if (!_lvgl_ready) return;
+  tdeck_tones_poll();   // release the I2S driver once a chirp has played out
   // lv_timer_handler() has ~26us fixed overhead per call; the main loop spins it
   // tens of thousands of times a second, burning >50% CPU on nothing. Throttle to
   // ~5ms (LVGL's refresh period is 16ms) so the rest of the CPU is free to render.
@@ -1084,6 +1126,7 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
     if (eq(label, "Device"))   { strncpy(val, board.getManufacturerName(), len - 1); val[len - 1] = 0; return true; }
     if (eq(label, "On-screen keyboard")) { *sel = lvd_osk_enabled() ? 1 : 0; return true; }
     if (eq(label, "Buzzer quiet"))       { *sel = p->buzzer_quiet ? 1 : 0; return true; }
+    if (eq(label, "Volume"))             { *sel = notify_volume(); return true; }
   }
   return false;
 }
@@ -1157,6 +1200,7 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
   } else if (eq(group, "Device")) {
     if (eq(label, "On-screen keyboard")) { lvd_osk_set(sel != 0); return; }
     if (eq(label, "Buzzer quiet"))       { the_mesh.setBuzzerQuiet(sel != 0); return; }
+    if (eq(label, "Volume"))             { notify_volume_set(sel); return; }   // plays a sample chirp
   }
 }
 
