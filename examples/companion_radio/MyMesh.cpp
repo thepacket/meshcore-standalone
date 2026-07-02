@@ -284,6 +284,7 @@ uint8_t MyMesh::getExtraAckTransmitCount() const {
 }
 
 void MyMesh::logRxRaw(float snr, float rssi, const uint8_t raw[], int len) {
+  _last_rx_rssi = (int8_t)rssi;   // stash for onControlDataRecv (same packet, fresh)
   if (_serial->isConnected() && len + 3 <= MAX_FRAME_SIZE) {
     int i = 0;
     out_frame[i++] = PUSH_CODE_LOG_RX_DATA;
@@ -1019,10 +1020,11 @@ void MyMesh::onControlDataRecv(mesh::Packet *packet) {
     memcpy(disc_nodes[slot].pub_key, pk, PUB_KEY_SIZE);
     disc_nodes[slot].type  = node_type;
     disc_nodes[slot].snr_q = snr_q;
+    disc_nodes[slot].rssi  = _last_rx_rssi;   // RSSI we heard this response at
     disc_nodes[slot].ts    = getRTCClock()->getCurrentTime();
     // auto-add the responder as a contact (placeholder hex name until its advert
-    // arrives and onAdvertRecv() fills in the real name).
-    if (lookupContactByPubKey(pk, PUB_KEY_SIZE) == NULL) {
+    // arrives and onAdvertRecv() fills in the real name) -- unless disabled.
+    if (_prefs.disc_autoadd && lookupContactByPubKey(pk, PUB_KEY_SIZE) == NULL) {
       ContactInfo c; memset(&c, 0, sizeof(c));
       memcpy(c.id.pub_key, pk, PUB_KEY_SIZE);
       c.type = node_type;
@@ -1145,6 +1147,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _prefs.gps_interval = 0;      // No automatic GPS updates by default
   _prefs.cad_enabled = 1;       // hardware CAD before TX, enabled by default
   _prefs.time_sync_gps = 1;     // adopt GPS time when it has a fix (time_source[] zeroed by memset)
+  _prefs.disc_autoadd = 1;      // auto-save discovery responders (preserves prior behaviour)
   //_prefs.rx_delay_base = 10.0f;  enable once new algo fixed
 #if defined(USE_SX1262) || defined(USE_SX1268)
 #ifdef SX126X_RX_BOOSTED_GAIN
@@ -2528,6 +2531,11 @@ void MyMesh::setCADEnabled(bool on) {
 
 void MyMesh::setBuzzerQuiet(bool on) {
   _prefs.buzzer_quiet = on ? 1 : 0;   // consumers (UIs with a buzzer) read the pref
+  savePrefs();
+}
+
+void MyMesh::setDiscAutoAdd(bool on) {
+  _prefs.disc_autoadd = on ? 1 : 0;
   savePrefs();
 }
 

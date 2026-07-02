@@ -112,10 +112,12 @@ const char* lvd_packet_path_filter(void);
 // ---- discover (direct neighbours that answered our discovery request) ------
 typedef struct {
   char name[32];
-  char subtitle[40];   // "<type>  -  SNR x dB"
+  char subtitle[40];   // "<type>  -  SNR x dB  -  RSSI y"
   char age[12];        // "8s ago"
+  char dist[16];       // "4.2 km NE" or ""
   int  type;           // ADV_TYPE_*
   int  bars;           // 0..4 signal-dot bucket (from SNR)
+  int  fresh;          // 1 if it answered the current scan
 } lvd_disc_t;
 
 int  lvd_disc_count(void);      // responders to the last discovery request (SNR-sorted)

@@ -53,6 +53,7 @@ static const Field F_CONTACTS[] = {
   {"Auto-add sensors",    F_BOOL, NULL, 1},
   {"Overwrite oldest",    F_BOOL, NULL, 0},
   {"Auto-add max hops",   F_VAL,  "3", 0},
+  {"Auto-add discovered", F_BOOL, NULL, 1},   // save Discover responders as contacts
 };
 static const Field F_MSG[] = {
   {"Multi-acks",     F_VAL,  "1", 0},

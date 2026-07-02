@@ -619,6 +619,7 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
     }
   } else if (eq(group, "Contacts")) {
     if (eq(label, "Manual add"))        { *sel = p->manual_add_contacts ? 1 : 0; return true; }
+    if (eq(label, "Auto-add discovered")) { *sel = p->disc_autoadd ? 1 : 0; return true; }
     if (eq(label, "Auto-add max hops")) { snprintf(val, len, "%u", p->autoadd_max_hops); return true; }
     uint8_t bit = autoadd_bit(label);
     if (bit) { *sel = (p->autoadd_config & bit) ? 1 : 0; return true; }
@@ -707,6 +708,7 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
     if (eq(label, "Bandwidth") && sel >= 0 && sel < BW_N) { apply_radio(p->freq, BW_KHZ[sel], p->sf, p->cr, p->client_repeat); return; }
   } else if (eq(group, "Contacts")) {
     if (eq(label, "Manual add"))                { the_mesh.setManualAdd(sel != 0); return; }
+    if (eq(label, "Auto-add discovered"))       { the_mesh.setDiscAutoAdd(sel != 0); return; }
     if (eq(label, "Auto-add max hops") && val)  { the_mesh.setMaxHops((uint8_t)atoi(val)); return; }
     uint8_t bit = autoadd_bit(label);
     if (bit) { uint8_t m = p->autoadd_config; if (sel) m |= bit; else m &= ~bit; the_mesh.setAutoAddConfig(m); return; }
@@ -1307,14 +1309,18 @@ extern "C" int lvd_disc_count(void) {
   qsort(g_disc, g_disc_n, sizeof(g_disc[0]), cmp_disc_snr);
   return g_disc_n;
 }
+static uint32_t s_disc_scan_epoch = 0;   // RTC time of the current scan (for "fresh" flagging)
+
 extern "C" bool lvd_disc_get(int i, lvd_disc_t* out) {
   if (i < 0 || i >= g_disc_n) return false;
   MyMesh::DiscNode& d = g_disc[i];
   disc_label(d.pub_key, out->name, sizeof(out->name));
   out->type = d.type;
   int v10 = d.snr_q * 10 / 4, a = v10 < 0 ? -v10 : v10;
-  snprintf(out->subtitle, sizeof(out->subtitle), "%s - SNR %s%d.%d dB",
-           adv_type_name(d.type), v10 < 0 ? "-" : "", a / 10, a % 10);
+  if (d.rssi) snprintf(out->subtitle, sizeof(out->subtitle), "%s - SNR %s%d.%d dB - RSSI %d",
+                       adv_type_name(d.type), v10 < 0 ? "-" : "", a / 10, a % 10, d.rssi);
+  else        snprintf(out->subtitle, sizeof(out->subtitle), "%s - SNR %s%d.%d dB",
+                       adv_type_name(d.type), v10 < 0 ? "-" : "", a / 10, a % 10);
   uint32_t now = rtc_clock.getCurrentTime();
   uint32_t age = (now > d.ts) ? now - d.ts : 0;
   if (age < 60)        snprintf(out->age, sizeof(out->age), "%us ago", (unsigned)age);
@@ -1322,6 +1328,20 @@ extern "C" bool lvd_disc_get(int i, lvd_disc_t* out) {
   else                 snprintf(out->age, sizeof(out->age), "%uh ago", (unsigned)(age / 3600));
   int snr = d.snr_q / 4;
   out->bars = (d.snr_q == 0) ? 1 : (snr >= 5 ? 4 : (snr >= 0 ? 2 : 1));
+  out->fresh = (s_disc_scan_epoch && d.ts >= s_disc_scan_epoch) ? 1 : 0;
+  // distance + bearing from the responder's saved contact position, if any
+  out->dist[0] = 0;
+  ContactInfo c;
+  for (int k = 0, cn = the_mesh.getNumContacts(); k < cn; k++) {
+    if (the_mesh.getContactByIdx((uint32_t)k, c) && memcmp(c.id.pub_key, d.pub_key, PUB_KEY_SIZE) == 0) {
+      char db[12];
+      if (fmt_distance(c.gps_lat, c.gps_lon, db, sizeof(db))) {
+        const char* brg = heard_bearing(c.gps_lat, c.gps_lon);
+        snprintf(out->dist, sizeof(out->dist), "%s%s%s", db, brg[0] ? " " : "", brg);
+      }
+      break;
+    }
+  }
   return true;
 }
 extern "C" const char* lvd_disc_summary(void) {
@@ -1359,6 +1379,7 @@ extern "C" int lvd_disc_request(void) {
   if (rem > 0) return (int)((rem + 999) / 1000);
   the_mesh.sendNodeDiscoverReq();
   s_disc_last_ms = millis(); s_disc_ever = true;
+  s_disc_scan_epoch = rtc_clock.getCurrentTime();   // responders after this are "fresh"
   return 0;
 }
 extern "C" int lvd_disc_next_secs(void) { return (int)((disc_remaining_ms() + 999) / 1000); }

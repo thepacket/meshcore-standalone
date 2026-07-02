@@ -56,19 +56,33 @@ static void disc_row(lv_obj_t* list, const lvd_disc_t* d, int idx) {
   lv_obj_set_flex_align(mid, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_set_style_pad_row(mid, 2, 0);
   lv_obj_t* nm = lv_label_create(mid);
-  lv_label_set_text(nm, d->name);
+  // fresh (answered the current scan) responders get a "NEW" prefix
+  if (d->fresh) lv_label_set_text_fmt(nm, "%s  " LV_SYMBOL_REFRESH, d->name);
+  else          lv_label_set_text(nm, d->name);
   lv_obj_set_style_text_font(nm, &lv_font_montserrat_16, 0);
-  lv_obj_set_style_text_color(nm, lv_color_hex(MD_ON), 0);
+  lv_obj_set_style_text_color(nm, lv_color_hex(d->fresh ? 0x4ade80 : MD_ON), 0);
   lv_obj_t* sb = lv_label_create(mid);
   lv_label_set_text(sb, d->subtitle);
   lv_obj_set_style_text_font(sb, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(sb, lv_color_hex(MD_MUTED), 0);
 
-  // age on the right
-  lv_obj_t* ag = lv_label_create(row);
+  // right column: age, and distance+bearing when known
+  lv_obj_t* rt = lv_obj_create(row);
+  lv_obj_remove_flag(rt, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(rt, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_bg_opa(rt, 0, 0); lv_obj_set_style_border_width(rt, 0, 0);
+  lv_obj_set_style_pad_all(rt, 0, 0); lv_obj_set_height(rt, LV_SIZE_CONTENT); lv_obj_set_width(rt, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(rt, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(rt, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_END, LV_FLEX_ALIGN_END);
+  lv_obj_t* ag = lv_label_create(rt);
   lv_label_set_text(ag, d->age);
   lv_obj_set_style_text_font(ag, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(ag, lv_color_hex(MD_MUTED), 0);
+  if (d->dist[0]) {
+    lv_obj_t* ds = lv_label_create(rt);
+    lv_label_set_text(ds, d->dist);
+    lv_obj_set_style_text_font(ds, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(ds, lv_color_hex(MD_PRIMARY), 0);
+  }
 }
 
 static int        s_secs = 0;   // ticks (~1s) since the last auto discovery request

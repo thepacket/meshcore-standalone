@@ -133,7 +133,7 @@ public:
   bool addHeardContact(const uint8_t* pubkey6);  // promote a heard candidate to a saved contact
 
   // ---- active node discovery (zero-hop NODE_DISCOVER_REQ; neighbours reply) ----
-  struct DiscNode { uint8_t pub_key[PUB_KEY_SIZE]; uint8_t type; int8_t snr_q; uint32_t ts; };
+  struct DiscNode { uint8_t pub_key[PUB_KEY_SIZE]; uint8_t type; int8_t snr_q; int8_t rssi; uint32_t ts; };
   void sendNodeDiscoverReq();                       // broadcast a discovery request
   int  getDiscoveredNodes(DiscNode* out, int max);  // responders, newest-first; returns count
   void clearDiscoveredNodes();                      // (responders are auto-added on receipt)
@@ -160,6 +160,7 @@ public:
   void setRxBoostedGain(bool on);     // RX boosted gain mode on the radio
   void setBuzzerQuiet(bool on);       // suppress notification buzzer (where fitted)
   void setTimeSource(int idx, const char* name);  // idx 0..2; empty/"(none)" clears
+  void setDiscAutoAdd(bool on);       // auto-save discovery responders as contacts
   void setMultiAcks(uint8_t v);
   void setTelemetryModes(uint8_t base, uint8_t loc, uint8_t env);
   bool setPathHashMode(uint8_t mode);
@@ -340,6 +341,7 @@ private:
   #define DISC_NODES_MAX 16
   DiscNode disc_nodes[DISC_NODES_MAX];
   int      disc_nodes_n = 0;
+  int8_t   _last_rx_rssi = 0;   // RSSI of the most recent raw RX (for the discovery list)
 };
 
 extern MyMesh the_mesh;
