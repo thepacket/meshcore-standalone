@@ -812,10 +812,25 @@ extern "C" unsigned lvd_free_flash_kb(void) {
 // ---- packet monitor --------------------------------------------------------
 #define PKT_LOG 32
 #define PKT_RAW 192   // bytes of each packet kept for the hex/breakdown view
-struct PktRec { uint8_t header; int rssi; int snr_q; int len; uint32_t t; uint8_t raw[PKT_RAW]; uint8_t rawlen; };
+struct PktRec { uint8_t header; int rssi; int snr_q; int len; uint32_t t;
+                uint32_t epoch;    // RTC time at RX (absolute timestamp)
+                uint32_t payhash;  // FNV-1a of type+payload (path excluded), for rebroadcast counting
+                uint8_t raw[PKT_RAW]; uint8_t rawlen; };
 static PktRec s_pkt[PKT_LOG];
 static int s_pkt_head = 0, s_pkt_n = 0;
 static unsigned s_pkt_total = 0;   // monotonic, for change detection
+
+// offset of the payload within the raw frame: header [+4 transport] pathlen path...
+// (-1 if the frame is too short to parse)
+static int pkt_payload_off(const uint8_t* b, int rl) {
+  if (rl < 2) return -1;
+  int route = b[0] & 0x03;
+  int off = (route == 0 || route == 3) ? 5 : 1;   // TRANSPORT_* routes carry two 16-bit codes
+  if (off >= rl) return -1;
+  uint8_t plf = b[off++];
+  off += (plf & 63) * ((plf >> 6) + 1);
+  return (off <= rl) ? off : -1;
+}
 
 void ui_log_packet(float snr, float rssi, const uint8_t* raw, int len) {
   PktRec& r = s_pkt[s_pkt_head];
@@ -824,8 +839,16 @@ void ui_log_packet(float snr, float rssi, const uint8_t* raw, int len) {
   r.snr_q = (int)(snr * 4.0f);
   r.len = len;
   r.t = millis();
+  r.epoch = rtc_clock.getCurrentTime();
   r.rawlen = (uint8_t)(len > PKT_RAW ? PKT_RAW : (len < 0 ? 0 : len));
   if (raw && r.rawlen) memcpy(r.raw, raw, r.rawlen);
+  // FNV-1a over payload type + payload bytes; the path is excluded so flood
+  // rebroadcasts of the same packet hash identically (payhash + len match)
+  uint32_t h = 2166136261u;
+  h = (h ^ ((r.header >> 2) & 0x0F)) * 16777619u;
+  int po = pkt_payload_off(r.raw, r.rawlen);
+  if (po >= 0) for (int i = po; i < r.rawlen; i++) h = (h ^ r.raw[i]) * 16777619u;
+  r.payhash = h;
   s_pkt_head = (s_pkt_head + 1) % PKT_LOG;
   if (s_pkt_n < PKT_LOG) s_pkt_n++;
   s_pkt_total++;
@@ -987,46 +1010,114 @@ extern "C" int lvd_packet_detail(lvd_kv_t* out, int max) {
   uint8_t plf = (off < rl) ? b[off] : 0;
   off++;
   int hcount = plf & 63, hsize = (plf >> 6) + 1, pbytes = hcount * hsize;
-  if (hcount == 0) snprintf(v, sizeof(v), "direct (0 hops)");
-  else {
-    int k = 0;   // chain of friendly names (hex byte where unknown), e.g. "GW > Hilltop > 7F"
-    for (int j = 0; j < hcount && off + j * hsize < rl; j++) {
-      uint8_t hb = b[off + j * hsize];
-      const char* nm = contact_name_by_hash(hb);
-      const char* sep = (j == 0) ? "" : " > ";
-      if (nm) k += snprintf(v + k, sizeof(v) - k, "%s%s", sep, nm);
-      else    k += snprintf(v + k, sizeof(v) - k, "%s%02X", sep, hb);
-      if (k >= (int)sizeof(v) - 8) { snprintf(v + k, sizeof(v) - k, " .."); break; }
+  if (ptype == 0x09) {   // TRACE: the path field holds accumulated per-hop SNRs, not hashes
+    if (hcount == 0) snprintf(v, sizeof(v), "(no hops yet)");
+    else {
+      int k = 0;
+      for (int j = 0; j < hcount && off + j * hsize < rl; j++) {
+        int8_t sq = (int8_t)b[off + j * hsize];
+        int v10 = sq * 10 / 4, a = v10 < 0 ? -v10 : v10;
+        k += snprintf(v + k, sizeof(v) - k, "%s%s%d.%d", j ? ", " : "", v10 < 0 ? "-" : "", a / 10, a % 10);
+        if (k >= (int)sizeof(v) - 10) break;
+      }
+      snprintf(v + strlen(v), sizeof(v) - strlen(v), " dB");
     }
+    kv_add(out, &n, max, "Hop SNRs", v);
+  } else {
+    if (hcount == 0) snprintf(v, sizeof(v), "direct (0 hops)");
+    else {
+      int k = 0;   // chain of friendly names (hex byte where unknown), e.g. "GW > Hilltop > 7F"
+      for (int j = 0; j < hcount && off + j * hsize < rl; j++) {
+        uint8_t hb = b[off + j * hsize];
+        const char* nm = contact_name_by_hash(hb);
+        const char* sep = (j == 0) ? "" : " > ";
+        if (nm) k += snprintf(v + k, sizeof(v) - k, "%s%s", sep, nm);
+        else    k += snprintf(v + k, sizeof(v) - k, "%s%02X", sep, hb);
+        if (k >= (int)sizeof(v) - 8) { snprintf(v + k, sizeof(v) - k, " .."); break; }
+      }
+    }
+    kv_add(out, &n, max, "Path", v);
   }
-  kv_add(out, &n, max, "Path", v);
   int payoff = off + pbytes;
   int paylen = p.len - payoff; if (paylen < 0) paylen = 0;
   const uint8_t* pl = b + payoff;
   int plav = rl - payoff; if (plav < 0) plav = 0;
 
   switch (ptype) {
-    case 0x00: case 0x01: case 0x02: case 0x08:   // REQ/RESP/TXT/PATH: dest+src hash
-      if (plav >= 1) { snprintf(v, sizeof(v), "0x%02X", pl[0]); kv_add(out, &n, max, "Dest", v); }
-      if (plav >= 2) { snprintf(v, sizeof(v), "0x%02X", pl[1]); kv_add(out, &n, max, "Source", v); }
+    case 0x00: case 0x01: case 0x02: case 0x08: {  // REQ/RESP/TXT/PATH: dest+src hash
+      for (int f = 0; f < 2 && plav >= f + 1; f++) {
+        const char* nm = contact_name_by_hash(pl[f]);
+        if (nm) snprintf(v, sizeof(v), "0x%02X (%s)", pl[f], nm);
+        else    snprintf(v, sizeof(v), "0x%02X", pl[f]);
+        kv_add(out, &n, max, f == 0 ? "Dest" : "Source", v);
+      }
       break;
+    }
     case 0x03:                                    // ACK
       if (plav >= 1) { int k = snprintf(v, sizeof(v), "0x"); for (int j = 0; j < plav && j < 8 && k < (int)sizeof(v) - 2; j++) k += snprintf(v + k, sizeof(v) - k, "%02X", pl[j]); kv_add(out, &n, max, "ACK code", v); }
       break;
-    case 0x05: case 0x06:                          // GRP_TXT/GRP_DATA: channel hash
-      if (plav >= 1) { snprintf(v, sizeof(v), "0x%02X", pl[0]); kv_add(out, &n, max, "Channel", v); }
+    case 0x05: case 0x06:                          // GRP_TXT/GRP_DATA: channel hash -> our channel name if known
+      if (plav >= 1) {
+        const char* cn = NULL;
+        for (int ci = 0; ci < MAX_GROUP_CHANNELS && !cn; ci++) {
+          ChannelDetails cd;
+          if (the_mesh.getChannel(ci, cd) && cd.name[0] && cd.channel.hash[0] == pl[0]) cn = "known";
+          if (cn) { snprintf(v, sizeof(v), "0x%02X (%s)", pl[0], cd.name); }
+        }
+        if (!cn) snprintf(v, sizeof(v), "0x%02X (not our channel)", pl[0]);
+        kv_add(out, &n, max, "Channel", v);   // (data_type sits inside the encrypted blob)
+      }
       break;
-    case 0x04:                                     // ADVERT: advertiser pubkey
+    case 0x04: {                                   // ADVERT: pubkey(32) ts(4) sig(64) appdata
       if (plav >= 6) {
         const char* nm = contact_name_by_pubkey6(pl);
         if (nm) snprintf(v, sizeof(v), "%s (%02X%02X%02X..)", nm, pl[0], pl[1], pl[2]);
         else    snprintf(v, sizeof(v), "%02X%02X%02X%02X%02X%02X..", pl[0], pl[1], pl[2], pl[3], pl[4], pl[5]);
         kv_add(out, &n, max, "Advertiser", v);
       }
+      if (plav >= 36) {                            // advert creation time vs our clock = sender clock skew
+        uint32_t ts; memcpy(&ts, pl + 32, 4);
+        int32_t d = (int32_t)(ts - p.epoch);       // relative to when WE received it
+        if (d > -3 && d < 3) snprintf(v, sizeof(v), "in sync with ours");
+        else                 snprintf(v, sizeof(v), "%+d s vs our clock", (int)d);
+        kv_add(out, &n, max, "Sender clock", v);
+      }
+      if (plav > 100) {                            // appdata: flags [latlon] [feats] name
+        AdvertDataParser ap(pl + 100, (uint8_t)(plav - 100));
+        if (ap.isValid()) {
+          const char* tn = ap.getType() == ADV_TYPE_CHAT     ? "Companion" :
+                           ap.getType() == ADV_TYPE_REPEATER ? "Repeater"  :
+                           ap.getType() == ADV_TYPE_ROOM     ? "Room"      :
+                           ap.getType() == ADV_TYPE_SENSOR   ? "Sensor"    : "Node";
+          snprintf(v, sizeof(v), "%s (%s)", ap.hasName() ? ap.getName() : "(unnamed)", tn);
+          kv_add(out, &n, max, "Node", v);
+          if (ap.hasLatLon()) {
+            char db[14] = ""; bool hd = fmt_distance(ap.getIntLat(), ap.getIntLon(), db, sizeof(db));
+            snprintf(v, sizeof(v), "%.4f, %.4f%s%s%s", ap.getLat(), ap.getLon(),
+                     hd ? " (" : "", db, hd ? ")" : "");
+            kv_add(out, &n, max, "Position", v);
+          }
+        }
+      }
       break;
-    case 0x09:                                     // TRACE: tag
-      if (plav >= 4) { uint32_t tag = pl[0] | (pl[1] << 8) | (pl[2] << 16) | ((uint32_t)pl[3] << 24); snprintf(v, sizeof(v), "0x%08X", (unsigned)tag); kv_add(out, &n, max, "Trace tag", v); }
+    }
+    case 0x09: {                                   // TRACE: tag(4) auth(4) flags(1) route...
+      if (plav >= 4) { uint32_t tag; memcpy(&tag, pl, 4); snprintf(v, sizeof(v), "0x%08X", (unsigned)tag); kv_add(out, &n, max, "Trace tag", v); }
+      if (plav >= 9) {                             // remaining payload = target route (hashes)
+        uint8_t tflags = pl[8];
+        int hsz = 1 << (tflags & 0x03);
+        int k = 0; v[0] = 0;
+        for (int j = 0; 9 + j * hsz < plav && k < (int)sizeof(v) - 8; j++) {
+          uint8_t hb = pl[9 + j * hsz];
+          const char* nm2 = contact_name_by_hash(hb);
+          const char* sep = (j == 0) ? "" : " > ";
+          if (nm2) k += snprintf(v + k, sizeof(v) - k, "%s%s", sep, nm2);
+          else     k += snprintf(v + k, sizeof(v) - k, "%s%02X", sep, hb);
+        }
+        if (v[0]) kv_add(out, &n, max, "Route", v);
+      }
       break;
+    }
     default: break;
   }
 
@@ -1034,11 +1125,25 @@ extern "C" int lvd_packet_detail(lvd_kv_t* out, int max) {
     snprintf(v, sizeof(v), "%s%d.%d dB / %d dBm", v10 < 0 ? "-" : "", a / 10, a % 10, p.rssi);
     kv_add(out, &n, max, "SNR / RSSI", v); }
   snprintf(v, sizeof(v), "%d B (payload %d B)", p.len, paylen);     kv_add(out, &n, max, "Length", v);
+  snprintf(v, sizeof(v), "%u ms", (unsigned)radio_driver.getEstAirtimeFor(p.len));
+  kv_add(out, &n, max, "Airtime", v);
   snprintf(v, sizeof(v), "0x%02X", hdr);                            kv_add(out, &n, max, "Header", v);
   { uint32_t age = (millis() - p.t) / 1000;
-    if (age < 60) snprintf(v, sizeof(v), "%us ago", (unsigned)age);
-    else          snprintf(v, sizeof(v), "%um ago", (unsigned)(age / 60));
+    char ab[12] = "";
+    if (p.epoch > 1000000)   // absolute wall-clock time when the RTC is set
+      snprintf(ab, sizeof(ab), "%02u:%02u:%02u  ", (unsigned)((p.epoch / 3600) % 24),
+               (unsigned)((p.epoch / 60) % 60), (unsigned)(p.epoch % 60));
+    if (age < 60) snprintf(v, sizeof(v), "%s%us ago", ab, (unsigned)age);
+    else          snprintf(v, sizeof(v), "%s%um ago", ab, (unsigned)(age / 60));
     kv_add(out, &n, max, "Received", v); }
+  // rebroadcast detection: the payhash covers type+payload but NOT the path,
+  // so flood copies (whose paths grow per hop) hash identically
+  { int seen = 0;
+    for (int j = 0; j < s_pkt_n; j++) if (s_pkt[j].payhash == p.payhash) seen++;
+    if (seen > 1) {
+      snprintf(v, sizeof(v), "%d copies in log (flood rebroadcasts)", seen);
+      kv_add(out, &n, max, "Seen", v);
+    } }
   return n;
 }
 
