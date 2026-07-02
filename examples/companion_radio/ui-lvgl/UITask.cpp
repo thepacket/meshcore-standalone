@@ -360,8 +360,8 @@ static bool fmt_distance(int32_t lat_e6, int32_t lon_e6, char* out, int len) {
 // look up a heard node (by its 6-byte pubkey prefix) among saved contacts;
 // returns 1 if saved and fills *type with its ADV_TYPE_*, else 0.
 static int heard_contact_lookup(const uint8_t* pk6, int* type) {
-  int n = the_mesh.getNumContacts();
-  for (int i = 0; i < n; i++) {
+  // real contacts live in slots [MAX_ANON_CONTACTS, total); getContactByIdx is not offset
+  for (int i = MAX_ANON_CONTACTS, n = the_mesh.getTotalContactSlots(); i < n; i++) {
     ContactInfo c;
     if (the_mesh.getContactByIdx((uint32_t)i, c) && memcmp(c.id.pub_key, pk6, 6) == 0) {
       if (type) *type = c.type;
@@ -494,9 +494,12 @@ static void build_contact_order(void) {
   if (total == g_corder_total && g_corder_fav == (int)g_fav_only &&
       strcmp(g_cfilter, g_corder_filter) == 0) return;   // cached
   int m = 0;
-  for (int i = 0; i < total; i++) {
+  // real contacts occupy absolute slots [MAX_ANON_CONTACTS, total); getContactByIdx
+  // is not offset, so iterate absolute slots and skip the reserved anon/empty ones.
+  for (int i = MAX_ANON_CONTACTS, tot = the_mesh.getTotalContactSlots(); i < tot && m < MAX_CONTACTS; i++) {
     ContactInfo c;
     if (!the_mesh.getContactByIdx((uint32_t)i, c)) continue;
+    if (c.type == ADV_TYPE_NONE || c.name[0] == 0) continue;   // skip empty/anon slots
     if (g_fav_only && !(c.flags & 0x01)) continue;       // favourites-only filter
     if (lvd_name_match(c.name, g_cfilter)) g_corder[m++] = (uint16_t)i;
   }
@@ -788,9 +791,8 @@ extern "C" void lvd_cfg_action(const char* group, const char* label) {
     }
     if (eq(label, "Export app data")) {
       Serial.println("\n=== meshcore app data v1 ===");
-      int nc = the_mesh.getNumContacts();
-      Serial.printf("[contacts] %d\n", nc);
-      for (int i = 0; i < nc; i++) {
+      Serial.printf("[contacts] %d\n", the_mesh.getNumContacts());
+      for (int i = MAX_ANON_CONTACTS, tot = the_mesh.getTotalContactSlots(); i < tot; i++) {
         ContactInfo c;
         if (!the_mesh.getContactByIdx((uint32_t)i, c)) continue;
         char hex[65];
@@ -974,8 +976,7 @@ static void ui_dump_packet_ring(void) {
 // resolve a 1-byte path hash (== a node's pub_key[0]) to a saved contact name
 static const char* contact_name_by_hash(uint8_t h) {
   static char nm[32];
-  int n = the_mesh.getNumContacts();
-  for (int i = 0; i < n; i++) {
+  for (int i = MAX_ANON_CONTACTS, n = the_mesh.getTotalContactSlots(); i < n; i++) {
     ContactInfo c;
     if (the_mesh.getContactByIdx((uint32_t)i, c) && c.id.pub_key[0] == h) {
       strncpy(nm, c.name, sizeof(nm) - 1); nm[sizeof(nm) - 1] = 0; return nm;
@@ -1088,8 +1089,7 @@ static const char* ptype_name(int t) {
 }
 static const char* contact_name_by_pubkey6(const uint8_t* pk6) {
   static char nm[32];
-  int n = the_mesh.getNumContacts();
-  for (int i = 0; i < n; i++) {
+  for (int i = MAX_ANON_CONTACTS, n = the_mesh.getTotalContactSlots(); i < n; i++) {
     ContactInfo c;
     if (the_mesh.getContactByIdx((uint32_t)i, c) && memcmp(c.id.pub_key, pk6, 6) == 0) {
       strncpy(nm, c.name, sizeof(nm) - 1); nm[sizeof(nm) - 1] = 0; return nm;
@@ -1328,8 +1328,7 @@ static int cmp_disc_snr(const void* a, const void* b) {   // strongest first
 }
 // best-effort label: the saved contact's name for this key, else its hex prefix
 static void disc_label(const uint8_t* pk, char* out, int len) {
-  int n = the_mesh.getNumContacts();
-  for (int k = 0; k < n; k++) {
+  for (int k = MAX_ANON_CONTACTS, n = the_mesh.getTotalContactSlots(); k < n; k++) {
     ContactInfo c;
     if (the_mesh.getContactByIdx((uint32_t)k, c) &&
         memcmp(c.id.pub_key, pk, PUB_KEY_SIZE) == 0 && c.name[0]) {
@@ -1367,7 +1366,7 @@ extern "C" bool lvd_disc_get(int i, lvd_disc_t* out) {
   // distance + bearing from the responder's saved contact position, if any
   out->dist[0] = 0;
   ContactInfo c;
-  for (int k = 0, cn = the_mesh.getNumContacts(); k < cn; k++) {
+  for (int k = MAX_ANON_CONTACTS, cn = the_mesh.getTotalContactSlots(); k < cn; k++) {
     if (the_mesh.getContactByIdx((uint32_t)k, c) && memcmp(c.id.pub_key, d.pub_key, PUB_KEY_SIZE) == 0) {
       char db[12];
       if (fmt_distance(c.gps_lat, c.gps_lon, db, sizeof(db))) {
@@ -1555,8 +1554,7 @@ static int count_idx(bool (*match)(int)) {
 
 // find a saved contact by display name (for opening / sending a DM)
 static bool find_contact_by_name(const char* name, ContactInfo& out) {
-  int n = the_mesh.getNumContacts();
-  for (int i = 0; i < n; i++) {
+  for (int i = MAX_ANON_CONTACTS, n = the_mesh.getTotalContactSlots(); i < n; i++) {
     ContactInfo c;
     if (the_mesh.getContactByIdx((uint32_t)i, c) && strcmp(c.name, name) == 0) { out = c; return true; }
   }
@@ -1636,8 +1634,7 @@ extern "C" void lvd_chat_send(const char* text) {
 static uint8_t g_dm_peer[16][6];
 static int     g_dm_n = 0;
 static bool find_contact_by_pubkey6(const uint8_t* p6, ContactInfo& out) {
-  int n = the_mesh.getNumContacts();
-  for (int i = 0; i < n; i++) {
+  for (int i = MAX_ANON_CONTACTS, n = the_mesh.getTotalContactSlots(); i < n; i++) {
     ContactInfo c;
     if (the_mesh.getContactByIdx((uint32_t)i, c) && memcmp(c.id.pub_key, p6, 6) == 0) { out = c; return true; }
   }
@@ -1824,8 +1821,7 @@ static void rep_build(int scan) {
   g_replist_n = 0;
   g_replist_scan = scan;
   if (scan == 0) {
-    int n = the_mesh.getNumContacts();
-    for (int k = 0; k < n && g_replist_n < REPLIST_MAX; k++) {
+    for (int k = MAX_ANON_CONTACTS, n = the_mesh.getTotalContactSlots(); k < n && g_replist_n < REPLIST_MAX; k++) {
       ContactInfo t;
       if (the_mesh.getContactByIdx((uint32_t)k, t) && is_rep_type(t.type)) g_replist[g_replist_n++] = t;
     }
@@ -2155,8 +2151,7 @@ static uint16_t g_trc_idx[MAX_CONTACTS];
 static int      g_trc_n = 0;
 static void trc_build(void) {
   g_trc_n = 0;
-  int n = the_mesh.getNumContacts();
-  for (int i = 0; i < n && g_trc_n < MAX_CONTACTS; i++) {
+  for (int i = MAX_ANON_CONTACTS, n = the_mesh.getTotalContactSlots(); i < n && g_trc_n < MAX_CONTACTS; i++) {
     ContactInfo c;
     if (the_mesh.getContactByIdx((uint32_t)i, c) &&
         c.out_path_len != OUT_PATH_UNKNOWN && c.out_path_len > 0)
