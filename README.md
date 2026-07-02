@@ -68,8 +68,9 @@ chips, charts/gauges, real widgets). Live on-device:
   params + **region presets**, RX-boosted-gain and **hardware CAD** toggles,
   telemetry modes, GPS + **time sources / GPS clock sync**, manual clock set,
   **factory reset** (confirm-guarded), **SD backup/restore of config and
-  contacts+channels** (+ packet export to serial), contacts + BLE-pin info, and
-  the on-screen-keyboard toggle
+  contacts+channels** (+ packet export to serial), contacts + BLE-pin info,
+  the on-screen-keyboard toggle, **notification volume**, and **brightness +
+  backlight-timeout** controls
 - **Wi-Fi** (internet access) — join a network from an on-device **scan picker**
   (or type an SSID), credentials persisted in NVS; auto-connect on boot,
   auto-reconnect, live status (IP + RSSI), an async **ping test** (4× ICMP to
