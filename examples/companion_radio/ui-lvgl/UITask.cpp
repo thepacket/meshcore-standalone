@@ -2147,12 +2147,38 @@ extern "C" int lvd_trace_contact_go(int i) {   // 0 sent, 2 failed/unknown
 // ---- signal coverage (saved repeaters/rooms we've actually heard) ----------
 // Only include repeaters with a recent heard advert (skip stale ones). Keep a
 // filtered index into the sorted g_replist, rebuilt on each count.
-struct SigEnt { uint16_t idx; int rssi; };
+struct SigEnt { uint16_t idx; int rssi; int32_t dist_m; };  // dist_m: -1 if unknown
 static SigEnt g_sig[REPLIST_MAX];
 static int    g_sig_n = 0;
+static int    g_sig_sort = 0;   // 0 = signal, 1 = distance, 2 = name
+extern "C" void lvd_signal_set_sort(int m) { g_sig_sort = (m < 0 || m > 2) ? 0 : m; }
+extern "C" int  lvd_signal_sort(void) { return g_sig_sort; }
+
+// per-repeater RSSI history (keyed by pubkey prefix) for the trend arrow
+struct SigHist { uint8_t pk6[6]; int8_t rssi; bool valid; };
+static SigHist g_sig_hist[REPLIST_MAX];
+static int     g_sig_hist_n = 0;
 
 static int cmp_sig_rssi(const void* a, const void* b) {
-  return ((const SigEnt*)b)->rssi - ((const SigEnt*)a)->rssi;   // descending (strongest first)
+  return ((const SigEnt*)b)->rssi - ((const SigEnt*)a)->rssi;   // strongest first
+}
+static int cmp_sig_dist(const void* a, const void* b) {   // nearest first, unknowns last
+  int32_t da = ((const SigEnt*)a)->dist_m, db = ((const SigEnt*)b)->dist_m;
+  if (da < 0) da = 0x7FFFFFFF;
+  if (db < 0) db = 0x7FFFFFFF;
+  return (da > db) - (da < db);
+}
+static int cmp_sig_name(const void* a, const void* b) {
+  return ci_strcmp(g_replist[((const SigEnt*)a)->idx].name, g_replist[((const SigEnt*)b)->idx].name);
+}
+// straight-line distance (m) to a peer fix, or -1 if either side lacks a position
+static int32_t sig_distance_m(int32_t lat_e6, int32_t lon_e6) {
+  if ((lat_e6 == 0 && lon_e6 == 0) || (sensors.node_lat == 0.0 && sensors.node_lon == 0.0)) return -1;
+  const double R = 6371000.0, D2R = M_PI / 180.0;
+  double la1 = sensors.node_lat * D2R, la2 = (lat_e6 / 1e6) * D2R;
+  double dla = la2 - la1, dlo = ((lon_e6 / 1e6) - sensors.node_lon) * D2R;
+  double a = sin(dla / 2) * sin(dla / 2) + cos(la1) * cos(la2) * sin(dlo / 2) * sin(dlo / 2);
+  return (int32_t)(R * 2.0 * atan2(sqrt(a), sqrt(1.0 - a)));
 }
 static void sig_build(void) {
   rep_build(0);
@@ -2160,10 +2186,25 @@ static void sig_build(void) {
   for (int i = 0; i < g_replist_n; i++) {
     AdvertPath h;
     if (find_heard_by_pubkey(g_replist[i].id.pub_key, h) && h.rssi) {
-      g_sig[g_sig_n].idx = (uint16_t)i; g_sig[g_sig_n].rssi = h.rssi; g_sig_n++;
+      ContactInfo& c = g_replist[i];
+      int32_t lat = c.gps_lat ? c.gps_lat : h.gps_lat, lon = c.gps_lon ? c.gps_lon : h.gps_lon;
+      g_sig[g_sig_n].idx = (uint16_t)i; g_sig[g_sig_n].rssi = h.rssi;
+      g_sig[g_sig_n].dist_m = sig_distance_m(lat, lon);
+      g_sig_n++;
     }
   }
-  qsort(g_sig, g_sig_n, sizeof(g_sig[0]), cmp_sig_rssi);
+  qsort(g_sig, g_sig_n, sizeof(g_sig[0]),
+        g_sig_sort == 1 ? cmp_sig_dist : g_sig_sort == 2 ? cmp_sig_name : cmp_sig_rssi);
+}
+// trend vs the RSSI recorded at the previous refresh (>=3 dB deadband), then update
+static int sig_trend_update(const uint8_t* pk6, int rssi) {
+  SigHist* e = NULL;
+  for (int k = 0; k < g_sig_hist_n; k++) if (memcmp(g_sig_hist[k].pk6, pk6, 6) == 0) { e = &g_sig_hist[k]; break; }
+  int trend = 0;
+  if (e && e->valid) { int d = rssi - e->rssi; trend = d >= 3 ? 1 : d <= -3 ? -1 : 0; }
+  if (!e && g_sig_hist_n < REPLIST_MAX) { e = &g_sig_hist[g_sig_hist_n++]; memcpy(e->pk6, pk6, 6); }
+  if (e) { e->rssi = (int8_t)rssi; e->valid = true; }
+  return trend;
 }
 extern "C" int lvd_signal_count(void) { sig_build(); return g_sig_n; }
 extern "C" bool lvd_signal_get(int i, lvd_sig_t* out) {
@@ -2175,7 +2216,30 @@ extern "C" bool lvd_signal_get(int i, lvd_sig_t* out) {
   find_heard_by_pubkey(c.id.pub_key, h);   // present (filtered in sig_build)
   out->rssi = h.rssi; out->heard = 1;
   int v10 = h.snr_q * 10 / 4, a = v10 < 0 ? -v10 : v10;
-  snprintf(out->info, sizeof(out->info), "%d dBm   SNR %s%d.%d dB", h.rssi, v10 < 0 ? "-" : "", a / 10, a % 10);
+  // link margin: SNR above the SF demod floor (Semtech, x10 dB), like the analyzer
+  int sf = the_mesh.getNodePrefs()->sf;
+  static const int LIMIT_X10[] = { -75, -100, -125, -150, -175, -200 };  // SF7..SF12
+  if (sf >= 7 && sf <= 12) {
+    int m10 = (h.snr_q * 10 / 4) - LIMIT_X10[sf - 7], ma = m10 < 0 ? -m10 : m10;
+    snprintf(out->info, sizeof(out->info), "%d dBm   SNR %s%d.%d dB   %s%d.%d dB margin",
+             h.rssi, v10 < 0 ? "-" : "", a / 10, a % 10, m10 < 0 ? "-" : "+", ma / 10, ma % 10);
+  } else {
+    snprintf(out->info, sizeof(out->info), "%d dBm   SNR %s%d.%d dB", h.rssi, v10 < 0 ? "-" : "", a / 10, a % 10);
+  }
+
+  // route (direct vs relayed) + distance/bearing
+  char rt[16];
+  if (h.path_len == 0)      snprintf(rt, sizeof(rt), "direct");
+  else if (h.path_len == 1) snprintf(rt, sizeof(rt), "1 hop");
+  else                      snprintf(rt, sizeof(rt), "%u hops", h.path_len);
+  int32_t lat = c.gps_lat ? c.gps_lat : h.gps_lat, lon = c.gps_lon ? c.gps_lon : h.gps_lon;
+  char db[12];
+  if (fmt_distance(lat, lon, db, sizeof(db))) {
+    const char* brg = heard_bearing(lat, lon);
+    snprintf(out->sub, sizeof(out->sub), "%s \xC2\xB7 %s%s%s", rt, db, brg[0] ? " " : "", brg);
+  } else snprintf(out->sub, sizeof(out->sub), "%s", rt);
+
+  out->trend = sig_trend_update(c.id.pub_key, h.rssi);
 
   uint32_t now = rtc_clock.getCurrentTime();
   uint32_t age = now > h.recv_timestamp ? now - h.recv_timestamp : 0;

@@ -84,12 +84,12 @@ static void sig_clicked(lv_event_t* e) {
 static void coverage_row(lv_obj_t* list, const lvd_sig_t* r, int idx) {
   lv_obj_t* row = lv_ui_card(list, -1, 0, 0, 60);
   lv_obj_set_width(row, lv_pct(100));
-  lv_obj_set_height(row, 58);
+  lv_obj_set_height(row, 76);
   lv_obj_set_style_min_height(row, 0, 0);
   lv_obj_set_style_pad_hor(row, 10, 0);
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-  lv_obj_set_style_pad_row(row, 4, 0);
+  lv_obj_set_style_pad_row(row, 3, 0);
   lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);                     // tap -> peer/contact card
   lv_obj_add_event_cb(row, sig_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
   lv_ui_press_fx(row);
@@ -100,7 +100,9 @@ static void coverage_row(lv_obj_t* list, const lvd_sig_t* r, int idx) {
   lv_obj_set_style_bg_opa(head, 0, 0); lv_obj_set_style_border_width(head, 0, 0);
   lv_obj_set_style_pad_all(head, 0, 0);
   lv_obj_t* nm = lv_label_create(head);
-  lv_label_set_text(nm, r->name);
+  // RSSI trend arrow (rising/falling as you move); flat = no glyph
+  const char* tr = r->trend > 0 ? "  " LV_SYMBOL_UP : r->trend < 0 ? "  " LV_SYMBOL_DOWN : "";
+  lv_label_set_text_fmt(nm, "%s%s", r->name, tr);
   lv_obj_set_style_text_font(nm, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(nm, lv_color_hex(r->heard ? UI_TEXT : UI_MUTED), 0);
   lv_obj_align(nm, LV_ALIGN_LEFT_MID, 0, 0);
@@ -110,11 +112,17 @@ static void coverage_row(lv_obj_t* list, const lvd_sig_t* r, int idx) {
   lv_obj_set_style_text_color(ag, lv_color_hex(UI_MUTED), 0);
   lv_obj_align(ag, LV_ALIGN_RIGHT_MID, 0, 0);
 
-  // RSSI · SNR line (the bar is RSSI-based; SNR shown for link quality)
+  // RSSI · SNR · link-margin line
   lv_obj_t* info = lv_label_create(row);
   lv_label_set_text(info, r->info);
   lv_obj_set_style_text_font(info, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(info, lv_color_hex(MD_MUTED), 0);
+
+  // route (direct/relayed) + distance/bearing
+  lv_obj_t* sub = lv_label_create(row);
+  lv_label_set_text(sub, r->sub);
+  lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(sub, lv_color_hex(MD_PRIMARY), 0);
 
   int pct = r->heard ? (r->rssi + 120) * 100 / 70 : 0;   // -120..-50 -> 0..100
   if (pct < 0) pct = 0; if (pct > 100) pct = 100;
@@ -149,10 +157,40 @@ static void sig_tick(void) {
   if (n != s_sig_last || (++s_sig_ticks % 5) == 0) { lv_obj_clean(s_sig_list); sig_fill(s_sig_list); }
 }
 
+// header sort toggle: cycle Signal -> Distance -> Name and rebuild
+static void sig_sort_clicked(lv_event_t* e) {
+  (void)e;
+  lvd_signal_set_sort((lvd_signal_sort() + 1) % 3);
+  if (lv_nav_cb) lv_nav_cb("signal");
+}
+
 void lv_signal_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
   lv_ui_md_topbar(scr, "Signal");
-  s_sig_list = full_list(scr);
+
+  lv_obj_t* chip = lv_ui_card(scr, 320 - 122, 38, 114, 26);
+  lv_obj_set_style_pad_all(chip, 0, 0); lv_obj_set_style_radius(chip, 13, 0);
+  lv_obj_set_style_bg_color(chip, lv_color_hex(MD_PRIMARY), 0); lv_obj_set_style_bg_opa(chip, 40, 0);
+  lv_obj_set_style_border_color(chip, lv_color_hex(MD_PRIMARY), 0); lv_obj_set_style_border_opa(chip, 200, 0);
+  lv_obj_set_style_border_width(chip, 1, 0);
+  lv_obj_add_flag(chip, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(chip, sig_sort_clicked, LV_EVENT_CLICKED, NULL);
+  lv_ui_press_fx(chip);
+  int sm = lvd_signal_sort();
+  lv_obj_t* cl = lv_label_create(chip);
+  lv_label_set_text(cl, sm == 1 ? LV_SYMBOL_GPS "  Distance" : sm == 2 ? LV_SYMBOL_LIST "  Name" : LV_SYMBOL_UP "  Signal");
+  lv_obj_set_style_text_font(cl, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(cl, lv_color_hex(MD_ON), 0);
+  lv_obj_center(cl);
+
+  s_sig_list = lv_obj_create(scr);
+  lv_obj_set_pos(s_sig_list, 4, 70);
+  lv_obj_set_size(s_sig_list, 320 - 8, 240 - 70 - 4);
+  lv_obj_set_style_bg_opa(s_sig_list, 0, 0);
+  lv_obj_set_style_border_width(s_sig_list, 0, 0);
+  lv_obj_set_style_pad_all(s_sig_list, 2, 0);
+  lv_obj_set_flex_flow(s_sig_list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(s_sig_list, 6, 0);
   s_sig_ticks = 0;
   sig_fill(s_sig_list);
   lv_ui_set_refresh(sig_tick);

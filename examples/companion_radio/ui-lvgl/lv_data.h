@@ -252,12 +252,17 @@ void        lvd_dm_open(int i);                                    // make DM i 
 typedef struct {
   char name[32];
   int  rssi;        // dBm (drives the bar)
-  char info[28];    // "-78 dBm   SNR 9.0 dB"
+  char info[48];    // "-78 dBm   SNR 9.0 dB   +24 dB margin"
+  char sub[40];     // "direct - 4.2 km NE" (route + distance/bearing)
   char age[12];     // "12s" / "2m"
   int  heard;       // 1 if recently heard
+  int  trend;       // RSSI trend since last refresh: -1 down, 0 flat, 1 up
 } lvd_sig_t;
 int  lvd_signal_count(void);
 bool lvd_signal_get(int i, lvd_sig_t* out);
+// sort order: 0 = signal (default), 1 = distance, 2 = name
+void lvd_signal_set_sort(int mode);
+int  lvd_signal_sort(void);
 
 #ifdef __cplusplus
 }
