@@ -103,17 +103,22 @@ Delivered alongside M3 to host the diagnostic tiles:
 ## M5 — Remote infrastructure / repeater management  🟡 (core done)
 - ✅ **Remote login** (password) to repeaters/rooms → pull **stats** (parsed RepeaterStats:
   battery, uptime, airtime tx/rx, packet counts, noise, RSSI/SNR, errors) via
-  `uiLogin`/`uiRequestStatus` + new `onLoginResult`/`onStatusResponse` hooks.
-- ✅ **Repeater scanner + whitelist** — Saved | Scan tabs; heard-but-unsaved nodes
-  (new candidate cache) can be added; favourite flag = whitelist star.
+  `uiLogin`/`uiRequestStatus` + new `onLoginResult`/`onStatusResponse` hooks. Login
+  remembers a **per-repeater password** (persisted) for silent auto-login, and
+  auto-fetches status on success.
+- ✅ **Admin lives on the contact** — the standalone Repeaters section was retired;
+  repeater/room management is reached from the node's peer card (**Manage**), and
+  discovery of new nodes is handled by the Discover screen (not a separate Scan tab).
 - ✅ **Remote triggers** — send `advert` / `clock sync` CLI commands over the air; the
   repeater's CLI reply is surfaced (`onCommandReply`).
 - ⏳ Remote neighbour-list view (repeaters don't return neighbours in the status blob;
   would need a dedicated request).
 
 ## M6 — Terminal & system
-- ⏳ **On-device terminal** — multi-colour MeshCore CLI client (run `advert`, `sd ls`,
-  inspect packet stream); builds on the existing CLI-rescue path + `onCommandDataRecv`.
+- ✅ **On-device terminal** — the repeater/room **Console** (reached from a node's
+  peer card → Manage): a scrollback console with an inline prompt that stays open,
+  streaming remote CLI replies (`uiSendCommand` + `onCommandReply`). Login uses a
+  **remembered per-repeater password** (silent auto-login + auto status fetch).
 - ⏳ **Notifications** — alerts, optional audio tones (boards with a buzzer), and
   configurable screen-wake / backlight-dim rules (extend the auto-off logic).
 - ⏳ **Fast boot** — trim the cold-boot path (MeshOS targets ~4 s).

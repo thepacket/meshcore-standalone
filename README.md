@@ -32,26 +32,51 @@ Built for an Android-app-quality look (black theme, per-feature colour-coded ico
 chips, charts/gauges, real widgets). Live on-device:
 
 - **Home** — colour icon-grid launcher; live status bar (RX/RE/TX/CT counters,
-  clock, battery); a **live RF signal scope** (instantaneous channel RSSI) that
-  taps through to a full-screen scope with a max-scale slider
-- **Chat** — Public channel **and** direct messages (send + live receive), speech bubbles
-- **Contacts** — live contact list with name search (space-separated OR tokens)
-- **Channels** — manage group channels: list, view/share a channel's key as a
-  QR, and add (join or create) by name + key
-- **Heard** — recently-heard stations with SNR/RSSI/age, auto-refreshing
-- **Discover / Tools** — active node discovery (paced zero-hop `NODE_DISCOVER_REQ`,
-  auto-repeated every 60s; responders auto-added as contacts) plus zero-hop /
-  flood self-advert actions
-- **Stats** — rolling noise-floor chart, last RSSI/SNR, packet counters, battery/uptime
-- **Packet monitor** — live decoded RX feed; tap a packet for the full breakdown + raw hex; path search
-- **Signal** — per-repeater coverage (RSSI bar + SNR), strongest first, stale hidden
-- **Settings** — every companion config field, editable **and persisted** (incl.
-  radio params); on-screen-keyboard toggle
-- **Repeaters** — Saved/Scan list + detail with remote login, live status, and a CLI console
-- **Trace** — build a path through chosen repeaters and trace it, with a 10s
-  timeout and friendly per-hop names + SNR
+  clock, battery); live RF signal scope + free-RAM/flash hero cards; unread
+  badge on the Chat tile
+- **Chat** — Public channel **and** direct messages (send + live receive), speech
+  bubbles; **emergency position share** (confirm-guarded) to a channel
+- **Contacts** — live contact list with name search (space-separated OR tokens),
+  favourites filter, type pills
+- **Channels** — manage group channels: list, view/share a channel's key as a QR,
+  and add (join or create) by name + key — including **hashtag channels**
+  (`#name` derives the key from `sha256`, matching the phone clients)
+- **Heard** — recently-heard stations with SNR/RSSI, age, **distance + bearing**,
+  **direct-vs-routed + hop count**, node-type colour, a saved-contact tick, and a
+  Recent/Signal sort toggle; tap a row for its peer card
+- **Discover** — active node discovery (paced zero-hop `NODE_DISCOVER_REQ`, auto
+  every 60s + **Scan now**) with a live countdown + neighbour summary; rows show
+  signal dot, age, RSSI, distance/bearing and a "new this scan" flag, and tap
+  through to the peer card. Auto-add of responders is a Settings toggle.
+- **Stats** — rolling noise-floor **and battery-trend** charts, last RSSI/SNR,
+  packet counters + **loss rate** + decoded **radio-error flags**, **memory**
+  (RAM/flash) and **mesh inventory** (contacts/channels), battery/uptime, and a
+  **Reset counters** button
+- **Packet monitor** — live decoded RX feed with a deep per-packet breakdown:
+  advert name/type/**position/clock-skew**, trace per-hop SNRs, dest/src and
+  channel-name resolution, **plaintext decrypt for channels you hold**, airtime,
+  link margin, sender frequency error, rebroadcast counting and "ACK for our
+  message"; raw hex, path search, and **capture export to USB serial**
+- **Signal** — per-repeater coverage: RSSI bar + SNR + **link margin**,
+  direct-vs-routed, distance/bearing, an **RSSI trend arrow** for walk-testing,
+  and a Signal/Distance/Name sort toggle; tap a row for its peer card
+- **Settings** — every companion config field, editable **and persisted**: radio
+  params + **region presets**, RX-boosted-gain and **hardware CAD** toggles,
+  telemetry modes, GPS + **time sources / GPS clock sync**, manual clock set,
+  **factory reset** (confirm-guarded), config/app-data/packet **export to serial**,
+  contacts + BLE-pin info, and the on-screen-keyboard toggle
+- **Trace** — build a path through chosen repeaters **or trace a saved contact
+  over its learned path**; result shows a summary (hops · **RTT** · weakest link),
+  per-hop SNR bars, a bottleneck flag, and a **Repeat** button; live elapsed timer
+  and a path-length-adaptive timeout
 - **Peer details** — tap a contact for type/path/RSSI/SNR/distance/last-heard/
-  location/public key, plus Share / Reset-path / Export (QR) / Remove actions
+  location/public key, plus Share / Reset-path / Export (QR) / Remove, **remote
+  Telemetry**, one-tap **Trace**, **Add-contact** (for heard-only nodes), and
+  **Manage** for repeaters/rooms
+- **Repeater admin** — reached from a repeater/room's peer card (**Manage**):
+  remote login with a **remembered per-repeater password** (silent auto-login +
+  auto status fetch), live parsed status, and a real **Console** terminal
+  (scrollback + inline prompt) for remote CLI
 - **Input & feedback** — physical keyboard typing into focused fields; press
   feedback + confirmation toasts on every action
 
