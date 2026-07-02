@@ -102,10 +102,11 @@ static const Field F_CHANNELS[] = {
   {"Add channel",  F_ACTION, NULL, 0},
 };
 static const Field F_DATA[] = {
-  {"Export config",   F_ACTION, NULL, 0},   // dump config as text to USB serial
-  {"Import config",   F_INFO, "via companion app (USB)", 0},  // reading Serial would fight the frame protocol
-  {"Export app data", F_ACTION, NULL, 0},   // contacts + channels backup to USB serial
-  {"Export packets",  F_ACTION, NULL, 0},   // packet-capture ring dump to USB serial
+  {"Backup config",    F_ACTION, NULL, 0},   // config -> /meshcore/config.txt on SD
+  {"Restore config",   F_ACTION, NULL, 0},   // config <- SD
+  {"Backup contacts",  F_ACTION, NULL, 0},   // contacts + channels -> /meshcore/appdata.txt on SD
+  {"Restore contacts", F_ACTION, NULL, 0},   // contacts + channels <- SD
+  {"Export packets",   F_ACTION, NULL, 0},   // packet-capture ring dump to USB serial
   {"Debug logs",      F_INFO,   "USB serial", 0},   // where MESH_DEBUG output goes (build-flag gated)
 };
 

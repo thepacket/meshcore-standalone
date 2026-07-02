@@ -49,3 +49,22 @@ mesh::LocalIdentity radio_new_identity();
 // flush). See target.cpp -- the radio (SPI2) and LovyanGFX display (SPI3) share
 // the physical SCLK/MOSI pins on the T-Deck.
 void radio_spi_claim();
+
+// ---- microSD (read + write) ------------------------------------------------
+// The card sits on the same SPI2 bus as the radio (CS=39). Each helper mounts on
+// demand (read/write), does its work, then re-claims the bus for the radio.
+// Returns false / -1 when no card is present. Used by the Files browser and by
+// features that persist data to the card (message history, exports, map tiles).
+#ifndef P_SDCARD_CS
+  #define P_SDCARD_CS 39
+#endif
+struct SdEntry { char name[64]; bool is_dir; uint32_t size; };
+bool     tdeck_sd_ok();                                        // card mounted & usable
+uint64_t tdeck_sd_bytes(uint64_t* used_out);                   // total bytes (fills used); 0 if none
+int      tdeck_sd_list(const char* path, SdEntry* out, int max);  // dir entries; -1 if no card
+// write helpers (RW): return false on failure / no card
+bool     tdeck_sd_write(const char* path, const uint8_t* data, size_t len, bool append);
+bool     tdeck_sd_mkdir(const char* path);
+bool     tdeck_sd_remove(const char* path);                    // file or empty dir
+int      tdeck_sd_read(const char* path, uint8_t* buf, int max);  // bytes read, -1 on error
+bool     tdeck_sd_format();                                    // reformat as FAT32 (destructive!)

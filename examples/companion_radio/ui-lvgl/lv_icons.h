@@ -17,6 +17,7 @@ extern const lv_font_t icons_fa;  // 22px icon font
 #define ICON_TERMINAL   "\xEF\x84\xA0"
 #define ICON_PACKETS    "\xEF\x9B\xBF"   // fa-network-wired (U+F6FF)
 #define ICON_CHANNELS   "\xEF\x8A\x92"   // fa-hashtag (U+F292)
+#define ICON_FILES      "\xEF\x81\xBB"   // fa-folder (U+F07B)
 #define ICON_ANGLES_UP   "\xEF\x84\x82"  // fa-angles-up (U+F102) -- jump to top
 #define ICON_ANGLES_DOWN "\xEF\x84\x83"  // fa-angles-down (U+F103) -- jump to bottom
 #define ICON_NOISE      "\xEF\xA0\xBE"

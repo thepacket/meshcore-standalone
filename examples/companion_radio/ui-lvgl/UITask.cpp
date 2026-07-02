@@ -67,6 +67,7 @@ extern "C" {
   void lv_stats_create(lv_obj_t* scr);
   void lv_discover_create(lv_obj_t* scr);
   void lv_disc_create(lv_obj_t* scr);
+  void lv_files_create(lv_obj_t* scr);
   void lv_contacts_create(lv_obj_t* scr);
   void lv_contact_search_create(lv_obj_t* scr);
 }
@@ -115,6 +116,7 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "stats")) lv_stats_create(s);
   else if (!strcmp(name, "discover")) lv_discover_create(s);
   else if (!strcmp(name, "disc")) lv_disc_create(s);
+  else if (!strcmp(name, "files")) lv_files_create(s);
   else lv_home_create(s);
 }
 
@@ -600,6 +602,155 @@ extern "C" void lvd_osk_set(bool on) {
   Preferences p; p.begin("ui", false); p.putBool("osk", on); p.end();
 }
 
+// ---- microSD browser bridge (wraps the target's shared-bus SD helpers) ------
+extern "C" int lvd_sd_available(void) { return tdeck_sd_ok() ? 1 : 0; }
+extern "C" int lvd_sd_list(const char* path, lvd_sd_t* out, int max) {
+  static SdEntry ent[64];
+  if (max > 64) max = 64;
+  int n = tdeck_sd_list(path, ent, max);
+  for (int i = 0; i < n; i++) {
+    strncpy(out[i].name, ent[i].name, sizeof(out[i].name) - 1); out[i].name[sizeof(out[i].name) - 1] = 0;
+    out[i].is_dir = ent[i].is_dir ? 1 : 0;
+    out[i].size = ent[i].size;
+  }
+  return n;
+}
+extern "C" void lvd_sd_usage(char* out, int len) {
+  uint64_t used = 0, total = tdeck_sd_bytes(&used);
+  if (total == 0) { strncpy(out, "no card", len - 1); out[len - 1] = 0; return; }
+  double gt = total / 1073741824.0, gu = used / 1073741824.0;
+  if (gt >= 1.0) snprintf(out, len, "%.1f / %.1f GB used", gu, gt);
+  else           snprintf(out, len, "%.0f / %.0f MB used", used / 1048576.0, total / 1048576.0);
+}
+extern "C" int lvd_sd_remove(const char* path) { return tdeck_sd_remove(path) ? 1 : 0; }
+extern "C" int lvd_sd_format(void) { return tdeck_sd_format() ? 1 : 0; }   // reformat FAT32 (destructive)
+
+// ---- SD backup / restore (config + contacts/channels) ----------------------
+#define SD_CONFIG_PATH  "/meshcore/config.txt"
+#define SD_APPDATA_PATH "/meshcore/appdata.txt"
+
+static bool data_backup_config(void) {
+  if (!tdeck_sd_ok()) return false;
+  tdeck_sd_mkdir("/meshcore");
+  NodePrefs* p = the_mesh.getNodePrefs();
+  char b[1400]; int k = 0;
+  k += snprintf(b + k, sizeof(b) - k, "# meshcore config backup v1\nname=%s\n", p->node_name);
+  k += snprintf(b + k, sizeof(b) - k, "freq=%.3f\nbw=%.2f\nsf=%u\ncr=%u\ntx_power=%d\n", p->freq, p->bw, p->sf, p->cr, p->tx_power_dbm);
+  k += snprintf(b + k, sizeof(b) - k, "client_repeat=%u\nrx_boosted_gain=%u\ncad=%u\n", p->client_repeat, p->rx_boosted_gain, p->cad_enabled);
+  k += snprintf(b + k, sizeof(b) - k, "airtime_factor=%.2f\nrx_delay_base=%.0f\n", p->airtime_factor, p->rx_delay_base);
+  k += snprintf(b + k, sizeof(b) - k, "multi_acks=%u\npath_hash_mode=%u\n", p->multi_acks, p->path_hash_mode);
+  k += snprintf(b + k, sizeof(b) - k, "manual_add=%u\nautoadd_config=%u\nautoadd_max_hops=%u\n", p->manual_add_contacts, p->autoadd_config, p->autoadd_max_hops);
+  k += snprintf(b + k, sizeof(b) - k, "telemetry_base=%u\ntelemetry_loc=%u\ntelemetry_env=%u\n", p->telemetry_mode_base, p->telemetry_mode_loc, p->telemetry_mode_env);
+  k += snprintf(b + k, sizeof(b) - k, "loc_policy=%u\nlat=%.6f\nlon=%.6f\n", p->advert_loc_policy, sensors.node_lat, sensors.node_lon);
+  k += snprintf(b + k, sizeof(b) - k, "gps=%u\ngps_interval=%u\ntime_sync_gps=%u\n", p->gps_enabled, (unsigned)p->gps_interval, p->time_sync_gps);
+  k += snprintf(b + k, sizeof(b) - k, "buzzer_quiet=%u\ndisc_autoadd=%u\nble_pin=%u\n", p->buzzer_quiet, p->disc_autoadd, (unsigned)p->ble_pin);
+  return tdeck_sd_write(SD_CONFIG_PATH, (const uint8_t*)b, k, false);
+}
+static bool data_restore_config(void) {
+  if (!tdeck_sd_ok()) return false;
+  char* buf = (char*)malloc(8192);
+  if (!buf) return false;
+  int n = tdeck_sd_read(SD_CONFIG_PATH, (uint8_t*)buf, 8191);
+  if (n <= 0) { free(buf); return false; }
+  buf[n] = 0;
+  NodePrefs* p = the_mesh.getNodePrefs();
+  float freq = p->freq, bw = p->bw; int sf = p->sf, cr = p->cr, repeat = p->client_repeat;
+  int tb = p->telemetry_mode_base, tl = p->telemetry_mode_loc, te = p->telemetry_mode_env;
+  double lat = sensors.node_lat, lon = sensors.node_lon; bool have_loc = false;
+  for (char* line = strtok(buf, "\r\n"); line; line = strtok(NULL, "\r\n")) {
+    char* eq = strchr(line, '='); if (!eq || line[0] == '#') continue;
+    *eq = 0; const char* key = line; const char* v = eq + 1;
+    if      (!strcmp(key, "name"))            the_mesh.setAdvertName(v);
+    else if (!strcmp(key, "freq"))            freq = atof(v);
+    else if (!strcmp(key, "bw"))              bw = atof(v);
+    else if (!strcmp(key, "sf"))              sf = atoi(v);
+    else if (!strcmp(key, "cr"))              cr = atoi(v);
+    else if (!strcmp(key, "client_repeat"))   repeat = atoi(v);
+    else if (!strcmp(key, "tx_power"))        the_mesh.setTxPower(atoi(v));
+    else if (!strcmp(key, "rx_boosted_gain")) the_mesh.setRxBoostedGain(atoi(v));
+    else if (!strcmp(key, "cad"))             the_mesh.setCADEnabled(atoi(v));
+    else if (!strcmp(key, "airtime_factor"))  the_mesh.setTuningParams(p->rx_delay_base, atof(v));
+    else if (!strcmp(key, "rx_delay_base"))   the_mesh.setTuningParams(atof(v), p->airtime_factor);
+    else if (!strcmp(key, "multi_acks"))      the_mesh.setMultiAcks(atoi(v));
+    else if (!strcmp(key, "path_hash_mode"))  the_mesh.setPathHashMode(atoi(v));
+    else if (!strcmp(key, "manual_add"))      the_mesh.setManualAdd(atoi(v));
+    else if (!strcmp(key, "autoadd_config"))  the_mesh.setAutoAddConfig(atoi(v));
+    else if (!strcmp(key, "autoadd_max_hops")) the_mesh.setMaxHops(atoi(v));
+    else if (!strcmp(key, "telemetry_base"))  tb = atoi(v);
+    else if (!strcmp(key, "telemetry_loc"))   tl = atoi(v);
+    else if (!strcmp(key, "telemetry_env"))   te = atoi(v);
+    else if (!strcmp(key, "loc_policy"))      the_mesh.setAdvertLocPolicy(atoi(v));
+    else if (!strcmp(key, "lat"))             { lat = atof(v); have_loc = true; }
+    else if (!strcmp(key, "lon"))             { lon = atof(v); have_loc = true; }
+    else if (!strcmp(key, "buzzer_quiet"))    the_mesh.setBuzzerQuiet(atoi(v));
+    else if (!strcmp(key, "disc_autoadd"))    the_mesh.setDiscAutoAdd(atoi(v));
+    else if (!strcmp(key, "ble_pin"))         the_mesh.setBlePin((uint32_t)strtoul(v, NULL, 10));
+#if ENV_INCLUDE_GPS == 1
+    else if (!strcmp(key, "gps"))             the_mesh.setGpsEnabled(atoi(v));
+    else if (!strcmp(key, "gps_interval"))    the_mesh.setGpsInterval((uint32_t)atoi(v));
+    else if (!strcmp(key, "time_sync_gps"))   the_mesh.setTimeSyncFromGps(atoi(v));
+#endif
+  }
+  apply_radio(freq, bw, sf, cr, repeat);
+  the_mesh.setTelemetryModes(tb, tl, te);
+  if (have_loc) the_mesh.setAdvertLatLon((int32_t)(lat * 1e6), (int32_t)(lon * 1e6));
+  free(buf);
+  return true;
+}
+static int hex_to_bytes(const char* s, uint8_t* out, int max) {
+  int n = 0;
+  while (s[0] && s[1] && n < max) {
+    auto hv = [](char c) -> int { return (c >= '0' && c <= '9') ? c - '0' :
+                                         (c >= 'a' && c <= 'f') ? c - 'a' + 10 :
+                                         (c >= 'A' && c <= 'F') ? c - 'A' + 10 : -1; };
+    int hi = hv(s[0]), lo = hv(s[1]); if (hi < 0 || lo < 0) break;
+    out[n++] = (uint8_t)((hi << 4) | lo); s += 2;
+  }
+  return n;
+}
+static bool data_backup_appdata(void) {
+  if (!tdeck_sd_ok()) return false;
+  tdeck_sd_mkdir("/meshcore");
+  const char* hdr = "# meshcore appdata backup v1\n[contacts]\n";
+  if (!tdeck_sd_write(SD_APPDATA_PATH, (const uint8_t*)hdr, strlen(hdr), false)) return false;
+  for (int i = MAX_ANON_CONTACTS, tot = the_mesh.getTotalContactSlots(); i < tot; i++) {
+    ContactInfo c;
+    if (!the_mesh.getContactByIdx((uint32_t)i, c) || c.type == ADV_TYPE_NONE || !c.name[0]) continue;
+    uint8_t blob[256]; int bn = the_mesh.uiExportContact(c.id.pub_key, blob, sizeof(blob));
+    if (bn <= 0) continue;
+    char line[560]; int k = 0;
+    for (int j = 0; j < bn && k < (int)sizeof(line) - 3; j++) k += snprintf(line + k, sizeof(line) - k, "%02X", blob[j]);
+    k += snprintf(line + k, sizeof(line) - k, "\n");
+    tdeck_sd_write(SD_APPDATA_PATH, (const uint8_t*)line, k, true);
+  }
+  tdeck_sd_write(SD_APPDATA_PATH, (const uint8_t*)"[channels]\n", 11, true);
+  for (int i = 0, cn = lvd_chan_count(); i < cn; i++) {
+    lvd_chan_t ch;
+    if (!lvd_chan_get(i, &ch)) continue;
+    char line[128]; int k = snprintf(line, sizeof(line), "%s\t%s\n", ch.name, lvd_chan_psk(i));
+    tdeck_sd_write(SD_APPDATA_PATH, (const uint8_t*)line, k, true);
+  }
+  return true;
+}
+static bool data_restore_appdata(void) {
+  if (!tdeck_sd_ok()) return false;
+  char* buf = (char*)malloc(32768);
+  if (!buf) return false;
+  int n = tdeck_sd_read(SD_APPDATA_PATH, (uint8_t*)buf, 32767);
+  if (n <= 0) { free(buf); return false; }
+  buf[n] = 0;
+  int section = 0;   // 1 contacts, 2 channels
+  for (char* line = strtok(buf, "\r\n"); line; line = strtok(NULL, "\r\n")) {
+    if      (!strcmp(line, "[contacts]")) section = 1;
+    else if (!strcmp(line, "[channels]")) section = 2;
+    else if (line[0] == '#' || !line[0])  continue;
+    else if (section == 1) { uint8_t blob[256]; int bn = hex_to_bytes(line, blob, sizeof(blob)); if (bn > 0) the_mesh.importContact(blob, (uint8_t)bn); }
+    else if (section == 2) { char* tab = strchr(line, '\t'); if (tab) { *tab = 0; the_mesh.uiAddChannel(line, tab + 1); } }
+  }
+  free(buf);
+  return true;
+}
+
 // auto-add bitmask bit for a Contacts toggle label (0 if not an auto-add field)
 static uint8_t autoadd_bit(const char* label) {
   if (eq(label, "Overwrite oldest"))   return 0x01;
@@ -778,45 +929,12 @@ extern "C" void lvd_cfg_action(const char* group, const char* label) {
   } else if (eq(group, "Data")) {
     // One-way text dumps to USB serial. Safe alongside the companion frame
     // protocol (we only WRITE; reading Serial here would steal frame bytes).
-    if (eq(label, "Export config")) {
-      NodePrefs* p = the_mesh.getNodePrefs();
-      Serial.println("\n=== meshcore config v1 ===");
-      Serial.printf("name=%s\n", p->node_name);
-      Serial.printf("radio=%.3f,%.2f,%u,%u\n", p->freq, p->bw, p->sf, p->cr);
-      Serial.printf("tx_power=%d\n", p->tx_power_dbm);
-      Serial.printf("client_repeat=%u  rx_boosted_gain=%u  cad=%u\n",
-                    p->client_repeat, p->rx_boosted_gain, p->cad_enabled);
-      Serial.printf("airtime_factor=%.2f  rx_delay_base=%.0f\n", p->airtime_factor, p->rx_delay_base);
-      Serial.printf("multi_acks=%u  path_hash_mode=%u\n", p->multi_acks, p->path_hash_mode);
-      Serial.printf("manual_add=%u  autoadd_config=0x%02X  autoadd_max_hops=%u\n",
-                    p->manual_add_contacts, p->autoadd_config, p->autoadd_max_hops);
-      Serial.printf("telemetry=%u,%u,%u\n", p->telemetry_mode_base, p->telemetry_mode_loc, p->telemetry_mode_env);
-      Serial.printf("loc_policy=%u  lat=%.4f  lon=%.4f\n", p->advert_loc_policy, sensors.node_lat, sensors.node_lon);
-      Serial.printf("gps=%u  gps_interval=%u  time_sync_gps=%u\n", p->gps_enabled, (unsigned)p->gps_interval, p->time_sync_gps);
-      Serial.printf("time_sources=%s|%s|%s\n", p->time_source[0], p->time_source[1], p->time_source[2]);
-      Serial.printf("default_scope=%s\n", p->default_scope_name);
-      Serial.println("=== end config ===");
-      return;
-    }
-    if (eq(label, "Export app data")) {
-      Serial.println("\n=== meshcore app data v1 ===");
-      Serial.printf("[contacts] %d\n", the_mesh.getNumContacts());
-      for (int i = MAX_ANON_CONTACTS, tot = the_mesh.getTotalContactSlots(); i < tot; i++) {
-        ContactInfo c;
-        if (!the_mesh.getContactByIdx((uint32_t)i, c)) continue;
-        char hex[65];
-        mesh::Utils::toHex(hex, c.id.pub_key, PUB_KEY_SIZE);
-        Serial.printf("contact=%s  type=%u  pubkey=%s\n", c.name, c.type, hex);
-      }
-      Serial.printf("[channels]\n");
-      for (int i = 0; i < lvd_chan_count(); i++) {
-        lvd_chan_t ch;
-        if (lvd_chan_get(i, &ch)) Serial.printf("channel=%s  psk=%s\n", ch.name, lvd_chan_psk(i));
-      }
-      Serial.println("=== end app data ===");
-      return;
-    }
-    if (eq(label, "Export packets")) { ui_dump_packet_ring(); return; }   // defined after the ring
+    // SD backup / restore (paths under /meshcore on the card)
+    if (eq(label, "Backup config"))    { lv_ui_toast(data_backup_config()  ? "Config saved to SD"  : "Backup failed (no card?)");  return; }
+    if (eq(label, "Restore config"))   { lv_ui_toast(data_restore_config() ? "Config restored"      : "Restore failed (no file?)"); return; }
+    if (eq(label, "Backup contacts"))  { lv_ui_toast(data_backup_appdata()  ? "Contacts + channels saved"    : "Backup failed (no card?)");  return; }
+    if (eq(label, "Restore contacts")) { lv_ui_toast(data_restore_appdata() ? "Contacts + channels restored" : "Restore failed (no file?)"); return; }
+    if (eq(label, "Export packets")) { ui_dump_packet_ring(); return; }   // serial (defined after the ring)
   }
 }
 

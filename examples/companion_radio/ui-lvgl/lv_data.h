@@ -68,6 +68,14 @@ void lvd_cfg_action(const char* group, const char* label);
 bool lvd_osk_enabled(void);
 void lvd_osk_set(bool on);
 
+// ---- microSD file browser (read + write) -----------------------------------
+typedef struct { char name[64]; int is_dir; unsigned long size; } lvd_sd_t;
+int  lvd_sd_available(void);                            // 1 if a card is mounted
+int  lvd_sd_list(const char* path, lvd_sd_t* out, int max);  // dir entries; -1 if no card
+void lvd_sd_usage(char* out, int len);                 // "used / total" summary
+int  lvd_sd_remove(const char* path);                  // delete a file/empty dir; 1 on success
+int  lvd_sd_format(void);                              // reformat the card as FAT32 (destructive!); 1 on success
+
 // ---- statistics (Stats screen) ---------------------------------------------
 typedef struct {
   int      noise_floor;            // current noise floor, dBm (0 = unknown)
