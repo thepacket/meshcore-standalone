@@ -154,9 +154,20 @@ void lv_chan_detail_create(lv_obj_t* scr) {
 // ============================ add channel ============================
 // Two fields (name + key). The key is pre-filled with a fresh random base64 key
 // so creating a new channel is one step; to join, paste the shared key instead.
-// Typed via the physical keyboard (tap a field to focus it); Create on tap.
+// Names starting with '#' are hashtag channels: the key is derived from the
+// name (first 16 bytes of sha256), so everyone typing "#topic" gets the same
+// channel. Typed via the physical keyboard (tap a field to focus it).
 static lv_obj_t* s_name_ta = NULL;
 static lv_obj_t* s_psk_ta  = NULL;
+static char s_rand_psk[50];   // the random-key preset, restored when name isn't a '#hashtag'
+
+static void name_changed(lv_event_t* e) {
+  (void)e;
+  if (!s_name_ta || !s_psk_ta) return;
+  const char* nm = lv_textarea_get_text(s_name_ta);
+  if (nm && nm[0] == '#' && nm[1]) lv_textarea_set_text(s_psk_ta, lvd_chan_hashtag_psk(nm));
+  else lv_textarea_set_text(s_psk_ta, s_rand_psk);
+}
 
 static lv_obj_t* add_field(lv_obj_t* scr, int y, const char* placeholder, const char* preset) {
   lv_obj_t* ta = lv_textarea_create(scr);
@@ -189,15 +200,18 @@ void lv_chan_add_create(lv_obj_t* scr) {
   lv_obj_set_style_text_font(nlbl, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(nlbl, lv_color_hex(MD_MUTED), 0);
   lv_obj_set_pos(nlbl, 10, 40);
-  s_name_ta = add_field(scr, 56, "Channel name", NULL);
+  s_name_ta = add_field(scr, 56, "Channel name (#name = public hashtag)", NULL);
+  lv_obj_add_event_cb(s_name_ta, name_changed, LV_EVENT_VALUE_CHANGED, NULL);
 
   lv_obj_t* klbl = lv_label_create(scr);
-  lv_label_set_text(klbl, "Key (base64) - random by default; paste a shared key to join");
+  lv_label_set_text(klbl, "Key (base64) - random by default; paste a shared key to join. '#name' derives it from the name");
   lv_label_set_long_mode(klbl, LV_LABEL_LONG_WRAP); lv_obj_set_width(klbl, 320 - 20);
   lv_obj_set_style_text_font(klbl, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(klbl, lv_color_hex(MD_MUTED), 0);
   lv_obj_set_pos(klbl, 10, 98);
-  s_psk_ta = add_field(scr, 130, "Key (base64)", lvd_chan_new_psk());
+  strncpy(s_rand_psk, lvd_chan_new_psk(), sizeof(s_rand_psk) - 1);
+  s_rand_psk[sizeof(s_rand_psk) - 1] = 0;
+  s_psk_ta = add_field(scr, 130, "Key (base64)", s_rand_psk);
 
   lv_obj_t* mk = lv_ui_card(scr, 8, 176, 320 - 16, 38);
   lv_obj_set_style_pad_all(mk, 0, 0); lv_obj_set_style_radius(mk, 10, 0);

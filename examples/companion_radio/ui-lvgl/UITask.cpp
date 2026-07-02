@@ -1035,6 +1035,13 @@ extern "C" const char* lvd_chan_new_psk(void) {  // a fresh random 128-bit key (
   b64_encode(key, 16, b64);
   return b64;
 }
+extern "C" const char* lvd_chan_hashtag_psk(const char* name) {  // hashtag channel key: first 16 bytes of sha256(name)
+  static char b64[50];
+  uint8_t key[16];
+  mesh::Utils::sha256(key, sizeof(key), (const uint8_t*)name, strlen(name));
+  b64_encode(key, 16, b64);
+  return b64;
+}
 
 // ---- chat store (Public channel + DMs) -------------------------------------
 #define MSG_LOG 32
