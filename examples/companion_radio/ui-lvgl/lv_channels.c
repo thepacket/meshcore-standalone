@@ -42,12 +42,6 @@ static void chan_row(lv_obj_t* list, int i, const lvd_chan_t* c) {
   lv_obj_add_event_cb(row, chan_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)i);
   lv_ui_press_fx(row);
 
-  lv_obj_t* ic = lv_label_create(row);
-  lv_label_set_text(ic, ICON_CHANNELS);
-  lv_obj_set_style_text_font(ic, &icons_fa, 0);
-  lv_obj_set_style_text_color(ic, lv_color_hex(c->is_public ? UI_CYAN : UI_PURPLE), 0);
-  lv_obj_set_style_margin_right(ic, 14, 0);
-
   lv_obj_t* mid = lv_obj_create(row);
   lv_obj_remove_flag(mid, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(mid, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_style_bg_opa(mid, 0, 0); lv_obj_set_style_border_width(mid, 0, 0);
