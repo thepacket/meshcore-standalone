@@ -218,8 +218,10 @@ void lv_chat_list_create(lv_obj_t* scr) {
 // =============================================================================
 // Conversation
 // =============================================================================
+static void bubble_long_pressed(lv_event_t* e);   // defined below (message action sheet)
+
 static void add_bubble(lv_obj_t* scroll, const char* sender, const char* text,
-                       bool outgoing, const char* status) {
+                       bool outgoing, const char* status, int idx) {
   lv_obj_t* row = lv_obj_create(scroll);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_width(row, lv_pct(100));
@@ -254,6 +256,9 @@ static void add_bubble(lv_obj_t* scroll, const char* sender, const char* text,
     lv_obj_add_event_cb(bub, peer_clicked, LV_EVENT_CLICKED, (void*)(sender ? sender : "Peer"));
     lv_ui_press_fx(bub);
   }
+  // long-press any bubble for message actions (Resend a failed DM / Delete)
+  lv_obj_add_flag(bub, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(bub, bubble_long_pressed, LV_EVENT_LONG_PRESSED, (void*)(intptr_t)idx);
   if (!outgoing && sender) {
     lv_obj_t* s = lv_label_create(bub);
     lv_label_set_text(s, sender);
@@ -281,6 +286,55 @@ static void add_bubble(lv_obj_t* scroll, const char* sender, const char* text,
 // ---- live Public conversation ----------------------------------------------
 static lv_obj_t* s_conv_scroll = NULL;
 static unsigned  s_conv_last = 0;
+static void conv_fill(lv_obj_t* scroll);   // fwd
+
+// ---- message action sheet (long-press a bubble): Resend / Delete ------------
+static void conv_refresh(void) { if (s_conv_scroll) { lv_obj_clean(s_conv_scroll); conv_fill(s_conv_scroll); } }
+static void msg_modal_close(lv_event_t* e) { lv_obj_del((lv_obj_t*)lv_event_get_user_data(e)); }
+static void msg_resend(lv_event_t* e) {
+  lvd_chat_resend((int)(intptr_t)lv_obj_get_user_data(lv_event_get_target(e)));
+  lv_obj_del((lv_obj_t*)lv_obj_get_parent(lv_obj_get_parent(lv_event_get_target(e))));  // overlay
+  conv_refresh();
+}
+static void msg_delete(lv_event_t* e) {
+  lvd_chat_delete((int)(intptr_t)lv_obj_get_user_data(lv_event_get_target(e)));
+  lv_obj_del((lv_obj_t*)lv_obj_get_parent(lv_obj_get_parent(lv_event_get_target(e))));  // overlay
+  conv_refresh();
+}
+static void bubble_long_pressed(lv_event_t* e) {
+  int idx = (int)(intptr_t)lv_event_get_user_data(e);
+  lvd_msg_t m; if (!lvd_chat_get(idx, &m)) return;
+
+  lv_obj_t* ov = lv_obj_create(lv_screen_active());
+  lv_obj_set_size(ov, 320, 240); lv_obj_set_pos(ov, 0, 0);
+  lv_obj_set_style_bg_color(ov, lv_color_hex(0x000000), 0); lv_obj_set_style_bg_opa(ov, 150, 0);
+  lv_obj_set_style_border_width(ov, 0, 0);
+  lv_obj_add_flag(ov, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(ov, msg_modal_close, LV_EVENT_CLICKED, ov);   // tap outside dismisses
+
+  lv_obj_t* card = lv_obj_create(ov);
+  int rows = 1 + (m.can_resend ? 1 : 0);
+  lv_obj_set_size(card, 220, 24 + rows * 44); lv_obj_center(card);
+  lv_obj_set_style_bg_color(card, lv_color_hex(0x18202c), 0);
+  lv_obj_set_style_border_width(card, 0, 0); lv_obj_set_style_radius(card, 12, 0);
+  lv_obj_set_flex_flow(card, LV_FLEX_FLOW_COLUMN); lv_obj_set_style_pad_all(card, 10, 0);
+  lv_obj_set_style_pad_row(card, 8, 0);
+
+  if (m.can_resend) {
+    lv_obj_t* b = lv_button_create(card);
+    lv_obj_set_width(b, lv_pct(100)); lv_obj_set_height(b, 36);
+    lv_obj_set_style_bg_color(b, lv_color_hex(UI_BLUE), 0);
+    lv_obj_set_user_data(b, (void*)(intptr_t)idx);
+    lv_obj_add_event_cb(b, msg_resend, LV_EVENT_CLICKED, NULL);
+    lv_obj_t* l = lv_label_create(b); lv_label_set_text(l, LV_SYMBOL_REFRESH "  Resend"); lv_obj_center(l);
+  }
+  lv_obj_t* d = lv_button_create(card);
+  lv_obj_set_width(d, lv_pct(100)); lv_obj_set_height(d, 36);
+  lv_obj_set_style_bg_color(d, lv_color_hex(UI_RED), 0);
+  lv_obj_set_user_data(d, (void*)(intptr_t)idx);
+  lv_obj_add_event_cb(d, msg_delete, LV_EVENT_CLICKED, NULL);
+  lv_obj_t* dl = lv_label_create(d); lv_label_set_text(dl, LV_SYMBOL_TRASH "  Delete"); lv_obj_center(dl);
+}
 
 static void conv_fill(lv_obj_t* scroll) {
   s_conv_last = lvd_chat_total();
@@ -303,9 +357,12 @@ static void conv_fill(lv_obj_t* scroll) {
         if (m.time[0]) snprintf(foot, sizeof(foot), "%s  %s", m.time, g);
         else           snprintf(foot, sizeof(foot), "%s", g);
       } else {
-        snprintf(foot, sizeof(foot), "%s", m.time);
+        // incoming: route tag + time (e.g. "2 hops · 14:32")
+        if (m.route[0] && m.time[0]) snprintf(foot, sizeof(foot), "%s \xC2\xB7 %s", m.route, m.time);
+        else if (m.route[0])         snprintf(foot, sizeof(foot), "%s", m.route);
+        else                         snprintf(foot, sizeof(foot), "%s", m.time);
       }
-      add_bubble(scroll, m.sender[0] ? m.sender : NULL, m.text, m.outgoing != 0, foot);
+      add_bubble(scroll, m.sender[0] ? m.sender : NULL, m.text, m.outgoing != 0, foot, i);
     }
   lv_obj_scroll_to_view(lv_obj_get_child(scroll, -1), LV_ANIM_OFF);   // pin to newest
 }

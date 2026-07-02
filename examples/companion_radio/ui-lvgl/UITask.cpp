@@ -1507,10 +1507,12 @@ extern "C" const char* lvd_chan_hashtag_psk(const char* name) {  // hashtag chan
 }
 
 // ---- chat store (Public channel + DMs) -------------------------------------
-#define MSG_LOG 32
+#define MSG_LOG 64
 // state: 0 incoming, 1 sent (channel / no ack), 2 pending (DM awaiting ack), 3 delivered
 struct MsgRec { bool is_ch; int ch; uint8_t peer6[6]; char who[24]; char text[124]; bool out;
-                uint32_t ts; uint32_t ack; uint32_t sent_ms; uint8_t state; };
+                uint32_t ts; uint32_t ack; uint32_t sent_ms; uint8_t state;
+                uint8_t path_len;   // inbound route (encoded; 0xFF = direct/unknown)
+                bool deleted; };
 static MsgRec s_msg[MSG_LOG];
 static int s_msg_head = 0, s_msg_n = 0;
 static unsigned s_msg_total = 0;
@@ -1542,7 +1544,7 @@ static bool viewing_thread(bool is_ch, int ch, const uint8_t* peer6) {
   return !is_ch && peer6 && memcmp(peer6, s_conv_peer, 6) == 0;
 }
 
-void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who, const char* text, bool out) {
+void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who, const char* text, bool out, uint8_t path_len) {
   if (!out && !viewing_thread(is_ch, ch, peer6)) {   // unread unless already viewing this thread
     const char* cur = g_nav_sp > 0 ? g_nav_stack[g_nav_sp - 1] : "";
     if (strcmp(cur, "conv") != 0 && strcmp(cur, "chat") != 0) s_unread++;   // home-tile badge
@@ -1557,6 +1559,7 @@ void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who,
   m.ts = rtc_clock.getCurrentTime();
   m.ack = 0; m.sent_ms = millis();
   m.state = out ? 1 : 0;   // outgoing defaults to "sent"; DM upgraded to pending by lvd_chat_send
+  m.path_len = path_len; m.deleted = false;
   s_msg_head = (s_msg_head + 1) % MSG_LOG;
   if (s_msg_n < MSG_LOG) s_msg_n++;
   s_msg_total++;
@@ -1567,11 +1570,12 @@ static void fmt_hhmm(uint32_t e, char* out, int len);   // defined below
 // does message at ring index idx belong to the active conversation?
 static bool in_active_conv(int idx) {
   const MsgRec& m = s_msg[idx];
+  if (m.deleted) return false;
   if (s_conv_ch >= 0) return m.is_ch && m.ch == s_conv_ch;
   return !m.is_ch && memcmp(m.peer6, s_conv_peer, 6) == 0;
 }
 // also: does a message belong to the Public channel (for the list preview)?
-static bool is_public_msg(int idx) { return s_msg[idx].is_ch && s_msg[idx].ch == 0; }
+static bool is_public_msg(int idx) { return !s_msg[idx].deleted && s_msg[idx].is_ch && s_msg[idx].ch == 0; }
 
 static int nth_idx(int j, bool (*match)(int)) {
   int seen = 0;
@@ -1673,7 +1677,30 @@ extern "C" bool lvd_chat_get(int i, lvd_msg_t* out) {
   else if (m.state == 3) out->status = 3;
   else if (m.state == 2) out->status = (millis() - m.sent_ms > ACK_TIMEOUT_MS) ? 4 : 2;
   else                   out->status = 1;
+  out->can_resend = (out->status == 4 && !m.is_ch) ? 1 : 0;
+  // route tag: how an inbound message reached us (low 6 bits of path_len = hops)
+  out->route[0] = 0;
+  if (!m.out) {
+    int hops = (m.path_len == 0xFF) ? 0 : (m.path_len & 63);
+    if (hops <= 0)      snprintf(out->route, sizeof(out->route), "direct");
+    else if (hops == 1) snprintf(out->route, sizeof(out->route), "1 hop");
+    else                snprintf(out->route, sizeof(out->route), "%d hops", hops);
+  }
   return true;
+}
+// re-send message i's text into the active conversation (used for failed DMs)
+extern "C" void lvd_chat_resend(int i) {
+  int idx = nth_idx(i, in_active_conv);
+  if (idx < 0) return;
+  char text[124]; strncpy(text, s_msg[idx].text, sizeof(text) - 1); text[sizeof(text) - 1] = 0;
+  s_msg[idx].deleted = true;    // drop the failed copy; send creates a fresh one
+  lvd_chat_send(text);
+}
+extern "C" void lvd_chat_delete(int i) {
+  int idx = nth_idx(i, in_active_conv);
+  if (idx < 0) return;
+  s_msg[idx].deleted = true;
+  s_msg_total++;   // refresh
 }
 // true while any outbound DM in the active conversation is still awaiting an ack
 // (so the conversation keeps refreshing until it flips to delivered/failed)

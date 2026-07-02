@@ -146,6 +146,8 @@ typedef struct {
   int  outgoing;     // 1 = sent by us
   char time[8];      // "HH:MM" (or "" if clock unset)
   int  status;       // outgoing only: 0 none, 1 sent, 2 pending, 3 delivered, 4 failed
+  char route[16];    // incoming only: "direct" / "N hops" ("" for outgoing)
+  int  can_resend;   // 1 if this is a failed outbound DM (offer Resend)
 } lvd_msg_t;
 
 // The conversation screen shows one "active" conversation: a channel (Public or a
@@ -160,6 +162,8 @@ bool     lvd_chat_get(int i, lvd_msg_t* out);  // oldest..newest
 unsigned lvd_chat_total(void);                 // monotonic, for refresh detection
 int      lvd_chat_has_pending(void);           // 1 while an active-conv DM awaits its ack
 void     lvd_chat_send(const char* text);      // send to the active conversation
+void     lvd_chat_resend(int i);               // re-send message i's text (failed outbound DM)
+void     lvd_chat_delete(int i);               // remove message i from this conversation
 bool     lvd_chat_send_location(void);         // emergency position share (text); false if no position
 
 // ---- trace route -----------------------------------------------------------
