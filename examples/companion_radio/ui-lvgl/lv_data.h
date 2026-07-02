@@ -149,6 +149,7 @@ typedef struct {
   char snr[16];      // "+8.0 dB"
   int  quality;      // 0 = weak, 1 = ok, 2 = good (row colour)
   int  weakest;      // 1 if this is the weakest link on the path (bottleneck)
+  int  snr_pct;      // 0..100, SNR mapped to a bar length (-20..+10 dB)
 } lvd_hop_t;
 
 // build a path (chain of repeaters) then trace through it

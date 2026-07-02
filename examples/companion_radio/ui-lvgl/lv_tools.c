@@ -16,18 +16,34 @@ static lv_obj_t* full_list(lv_obj_t* scr, int top) {
 }
 
 // ============================ Trace route ============================
-static void hop_row(lv_obj_t* list, const char* left, const char* snr, uint32_t col) {
+// A hop card: top row is [name ... SNR pill], below it a mini SNR bar so the
+// path quality reads visually top-to-bottom.
+static void hop_row(lv_obj_t* list, const char* left, const char* snr, uint32_t col, int pct) {
   lv_obj_t* c = lv_ui_md_card(list);
-  lv_obj_set_width(c, lv_pct(100)); lv_obj_set_height(c, 36);
-  lv_obj_set_style_min_height(c, 0, 0); lv_obj_set_style_pad_hor(c, 12, 0); lv_obj_set_style_pad_ver(c, 0, 0);
-  lv_obj_set_flex_flow(c, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(c, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_t* l = lv_label_create(c);
+  lv_obj_set_width(c, lv_pct(100)); lv_obj_set_height(c, 50);
+  lv_obj_set_style_min_height(c, 0, 0); lv_obj_set_style_pad_hor(c, 12, 0); lv_obj_set_style_pad_ver(c, 6, 0);
+  lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(c, 5, 0);
+
+  lv_obj_t* top = lv_obj_create(c);
+  lv_obj_remove_flag(top, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(top, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_bg_opa(top, 0, 0); lv_obj_set_style_border_width(top, 0, 0); lv_obj_set_style_pad_all(top, 0, 0);
+  lv_obj_set_width(top, lv_pct(100)); lv_obj_set_height(top, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(top, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_t* l = lv_label_create(top);
   lv_label_set_text(l, left);
   lv_obj_set_style_text_font(l, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(l, lv_color_hex(UI_TEXT), 0);
-  lv_obj_t* p = lv_ui_pill(c, snr, col);
-  (void)p;
+  lv_ui_pill(top, snr, col);
+
+  lv_obj_t* bar = lv_bar_create(c);
+  lv_obj_set_width(bar, lv_pct(100)); lv_obj_set_height(bar, 6);
+  lv_obj_set_style_bg_color(bar, lv_color_hex(0x2a3343), LV_PART_MAIN);
+  lv_obj_set_style_bg_color(bar, lv_color_hex(col), LV_PART_INDICATOR);
+  lv_obj_set_style_radius(bar, 3, LV_PART_MAIN);
+  lv_obj_set_style_radius(bar, 3, LV_PART_INDICATOR);
+  lv_bar_set_value(bar, pct, LV_ANIM_OFF);
 }
 
 static unsigned s_trace_seq = 0;
@@ -123,8 +139,9 @@ static void trace_build(lv_obj_t* scr) {
         char left[52];
         if (hop.weakest) snprintf(left, sizeof(left), "%s  " LV_SYMBOL_WARNING, hop.left);  // bottleneck flag
         else             snprintf(left, sizeof(left), "%s", hop.left);
-        hop_row(list, left, hop.snr, hop.quality == 2 ? UI_GREEN : hop.quality == 1 ? UI_AMBER : UI_RED);
+        hop_row(list, left, hop.snr, hop.quality == 2 ? UI_GREEN : hop.quality == 1 ? UI_AMBER : UI_RED, hop.snr_pct);
       }
+    trace_note(list, "Each SNR is how well that node heard the previous hop (receive-side, one direction).");
     lv_obj_t* br = lv_obj_create(list);
     lv_obj_remove_flag(br, LV_OBJ_FLAG_SCROLLABLE);
     lv_obj_set_width(br, lv_pct(100)); lv_obj_set_height(br, 34);

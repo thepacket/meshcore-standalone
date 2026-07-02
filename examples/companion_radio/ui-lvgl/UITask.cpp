@@ -1685,6 +1685,8 @@ extern "C" bool        lvd_trace_get(int i, lvd_hop_t* out) {
   snprintf(out->snr, sizeof(out->snr), "%s%d.%d dB", v10 < 0 ? "-" : "+", a / 10, a % 10);
   out->quality = q >= 20 ? 2 : (q >= 0 ? 1 : 0);
   out->weakest = (i == trace_weakest_idx()) ? 1 : 0;
+  int pct = (v10 / 10 + 20) * 100 / 30;   // -20..+10 dB -> 0..100
+  out->snr_pct = pct < 0 ? 0 : (pct > 100 ? 100 : pct);
   return true;
 }
 extern "C" unsigned lvd_trace_elapsed_ms(void) {
