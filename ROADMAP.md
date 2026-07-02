@@ -119,12 +119,14 @@ Delivered alongside M3 to host the diagnostic tiles:
   peer card → Manage): a scrollback console with an inline prompt that stays open,
   streaming remote CLI replies (`uiSendCommand` + `onCommandReply`). Login uses a
   **remembered per-repeater password** (silent auto-login + auto status fetch).
-- 🟡 **Notifications** — ✅ **audio alerts on the T-Deck's I2S speaker**: a rising
+- ✅ **Notifications** — **audio alerts on the T-Deck's I2S speaker**: a rising
   two-note chirp for DMs, a single blip for channel/room messages, synthesized
   sine tones (per-chirp driver install, no RAM held between notifications), a
   **Low/Medium/High volume setting** (samples the level on change), all gated by
-  the **Buzzer quiet** toggle. ⏳ configurable screen-wake / backlight-dim rules
-  (extend the auto-off logic).
+  the **Buzzer quiet** toggle. Plus **backlight management**: a Brightness level
+  and an idle **backlight timeout** (15 s – 5 min) that turns the screen off;
+  touch or a key wakes it (the waking input is swallowed), and an **incoming
+  message wakes the screen** alongside its chirp. Reception continues while dark.
 - ⏳ **Fast boot** — trim the cold-boot path (MeshOS targets ~4 s).
 - ✅ **Security** — end-to-end encryption is inherent to the MeshCore stack.
 

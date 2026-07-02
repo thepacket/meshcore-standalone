@@ -149,6 +149,52 @@ static DisplayDriver* g_disp = nullptr;  // for getTouch
 
 static uint32_t tick_cb(void) { return millis(); }
 
+// ---- backlight management (brightness + idle screen-off) --------------------
+// Brightness levels and idle timeouts are UI-local prefs (NVS "ui"). After the
+// timeout with no touch/key input the backlight goes fully off; any touch or
+// key wakes it (that input is swallowed so it can't activate anything), and an
+// incoming message wakes it too (M6 screen-wake). LVGL keeps rendering while
+// dark -- only the PWM backlight is cut.
+static const uint8_t  BL_LEVELS[4]   = {50, 110, 180, 255};       // Low..Max
+static const uint16_t BL_TIMEOUTS[5] = {0, 15, 30, 60, 300};      // secs, 0 = never
+static int      s_bl_bright = 3, s_bl_to = 0;
+static bool     s_bl_loaded = false;
+static bool     s_screen_off = false;
+static uint32_t s_last_input = 0;
+
+static void bl_load(void) {
+  if (s_bl_loaded) return;
+  Preferences p; p.begin("ui", true);
+  s_bl_bright = p.getInt("blbr", 3);
+  s_bl_to     = p.getInt("blto", 0);
+  p.end();
+  if (s_bl_bright < 0 || s_bl_bright > 3) s_bl_bright = 3;
+  if (s_bl_to < 0 || s_bl_to > 4) s_bl_to = 0;
+  s_bl_loaded = true;
+}
+static void bl_save(void) {
+  Preferences p; p.begin("ui", false);
+  p.putInt("blbr", s_bl_bright); p.putInt("blto", s_bl_to);
+  p.end();
+}
+static void bl_apply(void) {
+  if (g_gfx) g_gfx->setBrightness(s_screen_off ? 0 : BL_LEVELS[s_bl_bright]);
+}
+
+// wake the screen + reset the idle timer (touch/key input, incoming message)
+void ui_screen_wake(void) {
+  s_last_input = millis();
+  if (s_screen_off) { s_screen_off = false; bl_apply(); }
+}
+static void bl_poll(void) {   // ~1/s from UITask::loop
+  bl_load();
+  if (!s_screen_off && s_bl_to > 0 &&
+      millis() - s_last_input > (uint32_t)BL_TIMEOUTS[s_bl_to] * 1000) {
+    s_screen_off = true;
+    bl_apply();
+  }
+}
+
 // Defined in the T-Deck target: re-asserts the shared SPI output pins for the
 // LoRa radio (SPI2) after the display (SPI3) has driven them during a flush.
 // Safe now that the display is on its own host -- this only resets SPI2.
@@ -174,12 +220,17 @@ static void flush_cb(lv_display_t* d, const lv_area_t* area, uint8_t* px_map) {
 
 static void touch_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
   (void)indev;
+  static bool swallow = false;   // eat the touch that woke the screen
   int x = 0, y = 0;
   if (g_disp && g_disp->getTouch(&x, &y)) {
+    if (s_screen_off) { ui_screen_wake(); swallow = true; }
+    else s_last_input = millis();
+    if (swallow) { data->state = LV_INDEV_STATE_RELEASED; return; }
     data->point.x = x;
     data->point.y = y;
     data->state = LV_INDEV_STATE_PRESSED;
   } else {
+    swallow = false;
     data->state = LV_INDEV_STATE_RELEASED;
   }
 }
@@ -200,7 +251,9 @@ static void kb_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
   (void)indev;
   static uint32_t held = 0;
   char c = tdeck_keyboard.read();
-  if (c) { held = kb_map((uint8_t)c); data->key = held; data->state = LV_INDEV_STATE_PRESSED; }
+  if (c && s_screen_off) { ui_screen_wake(); c = 0; }   // the waking key is swallowed
+  if (c) { s_last_input = millis();
+           held = kb_map((uint8_t)c); data->key = held; data->state = LV_INDEV_STATE_PRESSED; }
   else   {                            data->key = held; data->state = LV_INDEV_STATE_RELEASED; }
 }
 #endif
@@ -294,6 +347,10 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   // drive live screens: every 1s, call the active screen's refresh hook (if any)
   lv_timer_create(refresh_timer_cb, 1000, nullptr);
 
+  bl_load();                  // apply the persisted brightness + start the idle timer
+  s_last_input = millis();
+  bl_apply();
+
   _lvgl_ready = true;
 }
 
@@ -361,11 +418,13 @@ void UITask::loop() {
     radio_spi_claim();
   }
 
-  // Wi-Fi state machine (~1/s): connect/reconnect + NTP clock sync
+  // Wi-Fi state machine (~1/s): connect/reconnect + NTP clock sync;
+  // backlight idle timeout on the same cadence
   static uint32_t s_last_wifi = 0;
   if (lv_now - s_last_wifi >= 1000) {
     s_last_wifi = lv_now;
     ui_wifi_poll();
+    bl_poll();
   }
 }
 
@@ -1127,6 +1186,8 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
     if (eq(label, "On-screen keyboard")) { *sel = lvd_osk_enabled() ? 1 : 0; return true; }
     if (eq(label, "Buzzer quiet"))       { *sel = p->buzzer_quiet ? 1 : 0; return true; }
     if (eq(label, "Volume"))             { *sel = notify_volume(); return true; }
+    if (eq(label, "Brightness"))         { bl_load(); *sel = s_bl_bright; return true; }
+    if (eq(label, "Backlight timeout"))  { bl_load(); *sel = s_bl_to; return true; }
   }
   return false;
 }
@@ -1201,6 +1262,16 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
     if (eq(label, "On-screen keyboard")) { lvd_osk_set(sel != 0); return; }
     if (eq(label, "Buzzer quiet"))       { the_mesh.setBuzzerQuiet(sel != 0); return; }
     if (eq(label, "Volume"))             { notify_volume_set(sel); return; }   // plays a sample chirp
+    if (eq(label, "Brightness")) {
+      bl_load();
+      if (sel >= 0 && sel <= 3) { s_bl_bright = sel; bl_save(); bl_apply(); }  // applies immediately
+      return;
+    }
+    if (eq(label, "Backlight timeout")) {
+      bl_load();
+      if (sel >= 0 && sel <= 4) { s_bl_to = sel; bl_save(); s_last_input = millis(); }
+      return;
+    }
   }
 }
 
@@ -1971,6 +2042,7 @@ static bool viewing_thread(bool is_ch, int ch, const uint8_t* peer6) {
 
 void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who, const char* text, bool out, uint8_t path_len) {
   if (!s_msg) return;
+  if (!out) ui_screen_wake();   // incoming message lights the screen (M6 screen-wake)
   if (!out && !viewing_thread(is_ch, ch, peer6)) {   // unread unless already viewing this thread
     const char* cur = g_nav_sp > 0 ? g_nav_stack[g_nav_sp - 1] : "";
     if (strcmp(cur, "conv") != 0 && strcmp(cur, "chat") != 0) s_unread++;   // home-tile badge

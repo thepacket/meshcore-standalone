@@ -101,6 +101,8 @@ static const Field F_DEVICE[] = {
   {"On-screen keyboard", F_BOOL, NULL, 1},   // show the touch keyboard for text entry
   {"Buzzer quiet",    F_BOOL, NULL, 0},
   {"Volume",          F_ENUM, "Low\nMedium\nHigh", 1},   // notification chirps; samples on change
+  {"Brightness",      F_ENUM, "Low\nMedium\nHigh\nMax", 3},   // backlight level (applies live)
+  {"Backlight timeout", F_ENUM, "Never\n15 s\n30 s\n1 min\n5 min", 0},   // idle screen-off; touch/key/message wakes
   {"Battery/storage", F_INFO, "4050 mV  120/1536 KB", 0},
   {"Contacts",        F_INFO, "0 / 100 used", 0},
   {"Firmware",        F_INFO, "v1.16.0", 0},
@@ -138,7 +140,7 @@ static const Group GROUPS[] = {
   GRP("Data",        UI_EMERALD, ICON_TERMINAL,  F_DATA),
 };
 #define N_GROUPS  ((int)(sizeof(GROUPS) / sizeof(GROUPS[0])))
-#define MAX_FIELDS 9
+#define MAX_FIELDS 11
 static const char* SG_DEST[] = {"sg0","sg1","sg2","sg3","sg4","sg5","sg6","sg7","sg8","sg9","sg10","sg11","sg12"};
 
 // ---- mutable value overlay (prototype state; persists across navigation) ----

@@ -96,7 +96,9 @@ chips, charts/gauges, real widgets). Live on-device:
 - **Input & feedback** — physical keyboard typing into focused fields; press
   feedback + confirmation toasts on every action; **audio notifications** on the
   built-in speaker (distinct chirps for DMs vs channel messages, **Low/Med/High
-  volume** in Settings, silenced by the Buzzer-quiet toggle)
+  volume** in Settings, silenced by the Buzzer-quiet toggle); **backlight
+  management** (brightness levels + idle screen-off timeout — touch/key wakes,
+  and an incoming message lights the screen)
 
 See [ROADMAP.md](ROADMAP.md) for the full milestone map.
 
