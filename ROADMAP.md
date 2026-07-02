@@ -125,8 +125,15 @@ Delivered alongside M3 to host the diagnostic tiles:
 - ✅ **Security** — end-to-end encryption is inherent to the MeshCore stack.
 
 ## M7 — Persistence
-- ⏳ Optional **SD/flash storage** for message history, drafts, and last-heard, surviving
-  reboot — enhancement on top of the volatile baseline; gated by storage availability.
+- ✅ **microSD subsystem** — shared-SPI SD helpers on the T-Deck (mount on demand,
+  re-claim the radio bus after each access), read+write API, and on-device **FAT32
+  format** (FatFs `f_mkfs`). Surfaced as a **Files browser** home tile.
+- ✅ **SD backup/restore** — config (`/meshcore/config.txt`) and contacts+channels
+  (`/meshcore/appdata.txt`, full advert-card blobs + PSKs) round-trip with no
+  computer (restore via `importContact`/`uiAddChannel` + config setters).
+- ⏳ **Message history on SD** — persist DM/channel threads and reload on boot,
+  with a bounded render window + "load earlier" paging (keeps scrolling fast).
+  Builds on the volatile baseline + the new SD subsystem.
 
 ## M8 — Connectivity (advanced)
 - ⏳ **Unified transport image** (BLE + USB + Wi-Fi in one build) and optional **AirLink**

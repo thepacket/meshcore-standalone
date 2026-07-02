@@ -35,9 +35,13 @@ chips, charts/gauges, real widgets). Live on-device:
   clock, battery); live RF signal scope + free-RAM/flash hero cards; unread
   badge on the Chat tile
 - **Chat** — Public channel **and** direct messages (send + live receive), speech
-  bubbles; **emergency position share** (confirm-guarded) to a channel
+  bubbles with **timestamps**, per-message **delivery status** (sent → delivered
+  → failed), per-conversation **unread badges**, and an incoming **hop tag**
+  (direct / N hops). Long-press a message to **Resend** (failed) or **Delete**;
+  **emergency position share** (confirm-guarded) to a channel
 - **Contacts** — live contact list with name search (space-separated OR tokens),
-  favourites filter, type pills
+  a **node-type filter** (All / Chats / Repeaters / Rooms), favourites filter,
+  type pills
 - **Channels** — manage group channels: list, view/share a channel's key as a QR,
   and add (join or create) by name + key — including **hashtag channels**
   (`#name` derives the key from `sha256`, matching the phone clients)
@@ -63,8 +67,14 @@ chips, charts/gauges, real widgets). Live on-device:
 - **Settings** — every companion config field, editable **and persisted**: radio
   params + **region presets**, RX-boosted-gain and **hardware CAD** toggles,
   telemetry modes, GPS + **time sources / GPS clock sync**, manual clock set,
-  **factory reset** (confirm-guarded), config/app-data/packet **export to serial**,
-  contacts + BLE-pin info, and the on-screen-keyboard toggle
+  **factory reset** (confirm-guarded), **SD backup/restore of config and
+  contacts+channels** (+ packet export to serial), contacts + BLE-pin info, and
+  the on-screen-keyboard toggle
+- **Files** — a **microSD browser** (read + write): navigate folders, see sizes
+  and card usage, delete files, and **format the card as FAT32**. The card also
+  backs the SD backup/restore in Settings and is the store for future features
+  (message history, offline maps). Shares the radio's SPI bus, re-claiming it
+  after each access so RX/TX is undisturbed
 - **Trace** — build a path through chosen repeaters **or trace a saved contact
   over its learned path**; result shows a summary (hops · **RTT** · weakest link),
   per-hop SNR bars, a bottleneck flag, and a **Repeat** button; live elapsed timer
