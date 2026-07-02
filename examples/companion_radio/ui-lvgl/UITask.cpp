@@ -95,8 +95,8 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "noise")) lv_noise_create(s);
   else if (!strcmp(name, "signal")) lv_signal_create(s);
   else if (!strcmp(name, "heard")) lv_heard_create(s);
-  else if (!strcmp(name, "repeaters")) { lv_repeaters_set_tab(0); lv_repeaters_create(s); }
-  else if (!strcmp(name, "scan")) { lv_repeaters_set_tab(1); lv_repeaters_create(s); }
+  // "repeaters"/"scan" list section removed: repeaters are managed from their
+  // contact peer card (Manage -> repeater_detail). Detail/login/CLI screens kept.
   else if (!strcmp(name, "repeater_detail")) lv_repeater_detail_create(s);
   else if (!strcmp(name, "rep_login")) lv_rep_login_create(s);
   else if (!strcmp(name, "rep_cli")) lv_rep_cli_create(s);
@@ -1800,7 +1800,7 @@ static bool     s_rep_have_status = false;
 static uint8_t  s_rep_blob[80];
 static int      s_rep_blob_len = 0;
 static unsigned s_rep_seq = 0;
-#define CLI_LINES 10
+#define CLI_LINES 24
 static char     s_cli[CLI_LINES][84];
 static int      s_cli_n = 0;
 
@@ -1850,24 +1850,47 @@ extern "C" bool lvd_rep_get(int scan, int i, lvd_replist_t* out) {
   out->fav = 0;
   return true;
 }
-extern "C" void lvd_rep_open(int scan, int i) {
-  ContactInfo c;
-  if (!rep_nth(scan, i, c)) return;
+static void rep_set_active(const ContactInfo& c) {
   s_rep_active = true;
   memcpy(s_rep_peer, c.id.pub_key, 6);
   strncpy(s_rep_name, c.name, sizeof(s_rep_name) - 1); s_rep_name[sizeof(s_rep_name) - 1] = 0;
   s_rep_login = 0; s_rep_have_status = false; s_cli_n = 0;
   s_rep_seq++;
 }
+extern "C" void lvd_rep_open(int scan, int i) {
+  ContactInfo c;
+  if (rep_nth(scan, i, c)) rep_set_active(c);
+}
+// open the admin target straight from a contact (peer card). Returns 0 if the
+// contact is a repeater/room and was selected, 1 if not found, 2 if wrong type.
+extern "C" int lvd_rep_open_contact(const char* name) {
+  ContactInfo c;
+  if (!find_contact_by_name(name, c)) return 1;
+  if (!is_rep_type(c.type)) return 2;
+  rep_set_active(c);
+  return 0;
+}
 
 extern "C" const char* lvd_rep_name(void)        { return s_rep_name; }
 extern "C" int         lvd_rep_login_state(void) { return s_rep_login; }
+static char s_rep_pending_pw[16] = "";   // password of the in-flight login, saved on success
 extern "C" void        lvd_rep_login(const char* password) {
   if (!s_rep_active) return;
+  strncpy(s_rep_pending_pw, password ? password : "", sizeof(s_rep_pending_pw) - 1);
+  s_rep_pending_pw[sizeof(s_rep_pending_pw) - 1] = 0;
   uint32_t timeout;
   if (the_mesh.uiLogin(s_rep_peer, password ? password : "", timeout)) s_rep_login = 1;  // pending
   else s_rep_login = 3;
   s_rep_seq++;
+}
+// auto-login: if this repeater has a remembered password, log in with it (no keyboard).
+// Returns 1 if a login was started, 0 if nothing remembered.
+extern "C" int lvd_rep_login_remembered(void) {
+  if (!s_rep_active) return 0;
+  char pw[16];
+  if (!the_mesh.getRepPassword(s_rep_peer, pw, sizeof(pw))) return 0;
+  lvd_rep_login(pw);
+  return 1;
 }
 extern "C" void lvd_rep_request_status(void) {
   if (!s_rep_active) return;
@@ -1914,7 +1937,14 @@ extern "C" const char* lvd_rep_cli_line(int i)  { return (i >= 0 && i < s_cli_n)
 extern "C" unsigned    lvd_rep_seq(void)        { return s_rep_seq; }
 
 void ui_rep_on_login(const uint8_t* pk6, bool ok, uint8_t perms) {
-  if (s_rep_active && memcmp(pk6, s_rep_peer, 6) == 0) { s_rep_login = ok ? 2 : 3; s_rep_seq++; }
+  if (s_rep_active && memcmp(pk6, s_rep_peer, 6) == 0) {
+    s_rep_login = ok ? 2 : 3; s_rep_seq++;
+    if (ok) {
+      if (s_rep_pending_pw[0]) the_mesh.rememberRepPassword(pk6, s_rep_pending_pw);  // remember on success
+      uint32_t timeout; the_mesh.uiRequestStatus(s_rep_peer, timeout);   // auto-fetch status on login
+    }
+    s_rep_pending_pw[0] = 0;
+  }
 }
 void ui_rep_on_status(const uint8_t* pk6, const uint8_t* data, uint8_t len) {
   if (!s_rep_active || memcmp(pk6, s_rep_peer, 6) != 0) return;

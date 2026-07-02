@@ -191,10 +191,12 @@ typedef struct { char name[32]; char type[6]; int fav; } lvd_replist_t;
 int  lvd_rep_count(int scan);                       // scan: 0=saved repeaters/rooms, 1=heard
 bool lvd_rep_get(int scan, int i, lvd_replist_t* out);
 void lvd_rep_open(int scan, int i);                 // set the active repeater from the list
+int  lvd_rep_open_contact(const char* name);        // set active repeater from a contact; 0 ok, 1 not found, 2 not a repeater
 
 const char* lvd_rep_name(void);
 int  lvd_rep_login_state(void);                     // 0 none, 1 pending, 2 in, 3 failed
 void lvd_rep_login(const char* password);
+int  lvd_rep_login_remembered(void);                // auto-login with a saved password; 1 started, 0 none
 void lvd_rep_request_status(void);
 
 typedef struct {

@@ -103,6 +103,11 @@ static lv_obj_t* s_detail = NULL;
 static unsigned  s_detail_seq = 0;
 
 static void status_clicked(lv_event_t* e) { (void)e; lvd_rep_request_status(); }
+// Login: silently reuse a remembered password if we have one, else open the keyboard
+static void login_clicked(lv_event_t* e) {
+  (void)e;
+  if (!lvd_rep_login_remembered() && lv_nav_cb) lv_nav_cb("rep_login");
+}
 
 static lv_obj_t* act_btn(lv_obj_t* row, const char* txt, uint32_t color) {
   lv_obj_t* b = lv_ui_card(row, -1, 0, 0, 0);
@@ -151,9 +156,9 @@ static void detail_fill(lv_obj_t* list) {
   lv_obj_set_width(acts, lv_pct(100)); lv_obj_set_height(acts, 34);
   lv_obj_set_style_bg_opa(acts, 0, 0); lv_obj_set_style_border_width(acts, 0, 0); lv_obj_set_style_pad_all(acts, 0, 0);
   lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(acts, 5, 0);
-  lv_ui_clickable(act_btn(acts, "Login", UI_INDIGO), "rep_login");
+  lv_obj_add_event_cb(act_btn(acts, "Login", UI_INDIGO), login_clicked, LV_EVENT_CLICKED, NULL);
   lv_obj_add_event_cb(act_btn(acts, "Status", UI_BLUE), status_clicked, LV_EVENT_CLICKED, NULL);
-  lv_ui_clickable(act_btn(acts, "CLI", UI_AMBER), "rep_cli");
+  lv_ui_clickable(act_btn(acts, "Console", UI_AMBER), "rep_cli");
 
   // status stat cards
   lvd_repstat_t s; lvd_rep_status_get(&s);
@@ -250,4 +255,94 @@ static void kb_screen(lv_obj_t* scr, const char* title, const char* placeholder,
 }
 
 void lv_rep_login_create(lv_obj_t* scr) { kb_screen(scr, "Login", "Admin password", true, 0); }
-void lv_rep_cli_create(lv_obj_t* scr)   { kb_screen(scr, "CLI command", "e.g. status", false, 1); }
+
+// ---- CLI terminal: scrollback console + inline prompt (screen stays open) ----
+// Commands send on Enter; the screen persists and replies stream in as the async
+// cmd-reply hook bumps lvd_rep_seq. Prompt lines ("> cmd") are amber, replies plain.
+static lv_obj_t* s_cli_con = NULL;   // scrollback list
+static lv_obj_t* s_cli_in  = NULL;   // command input
+static unsigned  s_cli_seq = 0;
+
+static void cli_fill(void) {
+  if (!s_cli_con) return;
+  lv_obj_clean(s_cli_con);
+  int n = lvd_rep_cli_count();
+  if (n == 0) {
+    lv_obj_t* h = lv_label_create(s_cli_con);
+    lv_label_set_text(h, "Type a command below (e.g. status, ver, advert).");
+    lv_obj_set_style_text_font(h, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(h, lv_color_hex(MD_MUTED), 0);
+    return;
+  }
+  for (int i = 0; i < n; i++) {
+    const char* t = lvd_rep_cli_line(i);
+    lv_obj_t* l = lv_label_create(s_cli_con);
+    lv_label_set_text(l, t);
+    lv_label_set_long_mode(l, LV_LABEL_LONG_WRAP); lv_obj_set_width(l, lv_pct(100));
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(l, lv_color_hex(t[0] == '>' ? UI_AMBER : UI_TEXT), 0);  // prompt vs reply
+  }
+  lv_obj_scroll_to_view(lv_obj_get_child(s_cli_con, -1), LV_ANIM_OFF);   // pin to newest
+}
+
+static void cli_submit(lv_event_t* e) {
+  (void)e;
+  if (!s_cli_in) return;
+  const char* txt = lv_textarea_get_text(s_cli_in);
+  if (txt && txt[0]) {
+    lvd_rep_send_cmd(txt);          // echoes "> cmd"; reply arrives async
+    lv_textarea_set_text(s_cli_in, "");
+    cli_fill();
+    s_cli_seq = lvd_rep_seq();
+  }
+}
+
+// refill the console when new output arrives, without disturbing the input/keyboard
+static void cli_tick(void) {
+  if (s_cli_con && lvd_rep_seq() != s_cli_seq) { s_cli_seq = lvd_rep_seq(); cli_fill(); }
+}
+
+void lv_rep_cli_create(lv_obj_t* scr) {
+  lv_ui_screen_bg(scr);
+  char title[40]; snprintf(title, sizeof(title), "Console - %s", lvd_rep_name());
+  lv_ui_md_topbar(scr, title);
+
+  // terminal is physical-keyboard only (no on-screen keyboard), so the console
+  // gets the full height and the prompt sits at the very bottom.
+  int inH = 34;
+  int inY = 240 - inH - 2;
+
+  // scrollback console
+  s_cli_con = lv_obj_create(scr);
+  lv_obj_set_pos(s_cli_con, 4, 36);
+  lv_obj_set_size(s_cli_con, 320 - 8, inY - 36 - 4);
+  lv_obj_set_style_bg_color(s_cli_con, lv_color_hex(0x0e141c), 0);
+  lv_obj_set_style_border_color(s_cli_con, lv_color_hex(0x223046), 0);
+  lv_obj_set_style_border_width(s_cli_con, 1, 0);
+  lv_obj_set_style_radius(s_cli_con, 6, 0);
+  lv_obj_set_style_pad_all(s_cli_con, 8, 0);
+  lv_obj_set_flex_flow(s_cli_con, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(s_cli_con, 3, 0);
+  cli_fill();
+  s_cli_seq = lvd_rep_seq();
+
+  // input line: "$" prompt + one-line field
+  lv_obj_t* prompt = lv_label_create(scr);
+  lv_label_set_text(prompt, "$");
+  lv_obj_set_style_text_font(prompt, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_color(prompt, lv_color_hex(UI_GREEN), 0);
+  lv_obj_set_pos(prompt, 8, inY + 7);
+
+  s_cli_in = lv_textarea_create(scr);
+  lv_textarea_set_one_line(s_cli_in, true);
+  lv_textarea_set_placeholder_text(s_cli_in, "command");
+  lv_obj_set_pos(s_cli_in, 24, inY); lv_obj_set_size(s_cli_in, 320 - 24 - 8, inH);
+  lv_obj_set_style_bg_color(s_cli_in, lv_color_hex(0x18202c), 0);
+  lv_obj_set_style_border_color(s_cli_in, lv_color_hex(MD_PRIMARY), 0);
+  lv_obj_set_style_border_width(s_cli_in, 1, 0);
+  lv_obj_set_style_text_color(s_cli_in, lv_color_hex(UI_TEXT), 0);
+  lv_obj_add_event_cb(s_cli_in, cli_submit, LV_EVENT_READY, NULL);   // physical Enter sends
+  lv_ui_kbd_focus(s_cli_in);   // route the T-Deck physical keyboard into the prompt
+
+  lv_ui_set_refresh(cli_tick);
+}

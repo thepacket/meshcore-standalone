@@ -25,6 +25,11 @@ static void op_trace(lv_event_t* e)  {
   if (r == 0) { if (lv_nav_cb) lv_nav_cb("trace"); }             // result shows on the Trace screen
   else lv_ui_toast(r == 2 ? "No routed path (direct or flood)" : "Trace failed");
 }
+// repeater/room admin (login / status / remote CLI) lives on the detail screen
+static void op_manage(lv_event_t* e) {
+  (void)e;
+  if (lvd_rep_open_contact(lv_chat_active_peer()) == 0 && lv_nav_cb) lv_nav_cb("repeater_detail");
+}
 static void op_reset(lv_event_t* e)  { (void)e; bool ok = lvd_peer_reset_path(lv_chat_active_peer()); lv_ui_toast(ok ? "Path reset" : "Reset failed");          lv_async_call(peer_rebuild_cb, NULL); }
 static void op_remove(lv_event_t* e) { (void)e; bool ok = lvd_peer_remove(lv_chat_active_peer());      lv_ui_toast(ok ? "Contact removed" : "Remove failed");    if (ok && lv_nav_cb) lv_nav_cb("back"); }
 static void op_export(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("peer_export"); }
@@ -226,6 +231,9 @@ void lv_peer_create(lv_obj_t* scr) {
     lv_obj_set_flex_flow(diag, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(diag, 5, 0);
     wire(act_btn(diag, NULL, "Telemetry", UI_AMBER,  NULL), op_telem);  // remote battery etc.
     wire(act_btn(diag, NULL, "Trace",     UI_PURPLE, NULL), op_trace);  // per-hop SNR over its path
+    // repeaters/rooms: remote login + status + CLI console (admin detail screen)
+    if (strcmp(p.type, "Repeater") == 0 || strcmp(p.type, "Room server") == 0)
+      wire(act_btn(diag, NULL, "Manage", UI_INDIGO, NULL), op_manage);
 
     // telemetry result / progress (rebuilt by peer_tick when the state changes)
     int ts = lvd_peer_telem_state(name);

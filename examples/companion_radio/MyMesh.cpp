@@ -553,6 +553,29 @@ bool MyMesh::uiRequestStatus(const uint8_t* pubkey6, uint32_t& est_timeout) {
   return true;
 }
 
+void MyMesh::rememberRepPassword(const uint8_t* pubkey6, const char* pw) {
+  if (!pw) return;
+  int slot = -1;
+  for (int i = 0; i < _prefs.rep_pw_n; i++)
+    if (memcmp(_prefs.rep_pw[i].pk6, pubkey6, 6) == 0) { slot = i; break; }
+  if (slot < 0) {
+    if (_prefs.rep_pw_n < REP_PW_MAX) slot = _prefs.rep_pw_n++;
+    else { memmove(&_prefs.rep_pw[0], &_prefs.rep_pw[1], sizeof(_prefs.rep_pw[0]) * (REP_PW_MAX - 1));
+           slot = REP_PW_MAX - 1; }   // evict oldest (FIFO)
+  }
+  memcpy(_prefs.rep_pw[slot].pk6, pubkey6, 6);
+  strncpy(_prefs.rep_pw[slot].pw, pw, sizeof(_prefs.rep_pw[slot].pw) - 1);
+  _prefs.rep_pw[slot].pw[sizeof(_prefs.rep_pw[slot].pw) - 1] = 0;
+  savePrefs();
+}
+bool MyMesh::getRepPassword(const uint8_t* pubkey6, char* out, int len) {
+  for (int i = 0; i < _prefs.rep_pw_n; i++)
+    if (memcmp(_prefs.rep_pw[i].pk6, pubkey6, 6) == 0 && _prefs.rep_pw[i].pw[0]) {
+      strncpy(out, _prefs.rep_pw[i].pw, len - 1); out[len - 1] = 0; return true;
+    }
+  return false;
+}
+
 bool MyMesh::uiRequestTelemetry(const uint8_t* pubkey6, uint32_t& est_timeout) {
   ContactInfo* c = lookupContactByPubKey(pubkey6, 6);
   if (!c) return false;

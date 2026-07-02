@@ -126,6 +126,8 @@ public:
   bool uiLogin(const uint8_t* pubkey6, const char* password, uint32_t& est_timeout);
   bool uiRequestStatus(const uint8_t* pubkey6, uint32_t& est_timeout);
   bool uiRequestTelemetry(const uint8_t* pubkey6, uint32_t& est_timeout);  // LPP reply via onTelemetryResponse
+  void rememberRepPassword(const uint8_t* pubkey6, const char* pw);   // upsert + persist (per repeater)
+  bool getRepPassword(const uint8_t* pubkey6, char* out, int len);    // true if one is remembered
   bool uiSendCommand(const uint8_t* pubkey6, const char* cmd, uint32_t& est_timeout);
   bool setContactFavourite(const uint8_t* pubkey6, bool fav);
   // Recently-heard nodes NOT yet saved as contacts (for the scanner). Returns count.
