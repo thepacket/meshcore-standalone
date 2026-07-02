@@ -1610,7 +1610,9 @@ static unsigned s_tr_seq = 0;
 static uint8_t  s_tpath[TRACE_MAX];
 static int      s_tpath_n = 0;
 static uint32_t s_tr_sent_ms = 0;        // when the in-flight trace was sent
-#define TRACE_TIMEOUT_MS 10000
+static uint32_t s_tr_rtt_ms = 0;         // round-trip time of the last completed trace
+// timeout scales with path length: base + per-hop (long flood-returns are slow)
+#define TRACE_TIMEOUT_MS (6000 + 3000 * s_tpath_n)
 
 void ui_store_trace(uint32_t tag, const uint8_t* hashes, const uint8_t* snrs,
                     uint8_t path_len, uint8_t path_sz, int8_t final_snr_q) {
@@ -1620,8 +1622,17 @@ void ui_store_trace(uint32_t tag, const uint8_t* hashes, const uint8_t* snrs,
   s_tr_hops = n;
   for (int i = 0; i < n; i++) { s_tr_hash[i] = hashes[i]; s_tr_snr[i] = snrs[i]; }
   s_tr_final = final_snr_q;
+  s_tr_rtt_ms = millis() - s_tr_sent_ms;
   s_tr_state = 2;
   s_tr_seq++;
+}
+
+// index (0..hops) of the weakest SNR across the whole path (incl. final "to you")
+static int trace_weakest_idx(void) {
+  int wi = 0; int8_t w = 127;
+  for (int i = 0; i < s_tr_hops; i++) if (s_tr_snr[i] < w) { w = s_tr_snr[i]; wi = i; }
+  if (s_tr_final < w) wi = s_tr_hops;
+  return wi;
 }
 
 // ---- trace path builder ----
@@ -1673,7 +1684,26 @@ extern "C" bool        lvd_trace_get(int i, lvd_hop_t* out) {
   int v10 = q * 10 / 4, a = v10 < 0 ? -v10 : v10;
   snprintf(out->snr, sizeof(out->snr), "%s%d.%d dB", v10 < 0 ? "-" : "+", a / 10, a % 10);
   out->quality = q >= 20 ? 2 : (q >= 0 ? 1 : 0);
+  out->weakest = (i == trace_weakest_idx()) ? 1 : 0;
   return true;
+}
+extern "C" unsigned lvd_trace_elapsed_ms(void) {
+  return (s_tr_state == 1) ? (millis() - s_tr_sent_ms) : 0;
+}
+extern "C" const char* lvd_trace_summary(void) {
+  static char b[64];
+  if (s_tr_state != 2) { b[0] = 0; return b; }
+  int wi = trace_weakest_idx();
+  int8_t w = (wi < s_tr_hops) ? s_tr_snr[wi] : s_tr_final;
+  int v10 = w * 10 / 4, a = v10 < 0 ? -v10 : v10;
+  int total = s_tr_hops + 1;   // hops + final leg to us
+  if (s_tr_rtt_ms >= 1000)
+    snprintf(b, sizeof(b), "%d hop%s \xC2\xB7 RTT %.1f s \xC2\xB7 weakest %s%d.%d dB",
+             total, total == 1 ? "" : "s", s_tr_rtt_ms / 1000.0, v10 < 0 ? "-" : "+", a / 10, a % 10);
+  else
+    snprintf(b, sizeof(b), "%d hop%s \xC2\xB7 RTT %u ms \xC2\xB7 weakest %s%d.%d dB",
+             total, total == 1 ? "" : "s", (unsigned)s_tr_rtt_ms, v10 < 0 ? "-" : "+", a / 10, a % 10);
+  return b;
 }
 
 // ---- repeater / room admin -------------------------------------------------

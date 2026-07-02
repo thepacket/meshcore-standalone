@@ -49,6 +49,7 @@ static void trace_rebuild(void) { lv_async_call(trace_rebuild_cb, NULL); }
 static void tr_add_clicked(lv_event_t* e)  { lvd_trace_path_add((int)(intptr_t)lv_event_get_user_data(e)); trace_rebuild(); }
 static void tr_send_clicked(lv_event_t* e) { (void)e; lvd_trace_go();        trace_rebuild(); }
 static void tr_clear_clicked(lv_event_t* e){ (void)e; lvd_trace_path_clear(); trace_rebuild(); }
+static void tr_repeat_clicked(lv_event_t* e){ (void)e; lvd_trace_go();        trace_rebuild(); }  // re-run same path
 
 // repeater-name filter for the builder list (this screen only)
 static char s_tr_repfilter[24] = "";
@@ -97,8 +98,9 @@ static void trace_build(lv_obj_t* scr) {
   lv_obj_t* list = full_list(scr, 42);
   int st = lvd_trace_state();
 
-  if (st == 1) {   // tracing in progress
-    char b[100]; snprintf(b, sizeof(b), "Tracing %s ...", lvd_trace_path_str());
+  if (st == 1) {   // tracing in progress -- show a live elapsed counter
+    char b[110]; snprintf(b, sizeof(b), "Tracing %s ...  %.1f s",
+                          lvd_trace_path_str(), lvd_trace_elapsed_ms() / 1000.0);
     trace_note(list, b);
     return;
   }
@@ -108,12 +110,28 @@ static void trace_build(lv_obj_t* scr) {
     lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP); lv_obj_set_width(h, lv_pct(100));
     lv_obj_set_style_text_color(h, lv_color_hex(UI_AMBER), 0);
     lv_obj_set_style_text_font(h, &lv_font_montserrat_16, 0);
+    // summary line: hop count, round-trip time, weakest link
+    lv_obj_t* sm = lv_label_create(list);
+    lv_label_set_text(sm, lvd_trace_summary());
+    lv_label_set_long_mode(sm, LV_LABEL_LONG_WRAP); lv_obj_set_width(sm, lv_pct(100));
+    lv_obj_set_style_text_font(sm, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(sm, lv_color_hex(MD_MUTED), 0);
     int n = lvd_trace_count();
     lvd_hop_t hop;
     for (int i = 0; i < n; i++)
-      if (lvd_trace_get(i, &hop))
-        hop_row(list, hop.left, hop.snr, hop.quality == 2 ? UI_GREEN : hop.quality == 1 ? UI_AMBER : UI_RED);
-    lv_obj_add_event_cb(tr_btn(list, "New trace", UI_BLUE), tr_clear_clicked, LV_EVENT_CLICKED, NULL);
+      if (lvd_trace_get(i, &hop)) {
+        char left[52];
+        if (hop.weakest) snprintf(left, sizeof(left), "%s  " LV_SYMBOL_WARNING, hop.left);  // bottleneck flag
+        else             snprintf(left, sizeof(left), "%s", hop.left);
+        hop_row(list, left, hop.snr, hop.quality == 2 ? UI_GREEN : hop.quality == 1 ? UI_AMBER : UI_RED);
+      }
+    lv_obj_t* br = lv_obj_create(list);
+    lv_obj_remove_flag(br, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_width(br, lv_pct(100)); lv_obj_set_height(br, 34);
+    lv_obj_set_style_bg_opa(br, 0, 0); lv_obj_set_style_border_width(br, 0, 0); lv_obj_set_style_pad_all(br, 0, 0);
+    lv_obj_set_flex_flow(br, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(br, 6, 0);
+    lv_obj_add_event_cb(tr_btn(br, "Repeat", UI_GREEN), tr_repeat_clicked, LV_EVENT_CLICKED, NULL);
+    lv_obj_add_event_cb(tr_btn(br, "New trace", UI_BLUE), tr_clear_clicked, LV_EVENT_CLICKED, NULL);
     return;
   }
 
@@ -222,7 +240,10 @@ void lv_trace_rep_search_create(lv_obj_t* scr) {
 
 static void trace_tick(void) {
   lvd_trace_poll();   // time out a stuck trace
-  if (lvd_trace_seq() != s_trace_seq) { lv_obj_t* s = lv_screen_active(); lv_obj_clean(s); trace_build(s); }
+  // rebuild on any state change, and every tick while tracing so the elapsed timer ticks up
+  if (lvd_trace_seq() != s_trace_seq || lvd_trace_state() == 1) {
+    lv_obj_t* s = lv_screen_active(); lv_obj_clean(s); trace_build(s);
+  }
 }
 
 void lv_trace_create(lv_obj_t* scr) {

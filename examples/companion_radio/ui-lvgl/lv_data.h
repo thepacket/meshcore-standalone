@@ -148,6 +148,7 @@ typedef struct {
   char left[36];     // "1.  GW-Hertford" (friendly name) or "to you"
   char snr[16];      // "+8.0 dB"
   int  quality;      // 0 = weak, 1 = ok, 2 = good (row colour)
+  int  weakest;      // 1 if this is the weakest link on the path (bottleneck)
 } lvd_hop_t;
 
 // build a path (chain of repeaters) then trace through it
@@ -155,7 +156,7 @@ void        lvd_trace_path_clear(void);
 void        lvd_trace_path_add(int i);          // add saved repeater/room i (from lvd_rep_get(0,i))
 int         lvd_trace_path_len(void);
 const char* lvd_trace_path_str(void);           // "A > B" chain being built
-void        lvd_trace_go(void);                 // send the trace along the built path
+void        lvd_trace_go(void);                 // send the trace along the built path (also re-runs = Repeat)
 
 int         lvd_trace_state(void);    // 0 idle, 1 tracing, 2 done, 3 failed, 4 timed out
 const char* lvd_trace_target(void);
@@ -163,6 +164,8 @@ void        lvd_trace_poll(void);     // call ~1/s while tracing; flips to timed
 int         lvd_trace_count(void);    // hop rows (intermediate hops + final "to you")
 bool        lvd_trace_get(int i, lvd_hop_t* out);
 unsigned    lvd_trace_seq(void);      // monotonic, for refresh detection
+const char* lvd_trace_summary(void);  // result: "3 hops - RTT 1.4 s - weakest -3.0 dB"
+unsigned    lvd_trace_elapsed_ms(void); // ms since the in-flight trace was sent (live timer)
 
 // ---- repeater / room admin -------------------------------------------------
 typedef struct { char name[32]; char type[6]; int fav; } lvd_replist_t;
