@@ -79,7 +79,7 @@ static const Field F_SECURITY[] = {
   {"BLE pin", F_VAL, "123456", 0},
 };
 static const Field F_TIME[] = {
-  {"Set time now",   F_ACTION, NULL, 0},
+  {"Set time (UTC)",  F_VAL, "", 0},        // edit as "YYYY-MM-DD HH:MM" (or epoch secs)
   {"Sync from GPS",  F_BOOL, NULL, 1},      // when GPS has a fix, take time from it (highest priority)
   {"Time source 1",  F_VAL, "(none)", 0},   // else named repeaters used as clock references
   {"Time source 2",  F_VAL, "(none)", 0},
@@ -99,10 +99,10 @@ static const Field F_CHANNELS[] = {
   {"Add channel",  F_ACTION, NULL, 0},
 };
 static const Field F_DATA[] = {
-  {"Export config",   F_ACTION, NULL, 0},   // device config as JSON (CMD-driven)
-  {"Import config",   F_ACTION, NULL, 0},
-  {"Export app data", F_ACTION, NULL, 0},   // contacts + channels + messages backup
-  {"Debug logs",      F_INFO,   "tap to view", 0},
+  {"Export config",   F_ACTION, NULL, 0},   // dump config as text to USB serial
+  {"Import config",   F_INFO, "via companion app (USB)", 0},  // reading Serial would fight the frame protocol
+  {"Export app data", F_ACTION, NULL, 0},   // contacts + channels backup to USB serial
+  {"Debug logs",      F_INFO,   "USB serial", 0},   // where MESH_DEBUG output goes (build-flag gated)
 };
 
 #define GRP(t, col, ic, arr) {t, col, ic, arr, (int)(sizeof(arr)/sizeof(arr[0]))}
@@ -145,6 +145,7 @@ static bool field_numeric(const Field* f) {
   if (f->type != F_VAL) return false;
   if (strcmp(f->label, "Node name") == 0) return false;
   if (strncmp(f->label, "Time source", 11) == 0) return false;  // repeater names are text
+  if (strcmp(f->label, "Set time (UTC)") == 0) return false;    // "YYYY-MM-DD HH:MM" is text
   return true;
 }
 
@@ -223,9 +224,57 @@ static void on_edit_clicked(lv_event_t* e) {
   g_edit_g = ud >> 8; g_edit_f = ud & 0xff;
   if (lv_nav_cb) lv_nav_cb("edit");
 }
+// ---- factory reset confirm modal ---------------------------------------------
+static void fr_cancel(lv_event_t* e) {
+  lv_obj_del((lv_obj_t*)lv_event_get_user_data(e));   // the modal overlay
+}
+static void fr_confirm(lv_event_t* e) {
+  (void)e;
+  lv_ui_toast("Erasing...");
+  lvd_factory_reset();   // formats the FS then reboots; no coming back
+}
+static void confirm_factory_reset(void) {
+  lv_obj_t* m = lv_obj_create(lv_screen_active());    // dim overlay
+  lv_obj_set_size(m, 320, 240); lv_obj_set_pos(m, 0, 0);
+  lv_obj_set_style_bg_color(m, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_bg_opa(m, 170, 0);
+  lv_obj_set_style_border_width(m, 0, 0);
+  lv_obj_add_flag(m, LV_OBJ_FLAG_CLICKABLE);          // swallow taps behind the card
+
+  lv_obj_t* card = lv_obj_create(m);
+  lv_obj_set_size(card, 280, 130); lv_obj_center(card);
+  lv_obj_set_style_bg_color(card, lv_color_hex(0x18202c), 0);
+  lv_obj_set_style_border_color(card, lv_color_hex(UI_RED), 0);
+  lv_obj_set_style_border_width(card, 1, 0);
+  lv_obj_set_style_radius(card, 12, 0);
+
+  lv_obj_t* q = lv_label_create(card);
+  lv_label_set_text(q, "Factory reset?\nErases ALL contacts, channels,\nmessages and settings, then reboots.");
+  lv_obj_set_style_text_font(q, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(q, lv_color_hex(UI_TEXT), 0);
+  lv_obj_align(q, LV_ALIGN_TOP_MID, 0, 0);
+
+  lv_obj_t* cancel = lv_button_create(card);
+  lv_obj_set_size(cancel, 110, 36); lv_obj_align(cancel, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+  lv_obj_set_style_bg_color(cancel, lv_color_hex(0x2a3343), 0);
+  lv_obj_add_event_cb(cancel, fr_cancel, LV_EVENT_CLICKED, m);
+  lv_obj_t* cl = lv_label_create(cancel); lv_label_set_text(cl, "Cancel"); lv_obj_center(cl);
+
+  lv_obj_t* erase = lv_button_create(card);
+  lv_obj_set_size(erase, 110, 36); lv_obj_align(erase, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+  lv_obj_set_style_bg_color(erase, lv_color_hex(UI_RED), 0);
+  lv_obj_add_event_cb(erase, fr_confirm, LV_EVENT_CLICKED, NULL);
+  lv_obj_t* el = lv_label_create(erase); lv_label_set_text(el, "Erase"); lv_obj_center(el);
+}
+
 static void on_action_clicked(lv_event_t* e) {
   int ud = (int)(intptr_t)lv_event_get_user_data(e);
-  lvd_cfg_action(GROUPS[ud >> 8].title, GROUPS[ud >> 8].fields[ud & 0xff].label);
+  const char* label = GROUPS[ud >> 8].fields[ud & 0xff].label;
+  // actions that are UI-side (navigation / confirmation), not config commands
+  if (strcmp(label, "Add channel") == 0)   { if (lv_nav_cb) lv_nav_cb("chan_add"); return; }
+  if (strcmp(label, "Factory reset") == 0) { confirm_factory_reset(); return; }
+  lvd_cfg_action(GROUPS[ud >> 8].title, label);
+  if (strncmp(label, "Export", 6) == 0) lv_ui_toast("Printed to USB serial");
 }
 
 // ---- per-field widgets ------------------------------------------------------

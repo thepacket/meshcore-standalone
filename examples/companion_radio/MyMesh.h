@@ -157,6 +157,8 @@ public:
   void setManualAdd(bool on);
   void setCADEnabled(bool on);        // hardware channel-activity-detect before TX
   void setRxBoostedGain(bool on);     // RX boosted gain mode on the radio
+  void setBuzzerQuiet(bool on);       // suppress notification buzzer (where fitted)
+  void setTimeSource(int idx, const char* name);  // idx 0..2; empty/"(none)" clears
   void setMultiAcks(uint8_t v);
   void setTelemetryModes(uint8_t base, uint8_t loc, uint8_t env);
   bool setPathHashMode(uint8_t mode);
@@ -168,6 +170,7 @@ public:
 #if ENV_INCLUDE_GPS == 1
   void setGpsEnabled(bool on);
   void setGpsInterval(uint32_t secs);
+  void setTimeSyncFromGps(bool on);   // gate the GPS -> RTC clock sync
 #endif
   bool advertFlood();                 // zero-hop self-advert is the existing advert()
   void rebootDevice();
@@ -247,6 +250,7 @@ public:
       sprintf(interval_str, "%u", _prefs.gps_interval);
       sensors.setSettingValue("gps_interval", interval_str);
     }
+    sensors.getLocationProvider()->setTimeSyncEnabled(_prefs.time_sync_gps);
   }
 #endif
 
@@ -254,6 +258,7 @@ public:
   bool hasPendingWork() const;
 
 private:
+  void maybeAdoptContactTime(const ContactInfo& contact);   // named time sources -> RTC
   void writeOKFrame();
   void writeErrFrame(uint8_t err_code);
   void writeDisabledFrame();

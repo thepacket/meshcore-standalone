@@ -488,6 +488,26 @@ static bool apply_radio(float freq_mhz, float bw_khz, uint8_t sf, uint8_t cr, ui
                                  (uint32_t)(bw_khz * 1000.0f + 0.5f), sf, cr, repeat);
 }
 
+// Region frequency plans; order matches the settings "Preset" enum, with
+// "Custom" (= no match) as the last option. Same table as ui-new SettingsModel.
+struct RadioPlan { float freq, bw; uint8_t sf, cr; };
+static const RadioPlan RADIO_PLANS[] = {
+  {910.525f, 62.5f,  7, 5},   // USA/Canada (902-928 ISM, narrow-band)
+  {869.525f, 250.0f, 10, 5},  // EU standard default
+  {869.618f, 62.5f,  8, 8},   // UK/CH regional
+  {915.800f, 250.0f, 10, 5},  // AU/NZ
+};
+#define RADIO_PLAN_N       ((int)(sizeof(RADIO_PLANS) / sizeof(RADIO_PLANS[0])))
+#define RADIO_PLAN_CUSTOM  RADIO_PLAN_N
+static int radio_plan_match(const NodePrefs* p) {
+  for (int i = 0; i < RADIO_PLAN_N; i++) {
+    const RadioPlan& r = RADIO_PLANS[i];
+    if (fabsf(p->freq - r.freq) < 0.01f && fabsf(p->bw - r.bw) < 0.01f && p->sf == r.sf && p->cr == r.cr)
+      return i;
+  }
+  return RADIO_PLAN_CUSTOM;
+}
+
 // On-screen keyboard preference (UI-only, persisted in NVS so it survives reboots
 // and is independent of the device-prefs file). Default on.
 static bool g_osk_loaded = false, g_osk_on = true;
@@ -516,6 +536,7 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
     if (eq(label, "Node name"))       { strncpy(val, p->node_name, len - 1); val[len - 1] = 0; return true; }
     if (eq(label, "Location policy")) { *sel = p->advert_loc_policy ? 1 : 0; return true; }
   } else if (eq(group, "Radio")) {
+    if (eq(label, "Preset"))           { *sel = radio_plan_match(p); return true; }
     if (eq(label, "TX power"))         { snprintf(val, len, "%d", p->tx_power_dbm); return true; }
     if (eq(label, "Frequency"))        { snprintf(val, len, "%.3f", p->freq); return true; }
     if (eq(label, "Spreading factor")) { snprintf(val, len, "%u", p->sf); return true; }
@@ -545,6 +566,29 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
     if (eq(label, "Base"))        { *sel = p->telemetry_mode_base <= 2 ? p->telemetry_mode_base : 2; return true; }
     if (eq(label, "Location"))    { *sel = p->telemetry_mode_loc  <= 2 ? p->telemetry_mode_loc  : 2; return true; }
     if (eq(label, "Environment")) { *sel = p->telemetry_mode_env  <= 2 ? p->telemetry_mode_env  : 2; return true; }
+  } else if (eq(group, "Time")) {
+    if (eq(label, "Set time (UTC)")) {
+      uint32_t e = rtc_clock.getCurrentTime();
+      DateTime dt(e);
+      snprintf(val, len, "%04u-%02u-%02u %02u:%02u", dt.year(), dt.month(), dt.day(), dt.hour(), dt.minute());
+      return true;
+    }
+    if (eq(label, "Sync from GPS")) { *sel = p->time_sync_gps ? 1 : 0; return true; }
+    if (strncmp(label, "Time source ", 12) == 0) {
+      int i = atoi(label + 12) - 1;
+      if (i < 0 || i > 2) return false;
+      snprintf(val, len, "%s", p->time_source[i][0] ? p->time_source[i] : "(none)");
+      return true;
+    }
+  } else if (eq(group, "Data")) {
+    if (eq(label, "Debug logs")) {
+#ifdef MESH_DEBUG
+      strncpy(val, "USB serial", len - 1);
+#else
+      strncpy(val, "off (MESH_DEBUG flag)", len - 1);
+#endif
+      val[len - 1] = 0; return true;
+    }
   } else if (eq(group, "Tuning")) {
     if (eq(label, "Airtime factor")) { snprintf(val, len, "%.2f", p->airtime_factor); return true; }
     if (eq(label, "RX delay base"))  { snprintf(val, len, "%.0f", p->rx_delay_base); return true; }
@@ -560,6 +604,7 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
     if (eq(label, "Firmware")) { strncpy(val, FIRMWARE_VERSION, len - 1); val[len - 1] = 0; return true; }
     if (eq(label, "Device"))   { strncpy(val, board.getManufacturerName(), len - 1); val[len - 1] = 0; return true; }
     if (eq(label, "On-screen keyboard")) { *sel = lvd_osk_enabled() ? 1 : 0; return true; }
+    if (eq(label, "Buzzer quiet"))       { *sel = p->buzzer_quiet ? 1 : 0; return true; }
   }
   return false;
 }
@@ -570,6 +615,13 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
     if (eq(label, "Node name") && val)  { the_mesh.setAdvertName(val); return; }
     if (eq(label, "Location policy"))   { the_mesh.setAdvertLocPolicy((uint8_t)sel); return; }
   } else if (eq(group, "Radio")) {
+    if (eq(label, "Preset")) {   // last option is "Custom": informational, no change
+      if (sel >= 0 && sel < RADIO_PLAN_N) {
+        const RadioPlan& r = RADIO_PLANS[sel];
+        apply_radio(r.freq, r.bw, r.sf, r.cr, p->client_repeat);
+      }
+      return;
+    }
     if (eq(label, "TX power") && val)          { the_mesh.setTxPower((int8_t)atoi(val)); return; }
     if (eq(label, "Frequency") && val)         { apply_radio((float)atof(val), p->bw, p->sf, p->cr, p->client_repeat); return; }
     if (eq(label, "Spreading factor") && val)  { apply_radio(p->freq, p->bw, (uint8_t)atoi(val), p->cr, p->client_repeat); return; }
@@ -597,6 +649,21 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
     if (eq(label, "Base"))        { the_mesh.setTelemetryModes((uint8_t)sel, p->telemetry_mode_loc, p->telemetry_mode_env); return; }
     if (eq(label, "Location"))    { the_mesh.setTelemetryModes(p->telemetry_mode_base, (uint8_t)sel, p->telemetry_mode_env); return; }
     if (eq(label, "Environment")) { the_mesh.setTelemetryModes(p->telemetry_mode_base, p->telemetry_mode_loc, (uint8_t)sel); return; }
+  } else if (eq(group, "Time")) {
+    if (eq(label, "Set time (UTC)") && val) {
+      unsigned y, mo, d, h, mi;
+      if (sscanf(val, "%u-%u-%u %u:%u", &y, &mo, &d, &h, &mi) == 5) {
+        DateTime dt(y, mo, d, h, mi, 0);
+        the_mesh.setDeviceTime(dt.unixtime());        // refuses to go backwards (mesh timestamps)
+      } else if (val[0] >= '0' && val[0] <= '9' && !strchr(val, '-')) {
+        the_mesh.setDeviceTime((uint32_t)strtoul(val, NULL, 10));   // plain epoch seconds
+      }
+      return;
+    }
+#if ENV_INCLUDE_GPS == 1
+    if (eq(label, "Sync from GPS")) { the_mesh.setTimeSyncFromGps(sel != 0); return; }
+#endif
+    if (strncmp(label, "Time source ", 12) == 0 && val) { the_mesh.setTimeSource(atoi(label + 12) - 1, val); return; }
   } else if (eq(group, "Tuning")) {
     if (eq(label, "Airtime factor") && val) { the_mesh.setTuningParams(p->rx_delay_base, (float)atof(val)); return; }
     if (eq(label, "RX delay base") && val)  { the_mesh.setTuningParams((float)atof(val), p->airtime_factor); return; }
@@ -604,6 +671,7 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
     if (eq(label, "BLE pin") && val) { the_mesh.setBlePin((uint32_t)strtoul(val, NULL, 10)); return; }
   } else if (eq(group, "Device")) {
     if (eq(label, "On-screen keyboard")) { lvd_osk_set(sel != 0); return; }
+    if (eq(label, "Buzzer quiet"))       { the_mesh.setBuzzerQuiet(sel != 0); return; }
   }
 }
 
@@ -615,8 +683,54 @@ extern "C" void lvd_cfg_action(const char* group, const char* label) {
     if (eq(label, "Clear default scope")) { the_mesh.setDefaultFloodScope("", NULL); return; }
   } else if (eq(group, "Device")) {
     if (eq(label, "Reboot")) { the_mesh.rebootDevice(); return; }
-    // Factory reset intentionally NOT wired yet -- needs a confirm dialog first.
+    // Factory reset goes through lvd_factory_reset() after the confirm dialog (lv_settings.c).
+  } else if (eq(group, "Data")) {
+    // One-way text dumps to USB serial. Safe alongside the companion frame
+    // protocol (we only WRITE; reading Serial here would steal frame bytes).
+    if (eq(label, "Export config")) {
+      NodePrefs* p = the_mesh.getNodePrefs();
+      Serial.println("\n=== meshcore config v1 ===");
+      Serial.printf("name=%s\n", p->node_name);
+      Serial.printf("radio=%.3f,%.2f,%u,%u\n", p->freq, p->bw, p->sf, p->cr);
+      Serial.printf("tx_power=%d\n", p->tx_power_dbm);
+      Serial.printf("client_repeat=%u  rx_boosted_gain=%u  cad=%u\n",
+                    p->client_repeat, p->rx_boosted_gain, p->cad_enabled);
+      Serial.printf("airtime_factor=%.2f  rx_delay_base=%.0f\n", p->airtime_factor, p->rx_delay_base);
+      Serial.printf("multi_acks=%u  path_hash_mode=%u\n", p->multi_acks, p->path_hash_mode);
+      Serial.printf("manual_add=%u  autoadd_config=0x%02X  autoadd_max_hops=%u\n",
+                    p->manual_add_contacts, p->autoadd_config, p->autoadd_max_hops);
+      Serial.printf("telemetry=%u,%u,%u\n", p->telemetry_mode_base, p->telemetry_mode_loc, p->telemetry_mode_env);
+      Serial.printf("loc_policy=%u  lat=%.4f  lon=%.4f\n", p->advert_loc_policy, sensors.node_lat, sensors.node_lon);
+      Serial.printf("gps=%u  gps_interval=%u  time_sync_gps=%u\n", p->gps_enabled, (unsigned)p->gps_interval, p->time_sync_gps);
+      Serial.printf("time_sources=%s|%s|%s\n", p->time_source[0], p->time_source[1], p->time_source[2]);
+      Serial.printf("default_scope=%s\n", p->default_scope_name);
+      Serial.println("=== end config ===");
+      return;
+    }
+    if (eq(label, "Export app data")) {
+      Serial.println("\n=== meshcore app data v1 ===");
+      int nc = the_mesh.getNumContacts();
+      Serial.printf("[contacts] %d\n", nc);
+      for (int i = 0; i < nc; i++) {
+        ContactInfo c;
+        if (!the_mesh.getContactByIdx((uint32_t)i, c)) continue;
+        char hex[65];
+        mesh::Utils::toHex(hex, c.id.pub_key, PUB_KEY_SIZE);
+        Serial.printf("contact=%s  type=%u  pubkey=%s\n", c.name, c.type, hex);
+      }
+      Serial.printf("[channels]\n");
+      for (int i = 0; i < lvd_chan_count(); i++) {
+        lvd_chan_t ch;
+        if (lvd_chan_get(i, &ch)) Serial.printf("channel=%s  psk=%s\n", ch.name, lvd_chan_psk(i));
+      }
+      Serial.println("=== end app data ===");
+      return;
+    }
   }
+}
+
+extern "C" void lvd_factory_reset(void) {   // called only after the UI confirm dialog
+  the_mesh.factoryReset();
 }
 
 // ---- statistics ------------------------------------------------------------

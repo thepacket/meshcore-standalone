@@ -213,6 +213,7 @@ bool        lvd_chan_remove(int i);                                // delete (no
 const char* lvd_chan_psk(int i);                                   // channel PSK as base64 (share/QR)
 const char* lvd_chan_new_psk(void);                                // fresh random 128-bit key (base64)
 const char* lvd_chan_hashtag_psk(const char* name);                // key derived from a '#name' (sha256, base64)
+void        lvd_factory_reset(void);                               // formats FS + reboots (confirm first!)
 // chat list: the channels to show as conversations (Public + named group channels)
 int         lvd_chat_chan_count(void);
 bool        lvd_chat_chan_get(int i, lvd_chan_t* out);             // name + is_public

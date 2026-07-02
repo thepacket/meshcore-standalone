@@ -353,7 +353,30 @@ void MyMesh::onContactsFull() {
   }
 }
 
+// If this contact is one of the user's named time sources, adopt its advert
+// timestamp as our clock. GPS wins when it's syncing and has a fix; small
+// drift is ignored so we don't churn the RTC on every advert.
+void MyMesh::maybeAdoptContactTime(const ContactInfo& contact) {
+  bool named = false;
+  for (int i = 0; i < 3 && !named; i++) {
+    named = _prefs.time_source[i][0] && strcasecmp(_prefs.time_source[i], contact.name) == 0;
+  }
+  if (!named) return;
+#if ENV_INCLUDE_GPS == 1
+  if (_prefs.time_sync_gps && sensors.getLocationProvider()->isValid()) return;
+#endif
+  uint32_t ts = contact.last_advert_timestamp;   // by THEIR clock; fresh, since stale adverts are rejected
+  uint32_t now = getRTCClock()->getCurrentTime();
+  int32_t drift = (int32_t)(ts - now);
+  if (ts > 1735689600 /* 2025-01-01 sanity floor */ && (drift > 30 || drift < -30)) {
+    getRTCClock()->setCurrentTime(ts);
+    MESH_DEBUG_PRINTLN("clock adopted from time source '%s' (drift %d s)", contact.name, drift);
+  }
+}
+
 void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) {
+  maybeAdoptContactTime(contact);
+
   if (_serial->isConnected()) {
     if (is_new) {
       writeContactRespFrame(PUSH_CODE_NEW_ADVERT, contact);
@@ -1108,6 +1131,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
   _prefs.gps_enabled = 0;       // GPS disabled by default
   _prefs.gps_interval = 0;      // No automatic GPS updates by default
   _prefs.cad_enabled = 1;       // hardware CAD before TX, enabled by default
+  _prefs.time_sync_gps = 1;     // adopt GPS time when it has a fix (time_source[] zeroed by memset)
   //_prefs.rx_delay_base = 10.0f;  enable once new algo fixed
 #if defined(USE_SX1262) || defined(USE_SX1268)
 #ifdef SX126X_RX_BOOSTED_GAIN
@@ -2489,6 +2513,19 @@ void MyMesh::setCADEnabled(bool on) {
   savePrefs();
 }
 
+void MyMesh::setBuzzerQuiet(bool on) {
+  _prefs.buzzer_quiet = on ? 1 : 0;   // consumers (UIs with a buzzer) read the pref
+  savePrefs();
+}
+
+void MyMesh::setTimeSource(int idx, const char* name) {
+  if (idx < 0 || idx >= 3) return;
+  if (!name || strcmp(name, "(none)") == 0) name = "";
+  strncpy(_prefs.time_source[idx], name, sizeof(_prefs.time_source[idx]) - 1);
+  _prefs.time_source[idx][sizeof(_prefs.time_source[idx]) - 1] = 0;
+  savePrefs();
+}
+
 void MyMesh::setRxBoostedGain(bool on) {
   _prefs.rx_boosted_gain = on ? 1 : 0;
   radio_driver.setRxBoostedGainMode(on);   // apply live
@@ -2559,6 +2596,12 @@ bool MyMesh::setDeviceTime(uint32_t epoch_secs) {
 }
 
 #if ENV_INCLUDE_GPS == 1
+void MyMesh::setTimeSyncFromGps(bool on) {
+  _prefs.time_sync_gps = on ? 1 : 0;
+  sensors.getLocationProvider()->setTimeSyncEnabled(on);   // apply live
+  savePrefs();
+}
+
 void MyMesh::setGpsEnabled(bool on) {
   _prefs.gps_enabled = on ? 1 : 0;
   sensors.setSettingValue("gps", on ? "1" : "0");

@@ -234,6 +234,8 @@ void DataStore::loadPrefsInt(const char *filename, NodePrefs& _prefs, double& no
     file.read((uint8_t *)_prefs.default_scope_name, sizeof(_prefs.default_scope_name));    // 90
     file.read((uint8_t *)_prefs.default_scope_key, sizeof(_prefs.default_scope_key));     // 121
     file.read((uint8_t *)&_prefs.cad_enabled, sizeof(_prefs.cad_enabled));                 // 137
+    file.read((uint8_t *)&_prefs.time_sync_gps, sizeof(_prefs.time_sync_gps));             // 138
+    file.read((uint8_t *)_prefs.time_source, sizeof(_prefs.time_source));                  // 139
 
     file.close();
   }
@@ -275,6 +277,8 @@ void DataStore::savePrefs(const NodePrefs& _prefs, double node_lat, double node_
     file.write((uint8_t *)_prefs.default_scope_name, sizeof(_prefs.default_scope_name));    // 90
     file.write((uint8_t *)_prefs.default_scope_key, sizeof(_prefs.default_scope_key));     // 121
     file.write((uint8_t *)&_prefs.cad_enabled, sizeof(_prefs.cad_enabled));                 // 137
+    file.write((uint8_t *)&_prefs.time_sync_gps, sizeof(_prefs.time_sync_gps));             // 138
+    file.write((uint8_t *)_prefs.time_source, sizeof(_prefs.time_source));                  // 139
 
     file.close();
   }
