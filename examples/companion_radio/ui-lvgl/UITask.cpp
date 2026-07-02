@@ -521,6 +521,7 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
     if (eq(label, "Spreading factor")) { snprintf(val, len, "%u", p->sf); return true; }
     if (eq(label, "Coding rate"))      { snprintf(val, len, "%u", p->cr); return true; }
     if (eq(label, "Client repeat"))    { *sel = p->client_repeat ? 1 : 0; return true; }
+    if (eq(label, "Channel activity detection")) { *sel = p->cad_enabled ? 1 : 0; return true; }
     if (eq(label, "Bandwidth")) {
       int best = 6; float bd = 1e9f;
       for (int i = 0; i < BW_N; i++) { float d = p->bw - BW_KHZ[i]; if (d < 0) d = -d; if (d < bd) { bd = d; best = i; } }
@@ -569,6 +570,7 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
     if (eq(label, "Spreading factor") && val)  { apply_radio(p->freq, p->bw, (uint8_t)atoi(val), p->cr, p->client_repeat); return; }
     if (eq(label, "Coding rate") && val)       { apply_radio(p->freq, p->bw, p->sf, (uint8_t)atoi(val), p->client_repeat); return; }
     if (eq(label, "Client repeat"))            { apply_radio(p->freq, p->bw, p->sf, p->cr, (uint8_t)(sel != 0)); return; }
+    if (eq(label, "Channel activity detection")) { the_mesh.setCADEnabled(sel != 0); return; }
     if (eq(label, "Bandwidth") && sel >= 0 && sel < BW_N) { apply_radio(p->freq, BW_KHZ[sel], p->sf, p->cr, p->client_repeat); return; }
   } else if (eq(group, "Contacts")) {
     if (eq(label, "Manual add"))                { the_mesh.setManualAdd(sel != 0); return; }

@@ -43,6 +43,7 @@ static const Field F_RADIO[] = {
   {"TX power",      F_VAL,  "22", 0},
   {"Client repeat", F_BOOL, NULL, 0},
   {"RX boosted gain", F_BOOL, NULL, 1},
+  {"Channel activity detection", F_BOOL, NULL, 1},
 };
 static const Field F_CONTACTS[] = {
   {"Manual add",          F_BOOL, NULL, 0},

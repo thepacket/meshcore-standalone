@@ -262,7 +262,7 @@ int MyMesh::getInterferenceThreshold() const {
   return 0; // disabled for now, until currentRSSI() problem is resolved
 }
 bool MyMesh::getCADEnabled() const {
-  return true; // hardware CAD before TX (no CLI toggle on companion; enabled by default)
+  return _prefs.cad_enabled != 0; // hardware CAD before TX (settings toggle; on by default)
 }
 
 int MyMesh::calcRxDelay(float score, uint32_t air_time) const {
@@ -1107,6 +1107,7 @@ MyMesh::MyMesh(mesh::Radio &radio, mesh::RNG &rng, mesh::RTCClock &rtc, SimpleMe
 #endif
   _prefs.gps_enabled = 0;       // GPS disabled by default
   _prefs.gps_interval = 0;      // No automatic GPS updates by default
+  _prefs.cad_enabled = 1;       // hardware CAD before TX, enabled by default
   //_prefs.rx_delay_base = 10.0f;  enable once new algo fixed
 #if defined(USE_SX1262) || defined(USE_SX1268)
 #ifdef SX126X_RX_BOOSTED_GAIN
@@ -1198,6 +1199,7 @@ void MyMesh::begin(bool has_display) {
   radio_driver.setRxBoostedGainMode(_prefs.rx_boosted_gain);
   MESH_DEBUG_PRINTLN("RX Boosted Gain Mode: %s",
                      radio_driver.getRxBoostedGainMode() ? "Enabled" : "Disabled");
+  radio_driver.setCADEnabled(_prefs.cad_enabled);   // loaded pref (Dispatcher::begin ran before prefs)
 }
 
 const char *MyMesh::getNodeName() {
@@ -2478,6 +2480,12 @@ void MyMesh::setTuningParams(float rx_delay_base, float airtime_factor) {
 
 void MyMesh::setManualAdd(bool on) {
   _prefs.manual_add_contacts = on ? 1 : 0;
+  savePrefs();
+}
+
+void MyMesh::setCADEnabled(bool on) {
+  _prefs.cad_enabled = on ? 1 : 0;
+  radio_driver.setCADEnabled(on);   // apply live
   savePrefs();
 }
 

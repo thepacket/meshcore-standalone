@@ -155,6 +155,7 @@ public:
   void setAdvertLocPolicy(uint8_t policy);
   void setTuningParams(float rx_delay_base, float airtime_factor);
   void setManualAdd(bool on);
+  void setCADEnabled(bool on);        // hardware channel-activity-detect before TX
   void setMultiAcks(uint8_t v);
   void setTelemetryModes(uint8_t base, uint8_t loc, uint8_t env);
   bool setPathHashMode(uint8_t mode);
