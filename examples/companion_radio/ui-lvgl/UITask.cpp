@@ -422,9 +422,10 @@ extern "C" bool lvd_heard_get(int i, lvd_heard_t* out) {
                    out->type == ADV_TYPE_REPEATER ? "Repeater"  :
                    out->type == ADV_TYPE_ROOM     ? "Room"      :
                    out->type == ADV_TYPE_SENSOR   ? "Sensor"    : "Node";
-  if (a.path_len == 0)      snprintf(out->route, sizeof(out->route), "%s \xC2\xB7 direct", tn);
-  else if (a.path_len == 1) snprintf(out->route, sizeof(out->route), "%s \xC2\xB7 1 hop", tn);
-  else                      snprintf(out->route, sizeof(out->route), "%s \xC2\xB7 %u hops", tn, a.path_len);
+  int hops = a.path_len & 63;   // path_len is encoded: low 6 bits = hop count, top 2 = hash size
+  if (hops == 0)      snprintf(out->route, sizeof(out->route), "%s \xC2\xB7 direct", tn);
+  else if (hops == 1) snprintf(out->route, sizeof(out->route), "%s \xC2\xB7 1 hop", tn);
+  else                snprintf(out->route, sizeof(out->route), "%s \xC2\xB7 %d hops", tn, hops);
 
   uint32_t now = rtc_clock.getCurrentTime();
   uint32_t age = (now > a.recv_timestamp) ? now - a.recv_timestamp : 0;
@@ -538,7 +539,7 @@ extern "C" bool lvd_contact_get(int i, lvd_contact_t* out) {
   else if (c.out_path_len == 0)
     snprintf(out->subtitle, sizeof(out->subtitle), "%s / direct", t);
   else
-    snprintf(out->subtitle, sizeof(out->subtitle), "%s / %u hops", t, (unsigned)c.out_path_len);
+    snprintf(out->subtitle, sizeof(out->subtitle), "%s / %d hops", t, c.out_path_len & 63);   // low 6 bits = hop count
   return true;
 }
 
@@ -1692,6 +1693,10 @@ static unsigned s_tr_seq = 0;
 // trace path being built (chain of node hashes = each repeater's pub_key[0])
 static uint8_t  s_tpath[TRACE_MAX];
 static int      s_tpath_n = 0;
+// a contact trace uses the firmware's learned path (not the manual s_tpath chain);
+// remember the target so Repeat can re-run it.
+static bool     s_tr_ct = false;
+static uint8_t  s_tr_ct_pk[6];
 static uint32_t s_tr_sent_ms = 0;        // when the in-flight trace was sent
 static uint32_t s_tr_rtt_ms = 0;         // round-trip time of the last completed trace
 // timeout scales with path length: base + per-hop (long flood-returns are slow)
@@ -1710,6 +1715,8 @@ void ui_store_trace(uint32_t tag, const uint8_t* hashes, const uint8_t* snrs,
   s_tr_seq++;
 }
 
+static int trace_contact(const ContactInfo& c);   // defined below (contact trace)
+
 // index (0..hops) of the weakest SNR across the whole path (incl. final "to you")
 static int trace_weakest_idx(void) {
   int wi = 0; int8_t w = 127;
@@ -1719,9 +1726,10 @@ static int trace_weakest_idx(void) {
 }
 
 // ---- trace path builder ----
-extern "C" void lvd_trace_path_clear(void) { s_tpath_n = 0; s_tr_state = 0; s_tr_seq++; }
+extern "C" void lvd_trace_path_clear(void) { s_tpath_n = 0; s_tr_ct = false; s_tr_state = 0; s_tr_seq++; }
 extern "C" void lvd_trace_path_add(int i) {   // i = index in the saved repeater/room list
   if (s_tpath_n >= TRACE_MAX) return;
+  s_tr_ct = false;                            // building a manual path
   ContactInfo c;
   if (rep_nth(0, i, c)) { s_tpath[s_tpath_n++] = c.id.pub_key[0]; }
 }
@@ -1738,6 +1746,11 @@ extern "C" const char* lvd_trace_path_str(void) {
   return b;
 }
 extern "C" void lvd_trace_go(void) {
+  if (s_tr_ct) {   // Repeat of a contact trace: re-run over the contact's learned path
+    ContactInfo c;
+    if (find_contact_by_pubkey6(s_tr_ct_pk, c)) trace_contact(c);
+    return;
+  }
   if (s_tpath_n == 0) return;
   strncpy(s_tr_target, lvd_trace_path_str(), sizeof(s_tr_target) - 1); s_tr_target[sizeof(s_tr_target) - 1] = 0;
   s_tr_hops = 0;
@@ -1981,7 +1994,7 @@ extern "C" bool lvd_peer_get(const char* name, lvd_peer_t* out) {
 
   if (c.out_path_len == OUT_PATH_UNKNOWN) { snprintf(out->path, sizeof(out->path), "flood");  snprintf(out->hops, sizeof(out->hops), "--"); }
   else if (c.out_path_len == 0)           { snprintf(out->path, sizeof(out->path), "direct"); snprintf(out->hops, sizeof(out->hops), "0"); }
-  else                                    { snprintf(out->path, sizeof(out->path), "routed"); snprintf(out->hops, sizeof(out->hops), "%u", (unsigned)c.out_path_len); }
+  else                                    { snprintf(out->path, sizeof(out->path), "routed"); snprintf(out->hops, sizeof(out->hops), "%d", c.out_path_len & 63); }  // low 6 bits = hop count
 
   for (int i = 0; i < 32; i++) snprintf(out->pubkey + i * 2, 3, "%02x", c.id.pub_key[i]);
 
@@ -2159,8 +2172,11 @@ extern "C" int lvd_peer_telem_get(lvd_kv_t* out, int max) {
 // start a trace over a contact's learned path; seeds the trace-screen state
 static int trace_contact(const ContactInfo& c) {   // 0 sent, 2 no routed path / failed
   if (c.out_path_len == OUT_PATH_UNKNOWN || c.out_path_len == 0) return 2;  // flood or direct: nothing to trace
+  // The firmware traces over the contact's own learned out_path; we don't build a
+  // manual hop chain here (out_path is byte-encoded, not one hash per hop). Show the
+  // contact name while tracing and remember it so Repeat can re-run.
   s_tpath_n = 0;
-  for (int i = 0; i < c.out_path_len && i < TRACE_MAX; i++) s_tpath[s_tpath_n++] = c.out_path[i];
+  s_tr_ct = true; memcpy(s_tr_ct_pk, c.id.pub_key, 6);
   strncpy(s_tr_target, c.name, sizeof(s_tr_target) - 1); s_tr_target[sizeof(s_tr_target) - 1] = 0;
   s_tr_hops = 0; s_tr_seq++;
   uint32_t tag;
@@ -2194,7 +2210,7 @@ extern "C" bool lvd_trace_contact_get(int i, char* name, int len, int* hops) {
   ContactInfo c;
   if (!the_mesh.getContactByIdx(g_trc_idx[i], c)) return false;
   strncpy(name, c.name, len - 1); name[len - 1] = 0;
-  if (hops) *hops = c.out_path_len;
+  if (hops) *hops = c.out_path_len & 63;   // low 6 bits = hop count (top 2 = hash size)
   return true;
 }
 extern "C" int lvd_trace_contact_go(int i) {   // 0 sent, 2 failed/unknown
@@ -2289,9 +2305,10 @@ extern "C" bool lvd_signal_get(int i, lvd_sig_t* out) {
 
   // route (direct vs relayed) + distance/bearing
   char rt[16];
-  if (h.path_len == 0)      snprintf(rt, sizeof(rt), "direct");
-  else if (h.path_len == 1) snprintf(rt, sizeof(rt), "1 hop");
-  else                      snprintf(rt, sizeof(rt), "%u hops", h.path_len);
+  int hops = h.path_len & 63;   // low 6 bits = hop count (top 2 bits are the hash size)
+  if (hops == 0)      snprintf(rt, sizeof(rt), "direct");
+  else if (hops == 1) snprintf(rt, sizeof(rt), "1 hop");
+  else                snprintf(rt, sizeof(rt), "%d hops", hops);
   int32_t lat = c.gps_lat ? c.gps_lat : h.gps_lat, lon = c.gps_lon ? c.gps_lon : h.gps_lon;
   char db[12];
   if (fmt_distance(lat, lon, db, sizeof(db))) {

@@ -117,7 +117,7 @@ static void trace_build(lv_obj_t* scr) {
 
   if (st == 1) {   // tracing in progress -- show a live elapsed counter
     char b[110]; snprintf(b, sizeof(b), "Tracing %s ...  %.1f s",
-                          lvd_trace_path_str(), lvd_trace_elapsed_ms() / 1000.0);
+                          lvd_trace_target(), lvd_trace_elapsed_ms() / 1000.0);
     trace_note(list, b);
     return;
   }
