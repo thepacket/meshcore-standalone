@@ -21,10 +21,16 @@ int         lvd_unread_count(void);     // total unread (Chat badge)
 typedef struct {
   char name[24];
   char meta[44];   // pre-formatted "SNR x dB   RSSI y"
+  char route[32];  // "<type> - direct" / "<type> - 3 hops"
   char age[12];    // "12s ago"
-  char dist[12];   // "4.2 km" or ""
+  char dist[16];   // "4.2 km NE" or ""
   int  bars;       // 0..4 (signal-dot colour)
+  int  saved;      // 1 if this node is a saved contact
+  int  type;       // ADV_TYPE_*: 1=chat 2=repeater 3=room 4=sensor (0=unknown)
 } lvd_heard_t;
+// Heard-list sort order: 0 = most recent (default), 1 = strongest signal
+void lvd_heard_set_sort(int mode);
+int  lvd_heard_sort(void);
 
 int  lvd_heard_count(void);
 bool lvd_heard_get(int i, lvd_heard_t* out);

@@ -189,9 +189,17 @@ static void heard_row(lv_obj_t* list, const lvd_heard_t* s, int idx) {
   lv_obj_set_flex_flow(mid, LV_FLEX_FLOW_COLUMN);
   lv_obj_set_flex_align(mid, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
   lv_obj_t* nm = lv_label_create(mid);
-  lv_label_set_text(nm, s->name);
+  // green check prefix for saved contacts; new/unknown nodes show just the name
+  if (s->saved) lv_label_set_text_fmt(nm, "%s  " LV_SYMBOL_OK, s->name);
+  else          lv_label_set_text(nm, s->name);
   lv_obj_set_style_text_font(nm, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(nm, lv_color_hex(MD_ON), 0);
+  // route line: type + direct/hops, tinted by type (repeaters stand out)
+  lv_obj_t* rl = lv_label_create(mid);
+  lv_label_set_text(rl, s->route);
+  lv_obj_set_style_text_font(rl, &lv_font_montserrat_12, 0);
+  uint32_t tcol = s->type == 2 ? UI_PURPLE : (s->type == 3 ? UI_CYAN : (s->type == 4 ? UI_AMBER : MD_MUTED));
+  lv_obj_set_style_text_color(rl, lv_color_hex(tcol), 0);
   lv_obj_t* sg = lv_label_create(mid);
   lv_label_set_text(sg, s->meta);
   lv_obj_set_style_text_font(sg, &lv_font_montserrat_12, 0);
@@ -244,10 +252,40 @@ static void heard_tick(void) {
   }
 }
 
+// header sort toggle: flip Recent <-> Strongest and rebuild
+static void heard_sort_clicked(lv_event_t* e) {
+  (void)e;
+  lvd_heard_set_sort(lvd_heard_sort() ^ 1);
+  if (lv_nav_cb) lv_nav_cb("heard");   // rebuild the screen (re-reads sort + relabels the chip)
+}
+
 void lv_heard_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
   lv_ui_md_topbar(scr, "Heard");
-  s_heard_list  = lv_ui_md_scroll(scr);
+
+  // sort chip, top-right under the bar
+  lv_obj_t* chip = lv_ui_card(scr, 320 - 116, 38, 108, 26);
+  lv_obj_set_style_pad_all(chip, 0, 0); lv_obj_set_style_radius(chip, 13, 0);
+  lv_obj_set_style_bg_color(chip, lv_color_hex(MD_PRIMARY), 0); lv_obj_set_style_bg_opa(chip, 40, 0);
+  lv_obj_set_style_border_color(chip, lv_color_hex(MD_PRIMARY), 0); lv_obj_set_style_border_opa(chip, 200, 0);
+  lv_obj_set_style_border_width(chip, 1, 0);
+  lv_obj_add_flag(chip, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(chip, heard_sort_clicked, LV_EVENT_CLICKED, NULL);
+  lv_ui_press_fx(chip);
+  lv_obj_t* cl = lv_label_create(chip);
+  lv_label_set_text(cl, lvd_heard_sort() ? LV_SYMBOL_UP "  Signal" : LV_SYMBOL_LIST "  Recent");
+  lv_obj_set_style_text_font(cl, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(cl, lv_color_hex(MD_ON), 0);
+  lv_obj_center(cl);
+
+  s_heard_list  = lv_obj_create(scr);
+  lv_obj_set_pos(s_heard_list, 4, 70);
+  lv_obj_set_size(s_heard_list, 320 - 8, 240 - 70 - 4);
+  lv_obj_set_style_bg_opa(s_heard_list, 0, 0);
+  lv_obj_set_style_border_width(s_heard_list, 0, 0);
+  lv_obj_set_style_pad_all(s_heard_list, 2, 0);
+  lv_obj_set_flex_flow(s_heard_list, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(s_heard_list, 6, 0);
   s_heard_ticks = 0;
   heard_fill(s_heard_list);
   lv_ui_set_refresh(heard_tick);

@@ -357,13 +357,49 @@ static bool fmt_distance(int32_t lat_e6, int32_t lon_e6, char* out, int len) {
   return true;
 }
 
+// look up a heard node (by its 6-byte pubkey prefix) among saved contacts;
+// returns 1 if saved and fills *type with its ADV_TYPE_*, else 0.
+static int heard_contact_lookup(const uint8_t* pk6, int* type) {
+  int n = the_mesh.getNumContacts();
+  for (int i = 0; i < n; i++) {
+    ContactInfo c;
+    if (the_mesh.getContactByIdx((uint32_t)i, c) && memcmp(c.id.pub_key, pk6, 6) == 0) {
+      if (type) *type = c.type;
+      return 1;
+    }
+  }
+  return 0;
+}
+// 8-point compass bearing from our position to a peer fix (1e-6 deg); "" if unknown
+static const char* heard_bearing(int32_t lat_e6, int32_t lon_e6) {
+  if ((lat_e6 == 0 && lon_e6 == 0) || (sensors.node_lat == 0.0 && sensors.node_lon == 0.0)) return "";
+  const double D2R = M_PI / 180.0;
+  double la1 = sensors.node_lat * D2R, la2 = (lat_e6 / 1e6) * D2R;
+  double dlo = ((lon_e6 / 1e6) - sensors.node_lon) * D2R;
+  double y = sin(dlo) * cos(la2);
+  double x = cos(la1) * sin(la2) - sin(la1) * cos(la2) * cos(dlo);
+  double brg = atan2(y, x) / D2R;
+  if (brg < 0) brg += 360.0;
+  static const char* PTS[] = {"N","NE","E","SE","S","SW","W","NW"};
+  return PTS[((int)((brg + 22.5) / 45.0)) & 7];
+}
+
+static int g_heard_sort = 0;   // 0 = recent, 1 = strongest signal
+extern "C" void lvd_heard_set_sort(int m) { g_heard_sort = m ? 1 : 0; }
+extern "C" int  lvd_heard_sort(void) { return g_heard_sort; }
+
+static int cmp_heard_signal(const void* a, const void* b) {
+  return ((const AdvertPath*)b)->snr_q - ((const AdvertPath*)a)->snr_q;   // strongest first
+}
+
 extern "C" int lvd_heard_count(void) {
   AdvertPath rec[16];
-  int n = the_mesh.getRecentlyHeard(rec, 16);
+  int n = the_mesh.getRecentlyHeard(rec, 16);   // already recency-sorted
   g_heard_n = 0;
   for (int i = 0; i < n && g_heard_n < 16; i++) {
     if (rec[i].name[0] != 0 || rec[i].recv_timestamp != 0) g_heard[g_heard_n++] = rec[i];
   }
+  if (g_heard_sort == 1) qsort(g_heard, g_heard_n, sizeof(g_heard[0]), cmp_heard_signal);
   return g_heard_n;
 }
 extern "C" bool lvd_heard_get(int i, lvd_heard_t* out) {
@@ -377,13 +413,30 @@ extern "C" bool lvd_heard_get(int i, lvd_heard_t* out) {
   snprintf(out->meta, sizeof(out->meta), "%s%s%s",
            snrbuf, (snrbuf[0] && rssibuf[0]) ? "   " : "", rssibuf);
 
+  // saved-contact status + node type (by pubkey prefix)
+  out->type = 0;
+  out->saved = heard_contact_lookup(a.pubkey_prefix, &out->type);
+
+  // route: type name + how we heard it (direct vs relayed)
+  const char* tn = out->type == ADV_TYPE_CHAT     ? "Companion" :
+                   out->type == ADV_TYPE_REPEATER ? "Repeater"  :
+                   out->type == ADV_TYPE_ROOM     ? "Room"      :
+                   out->type == ADV_TYPE_SENSOR   ? "Sensor"    : "Node";
+  if (a.path_len == 0)      snprintf(out->route, sizeof(out->route), "%s \xC2\xB7 direct", tn);
+  else if (a.path_len == 1) snprintf(out->route, sizeof(out->route), "%s \xC2\xB7 1 hop", tn);
+  else                      snprintf(out->route, sizeof(out->route), "%s \xC2\xB7 %u hops", tn, a.path_len);
+
   uint32_t now = rtc_clock.getCurrentTime();
   uint32_t age = (now > a.recv_timestamp) ? now - a.recv_timestamp : 0;
   if (age < 60)        snprintf(out->age, sizeof(out->age), "%us ago", (unsigned)age);
   else if (age < 3600) snprintf(out->age, sizeof(out->age), "%um ago", (unsigned)(age / 60));
   else                 snprintf(out->age, sizeof(out->age), "%uh ago", (unsigned)(age / 3600));
 
-  if (!fmt_distance(a.gps_lat, a.gps_lon, out->dist, sizeof(out->dist))) out->dist[0] = 0;
+  char db[12];
+  if (fmt_distance(a.gps_lat, a.gps_lon, db, sizeof(db))) {
+    const char* brg = heard_bearing(a.gps_lat, a.gps_lon);
+    snprintf(out->dist, sizeof(out->dist), "%s%s%s", db, brg[0] ? " " : "", brg);
+  } else out->dist[0] = 0;
   int snr = a.snr_q / 4;
   out->bars = (a.snr_q == 0) ? 1 : (snr >= 5 ? 4 : (snr >= 0 ? 2 : 1));
   return true;
