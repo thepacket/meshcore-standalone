@@ -1056,16 +1056,35 @@ extern "C" int lvd_packet_detail(lvd_kv_t* out, int max) {
     case 0x03:                                    // ACK
       if (plav >= 1) { int k = snprintf(v, sizeof(v), "0x"); for (int j = 0; j < plav && j < 8 && k < (int)sizeof(v) - 2; j++) k += snprintf(v + k, sizeof(v) - k, "%02X", pl[j]); kv_add(out, &n, max, "ACK code", v); }
       break;
-    case 0x05: case 0x06:                          // GRP_TXT/GRP_DATA: channel hash -> our channel name if known
+    case 0x05: case 0x06:                          // GRP_TXT/GRP_DATA: channel hash + encrypted (MAC + data)
       if (plav >= 1) {
-        const char* cn = NULL;
-        for (int ci = 0; ci < MAX_GROUP_CHANNELS && !cn; ci++) {
+        // find our channel(s) whose hash matches, and try to decrypt (MAC-checked)
+        ChannelDetails match; bool have_ch = false; uint8_t dec[MAX_PACKET_PAYLOAD]; int dlen = -1;
+        for (int ci = 0; ci < MAX_GROUP_CHANNELS; ci++) {
           ChannelDetails cd;
-          if (the_mesh.getChannel(ci, cd) && cd.name[0] && cd.channel.hash[0] == pl[0]) cn = "known";
-          if (cn) { snprintf(v, sizeof(v), "0x%02X (%s)", pl[0], cd.name); }
+          if (!the_mesh.getChannel(ci, cd) || !cd.name[0] || cd.channel.hash[0] != pl[0]) continue;
+          match = cd; have_ch = true;
+          if (plav > 3) dlen = mesh::Utils::MACThenDecrypt(cd.channel.secret, dec, pl + 1, plav - 1);
+          if (dlen > 0) break;   // this channel's key worked
         }
-        if (!cn) snprintf(v, sizeof(v), "0x%02X (not our channel)", pl[0]);
-        kv_add(out, &n, max, "Channel", v);   // (data_type sits inside the encrypted blob)
+        if (have_ch) snprintf(v, sizeof(v), "0x%02X (%s)", pl[0], match.name);
+        else         snprintf(v, sizeof(v), "0x%02X (not our channel)", pl[0]);
+        kv_add(out, &n, max, "Channel", v);
+
+        if (dlen > 0) {
+          if (ptype == 0x05 && dlen >= 5) {          // GRP_TXT: timestamp(4) type(1) text
+            dec[dlen] = 0;
+            kv_add(out, &n, max, "Message", (const char*)&dec[5]);
+          } else if (ptype == 0x06 && dlen >= 3) {   // GRP_DATA: data_type(2) len(1) blob
+            uint16_t dt = dec[0] | (dec[1] << 8);
+            snprintf(v, sizeof(v), "0x%04X (%u B)", dt, dec[2]);
+            kv_add(out, &n, max, "Data type", v);
+          }
+        } else if (have_ch) {
+          kv_add(out, &n, max, "Message", "(decrypt failed)");
+        } else {
+          kv_add(out, &n, max, "Message", "(encrypted - no key)");
+        }
       }
       break;
     case 0x04: {                                   // ADVERT: pubkey(32) ts(4) sig(64) appdata
