@@ -32,8 +32,8 @@ Built for an Android-app-quality look (black theme, per-feature colour-coded ico
 chips, charts/gauges, real widgets). Live on-device:
 
 - **Home** — colour icon-grid launcher; live status bar (RX/RE/TX/CT counters,
-  clock, battery); live RF signal scope + free-RAM/flash hero cards; unread
-  badge on the Chat tile
+  **Wi-Fi indicator**, clock, battery); live RF signal scope + free-RAM/flash
+  hero cards; unread badge on the Chat tile
 - **Chat** — Public channel **and** direct messages (send + live receive), speech
   bubbles with **timestamps**, per-message **delivery status** (sent → delivered
   → failed), per-conversation **unread badges**, and an incoming **hop tag**
@@ -70,6 +70,12 @@ chips, charts/gauges, real widgets). Live on-device:
   **factory reset** (confirm-guarded), **SD backup/restore of config and
   contacts+channels** (+ packet export to serial), contacts + BLE-pin info, and
   the on-screen-keyboard toggle
+- **Wi-Fi** (internet access) — join a network from an on-device **scan picker**
+  (or type an SSID), credentials persisted in NVS; auto-connect on boot,
+  auto-reconnect, live status (IP + RSSI), an async **ping test** (4× ICMP to
+  8.8.8.8), and **NTP clock sync** that sets the mesh RTC on connect. The 2.4 GHz
+  radio stays fully off while disabled, so LoRa battery life is unaffected;
+  independent of the companion transport
 - **Files** — a **microSD browser** (read + write): navigate folders, see sizes
   and card usage, delete files, and **format the card as FAT32**. The card also
   backs the SD backup/restore in Settings and is the store for future features

@@ -136,6 +136,14 @@ Delivered alongside M3 to host the diagnostic tiles:
   Builds on the volatile baseline + the new SD subsystem.
 
 ## M8 — Connectivity (advanced)
+- ✅ **Wi-Fi internet access** — runtime STA manager (NVS credentials, independent of
+  the companion transport): Settings › Wi-Fi with an async **scan picker** (tap a
+  network → passphrase editor), auto-connect on boot + reconnect, live IP/RSSI
+  status, an async **ICMP ping test**, and a home status-bar indicator. The 2.4 GHz
+  radio is fully off while disabled. First internet consumer: **NTP clock sync**
+  (SNTP → mesh RTC, once per connection).
+- ⏳ More internet consumers on the Wi-Fi base: e.g. map-tile fetch (M4), firmware
+  OTA, MQTT gateway reporting.
 - ⏳ **Unified transport image** (BLE + USB + Wi-Fi in one build) and optional **AirLink**
   bridging (relay a phone into the mesh without tethering). Largest/most speculative.
 

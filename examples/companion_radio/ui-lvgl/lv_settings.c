@@ -87,6 +87,16 @@ static const Field F_TIME[] = {
   {"Time source 2",  F_VAL, "(none)", 0},
   {"Time source 3",  F_VAL, "(none)", 0},
 };
+static const Field F_WIFI[] = {
+  {"Enabled",        F_BOOL,   NULL, 0},        // STA connection for internet features
+  {"Network",        F_VAL,    "(none)", 0},    // SSID (or pick one via Scan)
+  {"Password",       F_VAL,    "", 0},
+  {"Scan networks",  F_ACTION, NULL, 0},        // -> wifi_scan picker
+  {"Status",         F_INFO,   "off", 0},       // IP + RSSI once connected
+  {"Ping test",      F_ACTION, NULL, 0},        // 4 ICMP pings to 8.8.8.8 (internet check)
+  {"Ping",           F_INFO,   "--", 0},        // live result of the last ping test
+  {"NTP clock sync", F_BOOL,   NULL, 1},        // set the mesh RTC from pool.ntp.org
+};
 static const Field F_DEVICE[] = {
   {"On-screen keyboard", F_BOOL, NULL, 1},   // show the touch keyboard for text entry
   {"Buzzer quiet",    F_BOOL, NULL, 0},
@@ -121,16 +131,18 @@ static const Group GROUPS[] = {
   GRP("Tuning",      UI_AMBER,   ICON_SIGNAL,    F_TUNING),
   GRP("Security",    UI_TEAL,    ICON_SHIELD,    F_SECURITY),
   GRP("Time",        UI_AMBER,   ICON_CLOCK,     F_TIME),
+  GRP("Wi-Fi",       UI_CYAN,    ICON_WIFI,      F_WIFI),
   GRP("Device",      UI_INDIGO,  ICON_SETTINGS,  F_DEVICE),
   GRP("Channels",    UI_LIME,    ICON_CHAT,      F_CHANNELS),
   GRP("Data",        UI_EMERALD, ICON_TERMINAL,  F_DATA),
 };
 #define N_GROUPS  ((int)(sizeof(GROUPS) / sizeof(GROUPS[0])))
 #define MAX_FIELDS 8
-static const char* SG_DEST[] = {"sg0","sg1","sg2","sg3","sg4","sg5","sg6","sg7","sg8","sg9","sg10","sg11"};
+static const char* SG_DEST[] = {"sg0","sg1","sg2","sg3","sg4","sg5","sg6","sg7","sg8","sg9","sg10","sg11","sg12"};
 
 // ---- mutable value overlay (prototype state; persists across navigation) ----
-static char g_val[N_GROUPS][MAX_FIELDS][28];
+// width fits a 63-char Wi-Fi passphrase (the longest editable value)
+static char g_val[N_GROUPS][MAX_FIELDS][68];
 static int  g_sel[N_GROUPS][MAX_FIELDS];
 static bool g_inited = false;
 static int  g_edit_g = 0, g_edit_f = 0;   // field currently being edited
@@ -151,6 +163,8 @@ static bool field_numeric(const Field* f) {
   if (strcmp(f->label, "Node name") == 0) return false;
   if (strncmp(f->label, "Time source", 11) == 0) return false;  // repeater names are text
   if (strcmp(f->label, "Set time (UTC)") == 0) return false;    // "YYYY-MM-DD HH:MM" is text
+  if (strcmp(f->label, "Network") == 0)  return false;          // Wi-Fi SSID
+  if (strcmp(f->label, "Password") == 0) return false;          // Wi-Fi passphrase
   return true;
 }
 
@@ -277,6 +291,7 @@ static void on_action_clicked(lv_event_t* e) {
   const char* label = GROUPS[ud >> 8].fields[ud & 0xff].label;
   // actions that are UI-side (navigation / confirmation), not config commands
   if (strcmp(label, "Add channel") == 0)   { if (lv_nav_cb) lv_nav_cb("chan_add"); return; }
+  if (strcmp(label, "Scan networks") == 0) { if (lv_nav_cb) lv_nav_cb("wifi_scan"); return; }
   if (strcmp(label, "Factory reset") == 0) { confirm_factory_reset(); return; }
   lvd_cfg_action(GROUPS[ud >> 8].title, label);
   if (strncmp(label, "Export", 6) == 0) lv_ui_toast("Printed to USB serial");
@@ -313,10 +328,22 @@ static void action_button(lv_obj_t* list, const char* label, uint32_t color, int
   lv_obj_center(l);
 }
 
+// live rows on the Wi-Fi group screen: Status (connect progress + IP) and Ping
+static lv_obj_t* s_wifi_status_lbl = NULL;
+static lv_obj_t* s_wifi_ping_lbl = NULL;
+static void wifi_group_refresh(void) {
+  char v[68]; int sel = 0;
+  if (s_wifi_status_lbl && lvd_cfg_get("Wi-Fi", "Status", v, sizeof(v), &sel))
+    lv_label_set_text(s_wifi_status_lbl, v);
+  if (s_wifi_ping_lbl && lvd_cfg_get("Wi-Fi", "Ping", v, sizeof(v), &sel))
+    lv_label_set_text(s_wifi_ping_lbl, v);
+}
+
 void lv_settings_group_create(lv_obj_t* scr, int idx) {
   store_init();
   if (idx < 0 || idx >= N_GROUPS) idx = 0;
   const Group* g = &GROUPS[idx];
+  s_wifi_status_lbl = s_wifi_ping_lbl = NULL;
   lv_ui_screen_bg(scr);
   lv_ui_md_topbar(scr, g->title);
   lv_obj_t* list = lv_ui_md_scroll(scr);
@@ -326,7 +353,7 @@ void lv_settings_group_create(lv_obj_t* scr, int idx) {
     const Field* f = &g->fields[i];
     int ud = (idx << 8) | i;
     // overlay live config onto the prototype default for any bound field
-    { char lv[28]; int ls = g_sel[idx][i];
+    { char lv[68]; int ls = g_sel[idx][i];
       if (lvd_cfg_get(g->title, f->label, lv, sizeof(lv), &ls)) {
         strncpy(g_val[idx][i], lv, sizeof(g_val[0][0]) - 1);
         g_val[idx][i][sizeof(g_val[0][0]) - 1] = 0;
@@ -376,10 +403,15 @@ void lv_settings_group_create(lv_obj_t* scr, int idx) {
         lv_label_set_text(v, g_val[idx][i]);
         lv_obj_set_style_text_font(v, &lv_font_montserrat_14, 0);
         lv_obj_set_style_text_color(v, lv_color_hex(UI_MUTED), 0);
+        if (strcmp(g->title, "Wi-Fi") == 0) {
+          if (strcmp(f->label, "Status") == 0) s_wifi_status_lbl = v;
+          if (strcmp(f->label, "Ping") == 0)   s_wifi_ping_lbl = v;
+        }
         break;
       }
     }
   }
+  if (s_wifi_status_lbl) lv_ui_set_refresh(wifi_group_refresh);
 }
 
 // ---- keyboard editor for value fields ---------------------------------------
@@ -426,4 +458,118 @@ void lv_settings_edit_create(lv_obj_t* scr) {
     lv_obj_add_event_cb(kb, on_kb_ready, LV_EVENT_READY, NULL);
     lv_obj_add_event_cb(kb, on_kb_cancel, LV_EVENT_CANCEL, NULL);
   }
+}
+
+// ---- Wi-Fi network picker (async scan results, strongest first) --------------
+static lv_obj_t* s_wifi_list = NULL;
+static int s_wifi_seen = -3;   // last rendered scan state (+count), for the 1/s refresh
+
+static int wifi_field(const char* label) {   // field index within the Wi-Fi group
+  for (int g = 0; g < N_GROUPS; g++) {
+    if (strcmp(GROUPS[g].title, "Wi-Fi") != 0) continue;
+    for (int f = 0; f < GROUPS[g].n; f++)
+      if (strcmp(GROUPS[g].fields[f].label, label) == 0) return (g << 8) | f;
+  }
+  return -1;
+}
+
+static void on_wifi_net_clicked(lv_event_t* e) {
+  int i = (int)(intptr_t)lv_event_get_user_data(e);
+  char ssid[33]; int rssi = 0, secure = 0;
+  if (!lvd_wifi_scan_get(i, ssid, sizeof(ssid), &rssi, &secure)) return;
+  lvd_wifi_set_ssid(ssid);
+  lvd_wifi_set_enabled(1);   // picking a network implies "use it"
+  if (secure) {
+    // hop straight into the passphrase editor (picker -> back -> edit)
+    int gf = wifi_field("Password");
+    if (gf >= 0) {
+      g_edit_g = gf >> 8; g_edit_f = gf & 0xff;
+      g_val[g_edit_g][g_edit_f][0] = 0;   // start the editor empty for a new network
+      if (lv_nav_cb) { lv_nav_cb("back"); lv_nav_cb("edit"); }
+    }
+  } else {
+    lvd_wifi_set_pass("");
+    lv_ui_toast("Connecting...");
+    if (lv_nav_cb) lv_nav_cb("back");
+  }
+}
+static void on_wifi_rescan(lv_event_t* e) {
+  (void)e;
+  lvd_wifi_scan_start();
+  s_wifi_seen = -3;   // force a repaint
+}
+
+static void wifi_scan_fill(void) {
+  if (!s_wifi_list) return;
+  lv_obj_clean(s_wifi_list);
+  int st = lvd_wifi_scan_state();
+  if (st != 2) {
+    lv_obj_t* c = lv_ui_md_card(s_wifi_list);
+    lv_obj_t* l = lv_label_create(c);
+    lv_label_set_text(l, st == 1 ? LV_SYMBOL_REFRESH "  Scanning..." : "Scan idle");
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(l, lv_color_hex(UI_MUTED), 0);
+    return;
+  }
+  // "scan again" row on top, then the results
+  lv_obj_t* re = lv_ui_md_card(s_wifi_list);
+  lv_obj_set_height(re, 40);
+  lv_obj_add_flag(re, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(re, on_wifi_rescan, LV_EVENT_CLICKED, NULL);
+  lv_ui_press_fx(re);
+  lv_obj_t* rl = lv_label_create(re);
+  lv_label_set_text(rl, LV_SYMBOL_REFRESH "  Scan again");
+  lv_obj_set_style_text_font(rl, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(rl, lv_color_hex(MD_PRIMARY), 0);
+  lv_obj_center(rl);
+
+  int n = lvd_wifi_scan_count();
+  if (n == 0) {
+    lv_obj_t* c = lv_ui_md_card(s_wifi_list);
+    lv_obj_t* l = lv_label_create(c);
+    lv_label_set_text(l, "No networks found");
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(l, lv_color_hex(UI_MUTED), 0);
+    return;
+  }
+  for (int i = 0; i < n; i++) {
+    char ssid[33]; int rssi = 0, secure = 0;
+    if (!lvd_wifi_scan_get(i, ssid, sizeof(ssid), &rssi, &secure)) break;
+    lv_obj_t* row = lv_ui_md_card(s_wifi_list);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(row, on_wifi_net_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+    lv_ui_press_fx(row);
+
+    lv_obj_t* name = lv_label_create(row);
+    lv_label_set_text_fmt(name, LV_SYMBOL_WIFI "  %s", ssid[0] ? ssid : "(hidden)");
+    lv_label_set_long_mode(name, LV_LABEL_LONG_DOT);
+    lv_obj_set_flex_grow(name, 1);
+    lv_obj_set_style_text_font(name, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(name, lv_color_hex(MD_ON), 0);
+
+    lv_obj_t* meta = lv_label_create(row);
+    lv_label_set_text_fmt(meta, "%d dBm  %s", rssi, secure ? "sec" : "open");
+    lv_obj_set_style_text_font(meta, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(meta, lv_color_hex(UI_MUTED), 0);
+  }
+}
+
+static void wifi_scan_refresh(void) {   // 1/s: repaint when the scan finishes
+  int st = lvd_wifi_scan_state();
+  int sig = (st << 12) | (st == 2 ? lvd_wifi_scan_count() : 0);
+  if (sig != s_wifi_seen) { s_wifi_seen = sig; wifi_scan_fill(); }
+}
+
+void lv_wifi_scan_create(lv_obj_t* scr) {
+  store_init();
+  lv_ui_screen_bg(scr);
+  lv_ui_md_topbar(scr, "Wi-Fi networks");
+  s_wifi_list = lv_ui_md_scroll(scr);
+  lv_obj_set_style_pad_row(s_wifi_list, 8, 0);
+  if (lvd_wifi_scan_state() != 1) lvd_wifi_scan_start();
+  s_wifi_seen = -3;
+  wifi_scan_fill();
+  lv_ui_set_refresh(wifi_scan_refresh);
 }

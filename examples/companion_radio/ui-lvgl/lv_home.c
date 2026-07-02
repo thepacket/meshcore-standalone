@@ -71,6 +71,7 @@ static void make_tile(lv_obj_t* parent, const Tile* t, int idx, int x, int y, in
 // screen's refresh hook). Valid only while the home screen is active.
 static lv_obj_t* s_clock = NULL;
 static lv_obj_t* s_batt  = NULL;
+static lv_obj_t* s_wifi  = NULL;   // Wi-Fi indicator (shown while Wi-Fi is enabled)
 static lv_obj_t* s_rxtx  = NULL;   // "rx N  tx M" packet counters
 // live hero widgets (Latest = last-RX RSSI/SNR + strength bar; the right card
 // shows free RAM + flash storage — the RF scope moved to Tools > RF Scope).
@@ -88,9 +89,17 @@ static void apply_batt(lv_obj_t* b, int bp) {
   lv_label_set_text(b, batt_symbol(bp));
   lv_obj_set_style_text_color(b, lv_color_hex(bp >= 0 && bp <= 20 ? UI_RED : UI_GREEN), 0);
 }
+// visible while Wi-Fi is enabled: muted = connecting, green = connected
+static void apply_wifi(lv_obj_t* w) {
+  int st = lvd_wifi_state();
+  if (st == 0) { lv_obj_add_flag(w, LV_OBJ_FLAG_HIDDEN); return; }
+  lv_obj_remove_flag(w, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_set_style_text_color(w, lv_color_hex(st == 2 ? UI_GREEN : UI_MUTED), 0);
+}
 static void home_tick(void) {
   if (s_clock) { char t[8]; lvd_clock_hhmm(t, sizeof(t)); lv_label_set_text(s_clock, t); }
   if (s_batt)  apply_batt(s_batt, lvd_batt_pct());
+  if (s_wifi)  apply_wifi(s_wifi);
   if (s_rxtx)  { char b[48]; snprintf(b, sizeof(b), "RX %u  RE %u  TX %u  CT %d", lvd_pkt_recv(), lvd_pkt_recv_err(), lvd_pkt_sent(), lvd_contact_total()); lv_label_set_text(s_rxtx, b); }
   if (s_mem_ram)   { char b[28]; snprintf(b, sizeof(b), "RAM %u KB left",   lvd_free_ram_kb());   lv_label_set_text(s_mem_ram, b); }
   if (s_mem_flash) { char b[28]; snprintf(b, sizeof(b), "Flash %u KB left", lvd_free_flash_kb()); lv_label_set_text(s_mem_flash, b); }
@@ -127,6 +136,12 @@ static void make_statusbar(lv_obj_t* scr) {
   lv_obj_set_style_text_color(rxtx, lv_color_hex(0xffffff), 0);
   lv_obj_align(rxtx, LV_ALIGN_LEFT_MID, 8, 0);
   s_rxtx = rxtx;
+
+  lv_obj_t* wifi = lv_label_create(bar);
+  lv_label_set_text(wifi, LV_SYMBOL_WIFI);
+  lv_obj_align(wifi, LV_ALIGN_RIGHT_MID, -86, 0);   // just left of the clock
+  apply_wifi(wifi);
+  s_wifi = wifi;
 
   lv_obj_t* clock = lv_label_create(bar);
   char tbuf[8]; lvd_clock_hhmm(tbuf, sizeof(tbuf));

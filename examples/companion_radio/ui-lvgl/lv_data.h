@@ -76,6 +76,29 @@ void lvd_sd_usage(char* out, int len);                 // "used / total" summary
 int  lvd_sd_remove(const char* path);                  // delete a file/empty dir; 1 on success
 int  lvd_sd_format(void);                              // reformat the card as FAT32 (destructive!); 1 on success
 
+// ---- Wi-Fi (internet access, station mode) ----------------------------------
+// Runtime STA connection for internet-backed features (NTP clock sync first).
+// Credentials persist in NVS; independent of the companion transport (USB/BLE).
+int         lvd_wifi_enabled(void);              // user toggle (persisted)
+void        lvd_wifi_set_enabled(int on);        // starts / tears down the connection
+const char* lvd_wifi_ssid(void);                 // "" if unset
+void        lvd_wifi_set_ssid(const char* ssid);
+const char* lvd_wifi_pass(void);
+void        lvd_wifi_set_pass(const char* pass);
+int         lvd_wifi_state(void);                // 0 off, 1 connecting, 2 connected
+void        lvd_wifi_status(char* out, int len); // "192.168.1.7  -52 dBm" / "connecting..." / "off"
+// network scan (async): start returns 1 if a scan is now running
+int  lvd_wifi_scan_start(void);
+int  lvd_wifi_scan_state(void);                  // 0 idle, 1 scanning, 2 done
+int  lvd_wifi_scan_count(void);                  // results (strongest first), state 2 only
+bool lvd_wifi_scan_get(int i, char* ssid, int ssid_len, int* rssi, int* secure);
+// NTP clock sync (sets the mesh RTC while connected)
+int  lvd_ntp_enabled(void);
+void lvd_ntp_set(int on);
+// ping test (async ICMP, 4 pings to 8.8.8.8): verifies real internet reachability
+int  lvd_wifi_ping_start(void);                  // 0 if not connected
+void lvd_wifi_ping_status(char* out, int len);   // "--" / "pinging..." / "4/4 replies  avg 23 ms"
+
 // ---- statistics (Stats screen) ---------------------------------------------
 typedef struct {
   int      noise_floor;            // current noise floor, dBm (0 = unknown)

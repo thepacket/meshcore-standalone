@@ -13,6 +13,10 @@
 #include <ctype.h>
 #include <math.h>
 #include <Preferences.h>
+#include <WiFi.h>
+#include <time.h>
+#include <ping/ping_sock.h>   // ESP-IDF async ICMP ping (Wi-Fi ping test)
+#include <lwip/ip_addr.h>
 
 extern MyMesh the_mesh;   // global mesh instance (main.cpp)
 
@@ -70,6 +74,7 @@ extern "C" {
   void lv_files_create(lv_obj_t* scr);
   void lv_contacts_create(lv_obj_t* scr);
   void lv_contact_search_create(lv_obj_t* scr);
+  void lv_wifi_scan_create(lv_obj_t* scr);
 }
 
 // incoming messages since the chat list / a conversation was last viewed
@@ -117,6 +122,7 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "discover")) lv_discover_create(s);
   else if (!strcmp(name, "disc")) lv_disc_create(s);
   else if (!strcmp(name, "files")) lv_files_create(s);
+  else if (!strcmp(name, "wifi_scan")) lv_wifi_scan_create(s);
   else lv_home_create(s);
 }
 
@@ -285,6 +291,8 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   _lvgl_ready = true;
 }
 
+void ui_wifi_poll(void);   // Wi-Fi manager, defined with the lvd_wifi_* bridge below
+
 void UITask::loop() {
   if (!_lvgl_ready) return;
   // lv_timer_handler() has ~26us fixed overhead per call; the main loop spins it
@@ -306,6 +314,13 @@ void UITask::loop() {
   if (g_disp_drew) {       // the frame is fully flushed: give the bus back once
     g_disp_drew = false;
     radio_spi_claim();
+  }
+
+  // Wi-Fi state machine (~1/s): connect/reconnect + NTP clock sync
+  static uint32_t s_last_wifi = 0;
+  if (lv_now - s_last_wifi >= 1000) {
+    s_last_wifi = lv_now;
+    ui_wifi_poll();
   }
 }
 
@@ -602,10 +617,223 @@ extern "C" void lvd_osk_set(bool on) {
   Preferences p; p.begin("ui", false); p.putBool("osk", on); p.end();
 }
 
+// ---- Wi-Fi (internet access, station mode) ----------------------------------
+// Runtime STA connection for internet-backed features (NTP clock sync first).
+// Credentials live in NVS (namespace "wifi"), independent of the companion
+// transport. ui_wifi_poll() runs ~1/s from UITask::loop(): connects when
+// enabled, retries after a drop, and applies one SNTP clock sync per
+// connection to the mesh RTC. The 2.4 GHz radio is fully off unless enabled
+// (or briefly on for a network scan) so LoRa battery life is unaffected.
+#define WIFI_RETRY_MS      15000     // re-issue begin() while stuck connecting
+#define WIFI_SCAN_HOLD_MS  30000     // keep the radio up this long after a scan (picker open)
+#define NTP_VALID_EPOCH    1735689600U   // 2025-01-01: SNTP has really answered
+
+static bool     s_wf_loaded = false;
+static bool     s_wf_on = false, s_wf_ntp = true;
+static char     s_wf_ssid[33] = "", s_wf_pass[65] = "";
+static uint8_t  s_wf_run = 0;            // 0 off, 1 connecting, 2 connected
+static uint32_t s_wf_try_ms = 0;         // last begin() attempt
+static uint32_t s_wf_scan_ms = 0;        // last scan-API touch (radio keepalive)
+static bool     s_wf_ntp_started = false, s_wf_ntp_done = false;
+
+static void wifi_load(void) {
+  if (s_wf_loaded) return;
+  Preferences p;
+  if (p.begin("wifi", true)) {
+    s_wf_on  = p.getBool("on", false);
+    s_wf_ntp = p.getBool("ntp", true);
+    p.getString("ssid", s_wf_ssid, sizeof(s_wf_ssid));
+    p.getString("pass", s_wf_pass, sizeof(s_wf_pass));
+    p.end();
+  }
+  s_wf_loaded = true;
+}
+static void wifi_save(void) {
+  Preferences p; p.begin("wifi", false);
+  p.putBool("on", s_wf_on); p.putBool("ntp", s_wf_ntp);
+  p.putString("ssid", s_wf_ssid); p.putString("pass", s_wf_pass);
+  p.end();
+}
+static void wifi_drop(void) {           // tear the connection down (config changed / disabled)
+  if (s_wf_run) { WiFi.disconnect(true); WiFi.mode(WIFI_OFF); s_wf_run = 0; }
+  s_wf_ntp_started = s_wf_ntp_done = false;
+}
+
+void ui_wifi_poll(void) {
+  wifi_load();
+  if (!s_wf_on || !s_wf_ssid[0]) {
+    if (s_wf_run) wifi_drop();
+    // a scan can bring the radio up while Wi-Fi is disabled; power it back
+    // down once the picker has stopped touching the scan API
+    else if (WiFi.getMode() != WIFI_OFF && WiFi.scanComplete() != WIFI_SCAN_RUNNING &&
+             millis() - s_wf_scan_ms > WIFI_SCAN_HOLD_MS) {
+      WiFi.mode(WIFI_OFF);
+    }
+    return;
+  }
+  if (s_wf_run == 0) {
+    WiFi.mode(WIFI_STA);
+    WiFi.setAutoReconnect(true);
+    WiFi.begin(s_wf_ssid, s_wf_pass);
+    s_wf_run = 1; s_wf_try_ms = millis();
+    return;
+  }
+  if (WiFi.status() == WL_CONNECTED) {
+    if (s_wf_run != 2) {
+      s_wf_run = 2;
+      char t[56];
+      snprintf(t, sizeof(t), "Wi-Fi: %s", WiFi.localIP().toString().c_str());
+      lv_ui_toast(t);
+    }
+    if (s_wf_ntp && !s_wf_ntp_started) {
+      configTime(0, 0, "pool.ntp.org", "time.nist.gov");
+      s_wf_ntp_started = true;
+    }
+    if (s_wf_ntp_started && !s_wf_ntp_done) {
+      time_t now = time(NULL);
+      if ((uint32_t)now > NTP_VALID_EPOCH) {
+        s_wf_ntp_done = true;   // one sync per connection (setDeviceTime never goes backwards)
+        if (the_mesh.setDeviceTime((uint32_t)now)) lv_ui_toast("Clock synced (NTP)");
+      }
+    }
+  } else {
+    if (s_wf_run == 2) { s_wf_run = 1; s_wf_try_ms = millis(); }   // link dropped; auto-reconnect runs
+    else if (millis() - s_wf_try_ms > WIFI_RETRY_MS) {             // stuck (bad pass / AP gone): retry
+      WiFi.disconnect();
+      WiFi.begin(s_wf_ssid, s_wf_pass);
+      s_wf_try_ms = millis();
+    }
+  }
+}
+
+extern "C" int  lvd_wifi_enabled(void) { wifi_load(); return s_wf_on ? 1 : 0; }
+extern "C" void lvd_wifi_set_enabled(int on) {
+  wifi_load();
+  s_wf_on = (on != 0); wifi_save();
+  if (!s_wf_on) wifi_drop();   // enable path: the next poll connects
+}
+extern "C" const char* lvd_wifi_ssid(void) { wifi_load(); return s_wf_ssid; }
+extern "C" void lvd_wifi_set_ssid(const char* ssid) {
+  wifi_load();
+  strncpy(s_wf_ssid, ssid ? ssid : "", sizeof(s_wf_ssid) - 1); s_wf_ssid[sizeof(s_wf_ssid) - 1] = 0;
+  wifi_save();
+  wifi_drop();   // reconnect with the new network on the next poll
+}
+extern "C" const char* lvd_wifi_pass(void) { wifi_load(); return s_wf_pass; }
+extern "C" void lvd_wifi_set_pass(const char* pass) {
+  wifi_load();
+  strncpy(s_wf_pass, pass ? pass : "", sizeof(s_wf_pass) - 1); s_wf_pass[sizeof(s_wf_pass) - 1] = 0;
+  wifi_save();
+  wifi_drop();
+}
+extern "C" int lvd_wifi_state(void) { wifi_load(); return s_wf_on ? s_wf_run : 0; }
+extern "C" void lvd_wifi_status(char* out, int len) {
+  wifi_load();
+  if (!s_wf_on)       { snprintf(out, len, "off"); return; }
+  if (!s_wf_ssid[0])  { snprintf(out, len, "no network set"); return; }
+  if (s_wf_run == 2 && WiFi.status() == WL_CONNECTED) {
+    snprintf(out, len, "%s  %d dBm", WiFi.localIP().toString().c_str(), (int)WiFi.RSSI());
+  } else {
+    snprintf(out, len, "connecting...");   // the Network row above names the SSID
+  }
+}
+// network scan (async; results strongest-first)
+extern "C" int lvd_wifi_scan_start(void) {
+  s_wf_scan_ms = millis();
+  if (WiFi.getMode() == WIFI_OFF) WiFi.mode(WIFI_STA);
+  return WiFi.scanNetworks(true /*async*/) == WIFI_SCAN_RUNNING ? 1 : 0;
+}
+extern "C" int lvd_wifi_scan_state(void) {
+  s_wf_scan_ms = millis();
+  int c = WiFi.scanComplete();
+  if (c == WIFI_SCAN_RUNNING) return 1;
+  return c >= 0 ? 2 : 0;
+}
+extern "C" int lvd_wifi_scan_count(void) {
+  int c = WiFi.scanComplete();
+  return c > 0 ? c : 0;
+}
+extern "C" bool lvd_wifi_scan_get(int i, char* ssid, int ssid_len, int* rssi, int* secure) {
+  s_wf_scan_ms = millis();
+  int n = WiFi.scanComplete();
+  if (n <= 0 || i < 0 || i >= n) return false;
+  // pick the entry ranked i-th by RSSI (ties by index); n is small, so a
+  // stateless O(n^2) selection beats keeping a sorted copy in sync
+  int pick = -1;
+  for (int j = 0; j < n && pick < 0; j++) {
+    int rank = 0;
+    for (int k = 0; k < n; k++)
+      if (WiFi.RSSI(k) > WiFi.RSSI(j) || (WiFi.RSSI(k) == WiFi.RSSI(j) && k < j)) rank++;
+    if (rank == i) pick = j;
+  }
+  if (pick < 0) return false;
+  strncpy(ssid, WiFi.SSID(pick).c_str(), ssid_len - 1); ssid[ssid_len - 1] = 0;
+  if (rssi)   *rssi   = (int)WiFi.RSSI(pick);
+  if (secure) *secure = (WiFi.encryptionType(pick) != WIFI_AUTH_OPEN) ? 1 : 0;
+  return true;
+}
+extern "C" int  lvd_ntp_enabled(void) { wifi_load(); return s_wf_ntp ? 1 : 0; }
+extern "C" void lvd_ntp_set(int on) {
+  wifi_load();
+  s_wf_ntp = (on != 0); wifi_save();
+  if (s_wf_ntp) s_wf_ntp_started = s_wf_ntp_done = false;   // fresh sync on the next poll
+}
+
+// ping test: 4 async ICMP pings to 8.8.8.8. The esp_ping callbacks run in the
+// lwip task, so they only touch these volatiles; the UI polls the status string.
+#define PING_COUNT 4
+static volatile uint32_t s_ping_ok = 0, s_ping_lost = 0, s_ping_total_ms = 0;
+static volatile uint8_t  s_ping_state = 0;   // 0 idle, 1 running, 2 done
+
+static void ping_ok_cb(esp_ping_handle_t h, void* args) {
+  uint32_t t = 0;
+  esp_ping_get_profile(h, ESP_PING_PROF_TIMEGAP, &t, sizeof(t));
+  s_ping_total_ms += t; s_ping_ok = s_ping_ok + 1;
+}
+static void ping_timeout_cb(esp_ping_handle_t h, void* args) { s_ping_lost = s_ping_lost + 1; }
+static void ping_end_cb(esp_ping_handle_t h, void* args) {
+  esp_ping_delete_session(h);   // standard IDF pattern: session frees itself on end
+  s_ping_state = 2;
+}
+
+extern "C" int lvd_wifi_ping_start(void) {
+  if (s_ping_state == 1) return 1;   // already running
+  if (!s_wf_on || s_wf_run != 2 || WiFi.status() != WL_CONNECTED) return 0;
+  s_ping_ok = 0; s_ping_lost = 0; s_ping_total_ms = 0;
+  esp_ping_config_t cfg = ESP_PING_DEFAULT_CONFIG();
+  cfg.count = PING_COUNT;
+  cfg.interval_ms = 1000;
+  cfg.timeout_ms = 1000;
+  ipaddr_aton("8.8.8.8", &cfg.target_addr);
+  esp_ping_callbacks_t cbs = {};
+  cbs.on_ping_success = ping_ok_cb;
+  cbs.on_ping_timeout = ping_timeout_cb;
+  cbs.on_ping_end     = ping_end_cb;
+  esp_ping_handle_t h;
+  if (esp_ping_new_session(&cfg, &cbs, &h) != ESP_OK) return 0;
+  s_ping_state = 1;
+  esp_ping_start(h);
+  return 1;
+}
+extern "C" void lvd_wifi_ping_status(char* out, int len) {
+  if (s_ping_state == 0)      snprintf(out, len, "--");
+  else if (s_ping_state == 1) snprintf(out, len, "pinging 8.8.8.8...  %u/%d",
+                                       (unsigned)(s_ping_ok + s_ping_lost), PING_COUNT);
+  else if (s_ping_ok == 0)    snprintf(out, len, "no reply - internet down?");
+  else                        snprintf(out, len, "%u/%d replies  avg %u ms",
+                                       (unsigned)s_ping_ok, PING_COUNT,
+                                       (unsigned)(s_ping_total_ms / s_ping_ok));
+}
+
 // ---- microSD browser bridge (wraps the target's shared-bus SD helpers) ------
 extern "C" int lvd_sd_available(void) { return tdeck_sd_ok() ? 1 : 0; }
 extern "C" int lvd_sd_list(const char* path, lvd_sd_t* out, int max) {
-  static SdEntry ent[64];
+  static SdEntry* ent = NULL;   // PSRAM, allocated on first use (4.6KB: keep out of DRAM .bss)
+  if (!ent) {
+    ent = (SdEntry*)ps_malloc(sizeof(SdEntry) * 64);
+    if (!ent) ent = (SdEntry*)malloc(sizeof(SdEntry) * 64);
+    if (!ent) return -1;
+  }
   if (max > 64) max = 64;
   int n = tdeck_sd_list(path, ent, max);
   for (int i = 0; i < n; i++) {
@@ -833,6 +1061,13 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
       else { strncpy(val, "(BLE off)", len - 1); val[len - 1] = 0; }
       return true;
     }
+  } else if (eq(group, "Wi-Fi")) {
+    if (eq(label, "Enabled"))        { *sel = lvd_wifi_enabled(); return true; }
+    if (eq(label, "Network"))        { const char* s = lvd_wifi_ssid(); snprintf(val, len, "%s", s[0] ? s : "(none)"); return true; }
+    if (eq(label, "Password"))       { snprintf(val, len, "%s", lvd_wifi_pass()); return true; }
+    if (eq(label, "Status"))         { lvd_wifi_status(val, len); return true; }
+    if (eq(label, "Ping"))           { lvd_wifi_ping_status(val, len); return true; }
+    if (eq(label, "NTP clock sync")) { *sel = lvd_ntp_enabled(); return true; }
   } else if (eq(group, "Device")) {
     if (eq(label, "Contacts")) { snprintf(val, len, "%d / %d used", the_mesh.getNumContacts(), MAX_CONTACTS); return true; }
     if (eq(label, "Battery/storage")) {
@@ -909,6 +1144,11 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
     if (eq(label, "RX delay base") && val)  { the_mesh.setTuningParams((float)atof(val), p->airtime_factor); return; }
   } else if (eq(group, "Security")) {
     if (eq(label, "BLE pin") && val) { the_mesh.setBlePin((uint32_t)strtoul(val, NULL, 10)); return; }
+  } else if (eq(group, "Wi-Fi")) {
+    if (eq(label, "Enabled"))         { lvd_wifi_set_enabled(sel); return; }
+    if (eq(label, "Network") && val)  { lvd_wifi_set_ssid(eq(val, "(none)") ? "" : val); return; }
+    if (eq(label, "Password") && val) { lvd_wifi_set_pass(val); return; }
+    if (eq(label, "NTP clock sync"))  { lvd_ntp_set(sel); return; }
   } else if (eq(group, "Device")) {
     if (eq(label, "On-screen keyboard")) { lvd_osk_set(sel != 0); return; }
     if (eq(label, "Buzzer quiet"))       { the_mesh.setBuzzerQuiet(sel != 0); return; }
@@ -926,6 +1166,11 @@ extern "C" void lvd_cfg_action(const char* group, const char* label) {
   } else if (eq(group, "Device")) {
     if (eq(label, "Reboot")) { the_mesh.rebootDevice(); return; }
     // Factory reset goes through lvd_factory_reset() after the confirm dialog (lv_settings.c).
+  } else if (eq(group, "Wi-Fi")) {
+    if (eq(label, "Ping test")) {
+      if (!lvd_wifi_ping_start()) lv_ui_toast("Wi-Fi not connected");
+      return;
+    }
   } else if (eq(group, "Data")) {
     // One-way text dumps to USB serial. Safe alongside the companion frame
     // protocol (we only WRITE; reading Serial here would steal frame bytes).
@@ -2059,7 +2304,7 @@ static const char* rep_type_tag(int t) { return t == ADV_TYPE_ROOM ? "ROOM" : "R
 // Name-sorted snapshot of the current repeater/room list (saved or heard). Built
 // when the list is requested; lvd_rep_get/open then read it by display index.
 #define REPLIST_MAX 64
-static ContactInfo g_replist[REPLIST_MAX];
+static ContactInfo* g_replist = NULL;   // PSRAM, allocated on first use (11.7KB: too big for DRAM .bss)
 static int         g_replist_n = 0;
 static int         g_replist_scan = -1;
 
@@ -2069,6 +2314,11 @@ static int cmp_ci_name(const void* a, const void* b) {
 static void rep_build(int scan) {
   g_replist_n = 0;
   g_replist_scan = scan;
+  if (!g_replist) {
+    g_replist = (ContactInfo*)ps_malloc(sizeof(ContactInfo) * REPLIST_MAX);
+    if (!g_replist) g_replist = (ContactInfo*)malloc(sizeof(ContactInfo) * REPLIST_MAX);
+    if (!g_replist) return;   // list simply stays empty
+  }
   if (scan == 0) {
     for (int k = MAX_ANON_CONTACTS, n = the_mesh.getTotalContactSlots(); k < n && g_replist_n < REPLIST_MAX; k++) {
       ContactInfo t;
