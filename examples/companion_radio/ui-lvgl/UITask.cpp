@@ -342,6 +342,24 @@ extern "C" int lvd_unread_count(void) { return 0; }
 static AdvertPath g_heard[16];
 static int        g_heard_n = 0;
 
+// Great-circle (haversine) distance from our position (sensors.node_*, from GPS
+// or the manual lat/lon in Settings) to a peer fix (1e-6 deg), formatted as
+// "850 m" / "4.2 km". False if either side has no position.
+static bool fmt_distance(int32_t lat_e6, int32_t lon_e6, char* out, int len) {
+  if (lat_e6 == 0 && lon_e6 == 0) return false;
+  if (sensors.node_lat == 0.0 && sensors.node_lon == 0.0) return false;
+  const double R = 6371000.0, D2R = M_PI / 180.0;
+  double la1 = sensors.node_lat * D2R, la2 = (lat_e6 / 1e6) * D2R;
+  double dla = la2 - la1;
+  double dlo = ((lon_e6 / 1e6) - sensors.node_lon) * D2R;
+  double a = sin(dla / 2) * sin(dla / 2) + cos(la1) * cos(la2) * sin(dlo / 2) * sin(dlo / 2);
+  double m = R * 2.0 * atan2(sqrt(a), sqrt(1.0 - a));
+  if (m < 1000.0)       snprintf(out, len, "%d m", (int)(m + 0.5));
+  else if (m < 10000.0) snprintf(out, len, "%.1f km", m / 1000.0);
+  else                  snprintf(out, len, "%d km", (int)(m / 1000.0 + 0.5));
+  return true;
+}
+
 extern "C" int lvd_heard_count(void) {
   AdvertPath rec[16];
   int n = the_mesh.getRecentlyHeard(rec, 16);
@@ -368,7 +386,7 @@ extern "C" bool lvd_heard_get(int i, lvd_heard_t* out) {
   else if (age < 3600) snprintf(out->age, sizeof(out->age), "%um ago", (unsigned)(age / 60));
   else                 snprintf(out->age, sizeof(out->age), "%uh ago", (unsigned)(age / 3600));
 
-  out->dist[0] = 0;   // distance binding added with GPS later
+  if (!fmt_distance(a.gps_lat, a.gps_lon, out->dist, sizeof(out->dist))) out->dist[0] = 0;
   int snr = a.snr_q / 4;
   out->bars = (a.snr_q == 0) ? 1 : (snr >= 5 ? 4 : (snr >= 0 ? 2 : 1));
   return true;
@@ -1602,22 +1620,8 @@ extern "C" bool lvd_peer_get(const char* name, lvd_peer_t* out) {
   if (hh && h.rssi)  snprintf(out->rssi, sizeof(out->rssi), "%d dBm", h.rssi); else snprintf(out->rssi, sizeof(out->rssi), "--");
   if (hh && h.snr_q) { int v10 = h.snr_q * 10 / 4, a = v10 < 0 ? -v10 : v10; snprintf(out->snr, sizeof(out->snr), "%s%d.%d dB", v10 < 0 ? "-" : "", a / 10, a % 10); }
   else snprintf(out->snr, sizeof(out->snr), "--");
-  // Distance = great-circle (haversine) between our position and the peer's.
-  // Needs both a peer fix (lat/lon above) and our own position (sensors.node_*,
-  // from GPS or the manual lat/lon in Settings); otherwise "--".
-  bool peer_loc = !(lat == 0 && lon == 0);
-  bool self_loc = !(sensors.node_lat == 0.0 && sensors.node_lon == 0.0);
-  if (peer_loc && self_loc) {
-    const double R = 6371000.0, D2R = M_PI / 180.0;
-    double la1 = sensors.node_lat * D2R, la2 = (lat / 1e6) * D2R;
-    double dla = la2 - la1;
-    double dlo = ((lon / 1e6) - sensors.node_lon) * D2R;
-    double a = sin(dla / 2) * sin(dla / 2) + cos(la1) * cos(la2) * sin(dlo / 2) * sin(dlo / 2);
-    double m = R * 2.0 * atan2(sqrt(a), sqrt(1.0 - a));
-    if (m < 1000.0)       snprintf(out->dist, sizeof(out->dist), "%d m", (int)(m + 0.5));
-    else if (m < 10000.0) snprintf(out->dist, sizeof(out->dist), "%.1f km", m / 1000.0);
-    else                  snprintf(out->dist, sizeof(out->dist), "%d km", (int)(m / 1000.0 + 0.5));
-  } else snprintf(out->dist, sizeof(out->dist), "--");
+  // Distance needs both a peer fix (lat/lon above) and our own position.
+  if (!fmt_distance(lat, lon, out->dist, sizeof(out->dist))) snprintf(out->dist, sizeof(out->dist), "--");
 
   // Prefer the live heard-ring timestamp (this session), else fall back to the
   // contact's persisted lastmod -- updated on every advert, even multi-hop, and
