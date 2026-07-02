@@ -697,6 +697,8 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
   }
 }
 
+static void ui_dump_packet_ring(void);   // defined after the packet ring below
+
 extern "C" void lvd_cfg_action(const char* group, const char* label) {
   if (eq(group, "Public info")) {
     if (eq(label, "Send advert"))         { the_mesh.advert();      return; }
@@ -748,6 +750,7 @@ extern "C" void lvd_cfg_action(const char* group, const char* label) {
       Serial.println("=== end app data ===");
       return;
     }
+    if (eq(label, "Export packets")) { ui_dump_packet_ring(); return; }   // defined after the ring
   }
 }
 
@@ -812,9 +815,14 @@ extern "C" unsigned lvd_free_flash_kb(void) {
 // ---- packet monitor --------------------------------------------------------
 #define PKT_LOG 32
 #define PKT_RAW 192   // bytes of each packet kept for the hex/breakdown view
+// recent expected-ack CRCs of our outbound DMs, so the analyzer can flag "ACK for our message"
+#define OUR_ACKS 8
+static uint32_t s_our_acks[OUR_ACKS];
+static int      s_our_ack_head = 0;
 struct PktRec { uint8_t header; int rssi; int snr_q; int len; uint32_t t;
                 uint32_t epoch;    // RTC time at RX (absolute timestamp)
                 uint32_t payhash;  // FNV-1a of type+payload (path excluded), for rebroadcast counting
+                int16_t  freq_err; // carrier offset of last RX, Hz/100 (INT16_MIN = unknown)
                 uint8_t raw[PKT_RAW]; uint8_t rawlen; };
 static PktRec s_pkt[PKT_LOG];
 static int s_pkt_head = 0, s_pkt_n = 0;
@@ -840,6 +848,9 @@ void ui_log_packet(float snr, float rssi, const uint8_t* raw, int len) {
   r.len = len;
   r.t = millis();
   r.epoch = rtc_clock.getCurrentTime();
+  { float fe = radio_driver.getLastFreqError();   // valid now (still the last-RX state)
+    float scaled = fe / 100.0f;
+    r.freq_err = (scaled > 32000.0f || scaled < -32000.0f) ? INT16_MIN : (int16_t)scaled; }
   r.rawlen = (uint8_t)(len > PKT_RAW ? PKT_RAW : (len < 0 ? 0 : len));
   if (raw && r.rawlen) memcpy(r.raw, raw, r.rawlen);
   // FNV-1a over payload type + payload bytes; the path is excluded so flood
@@ -852,6 +863,22 @@ void ui_log_packet(float snr, float rssi, const uint8_t* raw, int len) {
   s_pkt_head = (s_pkt_head + 1) % PKT_LOG;
   if (s_pkt_n < PKT_LOG) s_pkt_n++;
   s_pkt_total++;
+}
+
+// dump the capture ring (newest-first) to USB serial as CSV+hex, for offline
+// analysis. Write-only, so it's safe alongside the companion frame protocol.
+static void ui_dump_packet_ring(void) {
+  Serial.println("\n=== meshcore packet capture v1 ===");
+  Serial.printf("# %d packets  (age_ms, len, snr_q, rssi, freq_err_hz, hex)\n", s_pkt_n);
+  for (int k = 0; k < s_pkt_n; k++) {
+    int idx = (s_pkt_head - 1 - k + PKT_LOG * 2) % PKT_LOG;
+    const PktRec& q = s_pkt[idx];
+    long fe = (q.freq_err == INT16_MIN) ? 0 : (long)q.freq_err * 100;
+    Serial.printf("%lu,%d,%d,%d,%ld,", (unsigned long)(millis() - q.t), q.len, q.snr_q, q.rssi, fe);
+    for (int i = 0; i < q.rawlen; i++) Serial.printf("%02X", q.raw[i]);
+    Serial.println();
+  }
+  Serial.println("=== end packet capture ===");
 }
 
 // resolve a 1-byte path hash (== a node's pub_key[0]) to a saved contact name
@@ -1055,6 +1082,10 @@ extern "C" int lvd_packet_detail(lvd_kv_t* out, int max) {
     }
     case 0x03:                                    // ACK
       if (plav >= 1) { int k = snprintf(v, sizeof(v), "0x"); for (int j = 0; j < plav && j < 8 && k < (int)sizeof(v) - 2; j++) k += snprintf(v + k, sizeof(v) - k, "%02X", pl[j]); kv_add(out, &n, max, "ACK code", v); }
+      if (plav >= 4) {   // does the 4-byte ACK CRC match one of our pending outbound DMs?
+        uint32_t code; memcpy(&code, pl, 4);
+        for (int j = 0; j < OUR_ACKS; j++) if (s_our_acks[j] == code) { kv_add(out, &n, max, "Matches", "ACK for our message"); break; }
+      }
       break;
     case 0x05: case 0x06:                          // GRP_TXT/GRP_DATA: channel hash + encrypted (MAC + data)
       if (plav >= 1) {
@@ -1143,6 +1174,20 @@ extern "C" int lvd_packet_detail(lvd_kv_t* out, int max) {
   { int v10 = p.snr_q * 10 / 4, a = v10 < 0 ? -v10 : v10;
     snprintf(v, sizeof(v), "%s%d.%d dB / %d dBm", v10 < 0 ? "-" : "", a / 10, a % 10, p.rssi);
     kv_add(out, &n, max, "SNR / RSSI", v); }
+  // link margin: how far this SNR sits above the SF's demod floor (Semtech, x10 dB)
+  { int sf = the_mesh.getNodePrefs()->sf;
+    static const int LIMIT_X10[] = { -75, -100, -125, -150, -175, -200 };   // SF7..SF12
+    if (sf >= 7 && sf <= 12) {
+      int margin10 = (p.snr_q * 10 / 4) - LIMIT_X10[sf - 7];
+      int a = margin10 < 0 ? -margin10 : margin10;
+      snprintf(v, sizeof(v), "%s%d.%d dB above SF%d floor", margin10 < 0 ? "-" : "", a / 10, a % 10, sf);
+      kv_add(out, &n, max, "Link margin", v);
+    } }
+  if (p.freq_err != INT16_MIN) {
+    long hz = (long)p.freq_err * 100;
+    snprintf(v, sizeof(v), "%+ld Hz", hz);
+    kv_add(out, &n, max, "Freq error", v);
+  }
   snprintf(v, sizeof(v), "%d B (payload %d B)", p.len, paylen);     kv_add(out, &n, max, "Length", v);
   snprintf(v, sizeof(v), "%u ms", (unsigned)radio_driver.getEstAirtimeFor(p.len));
   kv_add(out, &n, max, "Airtime", v);
@@ -1441,8 +1486,10 @@ extern "C" void lvd_chat_send(const char* text) {
     if (the_mesh.sendChannelText(s_conv_ch, text)) ui_store_message(true, s_conv_ch, NULL, "You", text, true);
   } else if (s_conv_has_contact) {
     uint32_t ack, timeout;
-    if (the_mesh.sendTextTo(s_conv_contact, text, ack, timeout))
+    if (the_mesh.sendTextTo(s_conv_contact, text, ack, timeout)) {
       ui_store_message(false, -1, s_conv_peer, "You", text, true);
+      if (ack) { s_our_acks[s_our_ack_head] = ack; s_our_ack_head = (s_our_ack_head + 1) % OUR_ACKS; }
+    }
   }
 }
 

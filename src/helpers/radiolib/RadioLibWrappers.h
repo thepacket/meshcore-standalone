@@ -63,6 +63,7 @@ public:
 
   virtual float getLastRSSI() const override;
   virtual float getLastSNR() const override;
+  virtual float getLastFreqError() const { return 0; }   // Hz carrier offset of last RX (0 = unsupported)
 
   float packetScore(float snr, int packet_len) override { return packetScoreInt(snr, 10, packet_len); }  // assume sf=10
 
