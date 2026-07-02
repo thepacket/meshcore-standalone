@@ -135,6 +135,7 @@ int      lvd_chat_count(void);                 // messages in the active convers
 bool     lvd_chat_get(int i, lvd_msg_t* out);  // oldest..newest
 unsigned lvd_chat_total(void);                 // monotonic, for refresh detection
 void     lvd_chat_send(const char* text);      // send to the active conversation
+bool     lvd_chat_send_location(void);         // emergency position share (text); false if no position
 
 // ---- trace route -----------------------------------------------------------
 typedef struct {
@@ -194,6 +195,13 @@ bool        lvd_peer_reset_path(const char* name);  // forget the learned return
 bool        lvd_peer_set_fav(const char* name, int on);  // toggle favourite (persists)
 bool        lvd_peer_remove(const char* name);      // delete the contact
 const char* lvd_peer_export_hex(const char* name);  // advert card as hex (for QR + display)
+bool        lvd_peer_add(const char* name);         // save a heard-only node as a contact
+// remote telemetry (battery etc.) from this contact; reply is async
+bool        lvd_peer_telem_request(const char* name);
+int         lvd_peer_telem_state(const char* name); // 0 idle, 1 waiting, 2 have, 3 timed out
+int         lvd_peer_telem_get(lvd_kv_t* out, int max);   // decoded rows (state 2 only)
+// trace this contact's learned path (Trace screen shows the result)
+int         lvd_peer_trace(const char* name);       // 0 sent, 1 unknown contact, 2 no routed path
 
 // ---- channels (channel management) -----------------------------------------
 typedef struct {

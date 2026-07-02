@@ -303,6 +303,49 @@ static void conv_tick(void) {
   }
 }
 
+// ---- emergency position share (confirm first: broadcasts your location) ----
+static void loc_cancel(lv_event_t* e) {
+  lv_obj_del((lv_obj_t*)lv_event_get_user_data(e));   // the modal overlay
+}
+static void loc_confirm(lv_event_t* e) {
+  lv_obj_del((lv_obj_t*)lv_event_get_user_data(e));
+  lv_ui_toast(lvd_chat_send_location() ? "Position sent" : "No position (GPS off, no manual lat/lon)");
+}
+static void loc_clicked(lv_event_t* e) {
+  (void)e;
+  lv_obj_t* m = lv_obj_create(lv_screen_active());    // dim overlay
+  lv_obj_set_size(m, 320, 240); lv_obj_set_pos(m, 0, 0);
+  lv_obj_set_style_bg_color(m, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_bg_opa(m, 170, 0);
+  lv_obj_set_style_border_width(m, 0, 0);
+  lv_obj_add_flag(m, LV_OBJ_FLAG_CLICKABLE);          // swallow taps behind the card
+
+  lv_obj_t* card = lv_obj_create(m);
+  lv_obj_set_size(card, 280, 130); lv_obj_center(card);
+  lv_obj_set_style_bg_color(card, lv_color_hex(0x18202c), 0);
+  lv_obj_set_style_border_color(card, lv_color_hex(UI_RED), 0);
+  lv_obj_set_style_border_width(card, 1, 0);
+  lv_obj_set_style_radius(card, 12, 0);
+
+  lv_obj_t* q = lv_label_create(card);
+  lv_label_set_text_fmt(q, "Send your position to\n\"%s\"?\nEmergency use - reveals your location.", lvd_chat_title());
+  lv_obj_set_style_text_font(q, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(q, lv_color_hex(UI_TEXT), 0);
+  lv_obj_align(q, LV_ALIGN_TOP_MID, 0, 0);
+
+  lv_obj_t* cancel = lv_button_create(card);
+  lv_obj_set_size(cancel, 110, 36); lv_obj_align(cancel, LV_ALIGN_BOTTOM_LEFT, 0, 0);
+  lv_obj_set_style_bg_color(cancel, lv_color_hex(0x2a3343), 0);
+  lv_obj_add_event_cb(cancel, loc_cancel, LV_EVENT_CLICKED, m);
+  lv_obj_t* cl = lv_label_create(cancel); lv_label_set_text(cl, "Cancel"); lv_obj_center(cl);
+
+  lv_obj_t* yes = lv_button_create(card);
+  lv_obj_set_size(yes, 110, 36); lv_obj_align(yes, LV_ALIGN_BOTTOM_RIGHT, 0, 0);
+  lv_obj_set_style_bg_color(yes, lv_color_hex(UI_RED), 0);
+  lv_obj_add_event_cb(yes, loc_confirm, LV_EVENT_CLICKED, m);
+  lv_obj_t* yl = lv_label_create(yes); lv_label_set_text(yl, "Send"); lv_obj_center(yl);
+}
+
 void lv_chat_conv_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
   lv_ui_md_topbar(scr, lvd_chat_title());
@@ -331,6 +374,23 @@ void lv_chat_conv_create(lv_obj_t* scr) {
   lv_obj_set_style_text_font(input, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(input, lv_color_hex(UI_MUTED), 0);
   lv_obj_set_style_pad_left(input, 6, 0);
+
+  // emergency position share (red pin) -- confirm dialog before sending
+  lv_obj_t* locb = lv_obj_create(bar);
+  lv_obj_remove_flag(locb, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(locb, 24, 24);
+  lv_obj_set_style_radius(locb, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(locb, lv_color_hex(UI_RED), 0);
+  lv_obj_set_style_border_width(locb, 0, 0);
+  lv_obj_set_style_pad_all(locb, 0, 0);
+  lv_obj_set_style_margin_right(locb, 4, 0);
+  lv_obj_add_flag(locb, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(locb, loc_clicked, LV_EVENT_CLICKED, NULL);
+  lv_ui_press_fx(locb);
+  lv_obj_t* li = lv_label_create(locb);
+  lv_label_set_text(li, LV_SYMBOL_GPS);
+  lv_obj_set_style_text_color(li, lv_color_hex(0xffffff), 0);
+  lv_obj_center(li);
 
   lv_obj_t* send = lv_obj_create(bar);
   lv_obj_remove_flag(send, LV_OBJ_FLAG_SCROLLABLE);

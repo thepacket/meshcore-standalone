@@ -552,6 +552,16 @@ bool MyMesh::uiRequestStatus(const uint8_t* pubkey6, uint32_t& est_timeout) {
   return true;
 }
 
+bool MyMesh::uiRequestTelemetry(const uint8_t* pubkey6, uint32_t& est_timeout) {
+  ContactInfo* c = lookupContactByPubKey(pubkey6, 6);
+  if (!c) return false;
+  clearPendingReqs();
+  uint32_t tag;
+  if (sendRequest(*c, REQ_TYPE_GET_TELEMETRY_DATA, tag, est_timeout) == MSG_SEND_FAILED) return false;
+  pending_telemetry = tag;   // matched in onContactResponse()
+  return true;
+}
+
 bool MyMesh::uiSendCommand(const uint8_t* pubkey6, const char* cmd, uint32_t& est_timeout) {
   ContactInfo* c = lookupContactByPubKey(pubkey6, 6);
   if (!c) return false;
@@ -929,6 +939,9 @@ void MyMesh::onContactResponse(const ContactInfo &contact, const uint8_t *data, 
   } else if (len > 4 && tag == pending_telemetry) {  // check for matching response tag
     pending_telemetry = 0;
 
+#ifdef DISPLAY_CLASS
+    if (_ui) _ui->onTelemetryResponse(contact.id.pub_key, &data[4], len - 4);
+#endif
     int i = 0;
     out_frame[i++] = PUSH_CODE_TELEMETRY_RESPONSE;
     out_frame[i++] = 0; // reserved

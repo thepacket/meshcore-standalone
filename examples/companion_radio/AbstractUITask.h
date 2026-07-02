@@ -55,6 +55,8 @@ public:
   virtual void onLoginResult(const uint8_t* pubkey_prefix6, bool success, uint8_t perms) {}
   // A status/stats response from a repeater/room (the RepeaterStats blob, len bytes).
   virtual void onStatusResponse(const uint8_t* pubkey_prefix6, const uint8_t* data, uint8_t len) {}
+  // A telemetry response from a contact (CayenneLPP blob, len bytes).
+  virtual void onTelemetryResponse(const uint8_t* pubkey_prefix6, const uint8_t* data, uint8_t len) {}
   // A CLI reply (TXT_TYPE_CLI_DATA) from a contact, e.g. the result of a remote command.
   virtual void onCommandReply(const uint8_t* pubkey_prefix6, const char* text) {}
   virtual void notify(UIEventType t = UIEventType::none) = 0;

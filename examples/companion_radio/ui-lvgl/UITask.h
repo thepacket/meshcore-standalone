@@ -22,6 +22,8 @@ void ui_store_trace(uint32_t tag, const uint8_t* path_hashes, const uint8_t* pat
 void ui_rep_on_login(const uint8_t* pk6, bool ok, uint8_t perms);
 void ui_rep_on_status(const uint8_t* pk6, const uint8_t* data, uint8_t len);
 void ui_rep_on_cmdreply(const uint8_t* pk6, const char* text);
+// telemetry response for the peer card (UITask.cpp)
+void ui_peer_on_telemetry(const uint8_t* pk6, const uint8_t* data, uint8_t len);
 
 class UITask : public AbstractUITask {
   DisplayDriver* _display = nullptr;
@@ -61,5 +63,6 @@ public:
   }
   void onLoginResult(const uint8_t* pk6, bool ok, uint8_t perms) override { ui_rep_on_login(pk6, ok, perms); }
   void onStatusResponse(const uint8_t* pk6, const uint8_t* data, uint8_t len) override { ui_rep_on_status(pk6, data, len); }
+  void onTelemetryResponse(const uint8_t* pk6, const uint8_t* data, uint8_t len) override { ui_peer_on_telemetry(pk6, data, len); }
   void onCommandReply(const uint8_t* pk6, const char* text) override { ui_rep_on_cmdreply(pk6, text); }
 };

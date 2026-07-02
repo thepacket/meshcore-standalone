@@ -9,7 +9,22 @@ const char* lv_chat_active_peer(void);  // provided by lv_chat.c
 void lv_peer_create(lv_obj_t* scr);     // fwd (for rebuild after an op)
 
 static void peer_rebuild_cb(void* p) { (void)p; lv_obj_t* s = lv_screen_active(); lv_obj_clean(s); lv_peer_create(s); }
+
+// 1s tick: rebuild the card when the telemetry state changes (reply / timeout)
+static int s_ptel_seen = -1;
+static void peer_tick(void) {
+  int st = lvd_peer_telem_state(lv_chat_active_peer());
+  if (st != s_ptel_seen) { s_ptel_seen = st; peer_rebuild_cb(NULL); }
+}
 static void op_share(lv_event_t* e)  { (void)e; bool ok = lvd_peer_share(lv_chat_active_peer());      lv_ui_toast(ok ? "Contact shared" : "Share failed");      lv_async_call(peer_rebuild_cb, NULL); }
+static void op_add(lv_event_t* e)    { (void)e; bool ok = lvd_peer_add(lv_chat_active_peer());        lv_ui_toast(ok ? "Contact added" : "Add failed - not heard recently"); lv_async_call(peer_rebuild_cb, NULL); }
+static void op_telem(lv_event_t* e)  { (void)e; bool ok = lvd_peer_telem_request(lv_chat_active_peer()); lv_ui_toast(ok ? "Telemetry requested..." : "Request failed"); lv_async_call(peer_rebuild_cb, NULL); }
+static void op_trace(lv_event_t* e)  {
+  (void)e;
+  int r = lvd_peer_trace(lv_chat_active_peer());
+  if (r == 0) { if (lv_nav_cb) lv_nav_cb("trace"); }             // result shows on the Trace screen
+  else lv_ui_toast(r == 2 ? "No routed path (direct or flood)" : "Trace failed");
+}
 static void op_reset(lv_event_t* e)  { (void)e; bool ok = lvd_peer_reset_path(lv_chat_active_peer()); lv_ui_toast(ok ? "Path reset" : "Reset failed");          lv_async_call(peer_rebuild_cb, NULL); }
 static void op_remove(lv_event_t* e) { (void)e; bool ok = lvd_peer_remove(lv_chat_active_peer());      lv_ui_toast(ok ? "Contact removed" : "Remove failed");    if (ok && lv_nav_cb) lv_nav_cb("back"); }
 static void op_export(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("peer_export"); }
@@ -192,10 +207,47 @@ void lv_peer_create(lv_obj_t* scr) {
   lv_obj_set_style_bg_opa(ops, 0, 0); lv_obj_set_style_border_width(ops, 0, 0);
   lv_obj_set_style_pad_all(ops, 0, 0);
   lv_obj_set_flex_flow(ops, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(ops, 5, 0);
-  wire(act_btn(ops, NULL, "Share",  UI_GREEN,  NULL), op_share);   // re-advertise zero-hop
-  wire(act_btn(ops, NULL, "Reset",  UI_CYAN,   NULL), op_reset);   // forget return path
-  wire(act_btn(ops, NULL, "Export", UI_INDIGO, NULL), op_export);  // QR of the advert card
-  wire(act_btn(ops, NULL, "Remove", UI_RED,    NULL), op_remove);  // delete contact
+  if (have) {
+    wire(act_btn(ops, NULL, "Share",  UI_GREEN,  NULL), op_share);   // re-advertise zero-hop
+    wire(act_btn(ops, NULL, "Reset",  UI_CYAN,   NULL), op_reset);   // forget return path
+    wire(act_btn(ops, NULL, "Export", UI_INDIGO, NULL), op_export);  // QR of the advert card
+    wire(act_btn(ops, NULL, "Remove", UI_RED,    NULL), op_remove);  // delete contact
+  } else {
+    wire(act_btn(ops, NULL, "Add contact", UI_GREEN, NULL), op_add); // save this heard node
+  }
+
+  // diagnostics row: query the node's telemetry / trace its learned path
+  if (have) {
+    lv_obj_t* diag = lv_obj_create(list);
+    lv_obj_remove_flag(diag, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(diag, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_width(diag, lv_pct(100)); lv_obj_set_height(diag, 34);
+    lv_obj_set_style_bg_opa(diag, 0, 0); lv_obj_set_style_border_width(diag, 0, 0);
+    lv_obj_set_style_pad_all(diag, 0, 0);
+    lv_obj_set_flex_flow(diag, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(diag, 5, 0);
+    wire(act_btn(diag, NULL, "Telemetry", UI_AMBER,  NULL), op_telem);  // remote battery etc.
+    wire(act_btn(diag, NULL, "Trace",     UI_PURPLE, NULL), op_trace);  // per-hop SNR over its path
+
+    // telemetry result / progress (rebuilt by peer_tick when the state changes)
+    int ts = lvd_peer_telem_state(name);
+    if (ts == 1 || ts == 3) {
+      lv_obj_t* w = lv_label_create(list);
+      lv_label_set_text(w, ts == 1 ? "Waiting for telemetry..." : "Telemetry request timed out");
+      lv_obj_set_style_text_font(w, &lv_font_montserrat_12, 0);
+      lv_obj_set_style_text_color(w, lv_color_hex(UI_MUTED), 0);
+    } else if (ts == 2) {
+      lvd_kv_t rows[8];
+      int n = lvd_peer_telem_get(rows, 8);
+      for (int i = 0; i < n; i++) {
+        lv_obj_t* row = lv_obj_create(list);
+        lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(row, LV_OBJ_FLAG_CLICKABLE);
+        lv_obj_set_width(row, lv_pct(100)); lv_obj_set_height(row, LV_SIZE_CONTENT);
+        lv_obj_set_style_bg_opa(row, 0, 0); lv_obj_set_style_border_width(row, 0, 0);
+        lv_obj_set_style_pad_all(row, 0, 0);
+        lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+        kv_col(row, rows[i].label, rows[i].value);
+      }
+    }
+  }
 
   // signal stats grid
   lv_obj_t* grid = lv_obj_create(list);
@@ -227,6 +279,9 @@ void lv_peer_create(lv_obj_t* scr) {
 
   // identity: full key wraps to its own line
   kv_block(list, "Public key", p.pubkey, true);
+
+  s_ptel_seen = lvd_peer_telem_state(name);
+  lv_ui_set_refresh(peer_tick);   // rebuild when the telemetry reply lands / times out
 }
 
 // ---- export: show the contact's advert card as a scannable QR --------------

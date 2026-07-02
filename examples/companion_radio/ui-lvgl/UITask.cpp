@@ -610,7 +610,14 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
     if (eq(label, "Default scope"))  { snprintf(val, len, "%s", p->default_scope_name[0] ? p->default_scope_name : "(none)"); return true; }
   } else if (eq(group, "Security")) {
     if (eq(label, "BLE pin")) { snprintf(val, len, "%u", (unsigned)p->ble_pin); return true; }
+    if (eq(label, "Active BLE pin")) {
+      uint32_t a = the_mesh.getBLEPin();
+      if (a) snprintf(val, len, "%u", (unsigned)a);
+      else { strncpy(val, "(BLE off)", len - 1); val[len - 1] = 0; }
+      return true;
+    }
   } else if (eq(group, "Device")) {
+    if (eq(label, "Contacts")) { snprintf(val, len, "%d / %d used", the_mesh.getNumContacts(), MAX_CONTACTS); return true; }
     if (eq(label, "Battery/storage")) {
       uint16_t mv; uint32_t used, total; the_mesh.getBattAndStorage(mv, used, total);
       snprintf(val, len, "%u mV  %u/%u KB", (unsigned)mv, (unsigned)used, (unsigned)total);
@@ -1294,6 +1301,16 @@ extern "C" bool lvd_chat_get(int i, lvd_msg_t* out) {
   return true;
 }
 extern "C" unsigned lvd_chat_total(void) { return s_msg_total; }
+// Emergency position share: plain text so EVERY client renders it (there is no
+// public GRP_DATA location type in docs/number_allocations.md; the dev-only
+// 0xFFxx range would be invisible to other people's apps).
+extern "C" bool lvd_chat_send_location(void) {
+  if (sensors.node_lat == 0.0 && sensors.node_lon == 0.0) return false;   // no GPS fix or manual position
+  char msg[80];
+  snprintf(msg, sizeof(msg), "EMERGENCY - my position: %.6f, %.6f", sensors.node_lat, sensors.node_lon);
+  lvd_chat_send(msg);
+  return true;
+}
 extern "C" void lvd_chat_send(const char* text) {
   if (!text || !text[0]) return;
   if (s_conv_ch >= 0) {
@@ -1652,6 +1669,138 @@ extern "C" const char* lvd_peer_export_hex(const char* name) {
   int k = 0;
   for (int i = 0; i < n && k < (int)sizeof(hex) - 3; i++) k += snprintf(hex + k, sizeof(hex) - k, "%02X", blob[i]);
   return hex;
+}
+extern "C" bool lvd_peer_add(const char* name) {   // save a heard-only node as a contact
+  ContactInfo cand[16];
+  int n = the_mesh.getHeardCandidates(cand, 16);
+  for (int i = 0; i < n; i++) {
+    if (ci_strcmp(cand[i].name, name) == 0) return the_mesh.addHeardContact(cand[i].id.pub_key);
+  }
+  return false;
+}
+
+// ---- remote telemetry (peer card "Telemetry" button) ------------------------
+// Single in-flight request; the CayenneLPP reply arrives via onTelemetryResponse.
+static uint8_t  s_ptel_key[6];
+static uint8_t  s_ptel_raw[96];
+static int      s_ptel_len = 0;
+static int      s_ptel_state = 0;        // 0 idle, 1 waiting, 2 have, 3 timed out
+static uint32_t s_ptel_sent_ms = 0;
+#define PTEL_TIMEOUT_MS 30000
+
+void ui_peer_on_telemetry(const uint8_t* pk6, const uint8_t* data, uint8_t len) {
+  if (s_ptel_state != 1 || memcmp(pk6, s_ptel_key, 6) != 0) return;
+  if (len > sizeof(s_ptel_raw)) len = sizeof(s_ptel_raw);
+  memcpy(s_ptel_raw, data, len);
+  s_ptel_len = len;
+  s_ptel_state = 2;
+}
+extern "C" bool lvd_peer_telem_request(const char* name) {
+  ContactInfo c;
+  if (!find_contact_by_name(name, c)) return false;
+  uint32_t est;
+  if (!the_mesh.uiRequestTelemetry(c.id.pub_key, est)) return false;
+  memcpy(s_ptel_key, c.id.pub_key, 6);
+  s_ptel_len = 0; s_ptel_state = 1; s_ptel_sent_ms = millis();
+  return true;
+}
+extern "C" int lvd_peer_telem_state(const char* name) {
+  ContactInfo c;   // results are for one peer; another card sees idle
+  if (!find_contact_by_name(name, c) || memcmp(c.id.pub_key, s_ptel_key, 6) != 0) return 0;
+  if (s_ptel_state == 1 && millis() - s_ptel_sent_ms > PTEL_TIMEOUT_MS) s_ptel_state = 3;
+  return s_ptel_state;
+}
+// Minimal CayenneLPP decode (big-endian): [channel][type][payload]...
+static int lpp_size(uint8_t t) {
+  switch (t) {
+    case LPP_DIGITAL_INPUT: case LPP_DIGITAL_OUTPUT: case LPP_PRESENCE:
+    case LPP_RELATIVE_HUMIDITY: case LPP_PERCENTAGE: case LPP_SWITCH: return 1;
+    case LPP_ANALOG_INPUT: case LPP_ANALOG_OUTPUT: case LPP_TEMPERATURE:
+    case LPP_VOLTAGE: case LPP_CURRENT: case LPP_BAROMETRIC_PRESSURE:
+    case LPP_ALTITUDE: case LPP_DIRECTION: case LPP_POWER: return 2;
+    case LPP_GENERIC_SENSOR: case LPP_FREQUENCY: case LPP_UNIXTIME:
+    case LPP_DISTANCE: case LPP_ENERGY: return 4;
+    case LPP_GPS: return 9;
+    default: return -1;   // unknown size: must stop parsing
+  }
+}
+static uint16_t be16(const uint8_t* p) { return ((uint16_t)p[0] << 8) | p[1]; }
+static int32_t  be24s(const uint8_t* p) {
+  int32_t v = ((int32_t)p[0] << 16) | ((int32_t)p[1] << 8) | p[2];
+  return (v & 0x800000) ? v - 0x1000000 : v;
+}
+extern "C" int lvd_peer_telem_get(lvd_kv_t* out, int max) {
+  if (s_ptel_state != 2) return 0;
+  int n = 0, i = 0;
+  while (i + 2 <= s_ptel_len && n < max) {
+    uint8_t ch = s_ptel_raw[i], ty = s_ptel_raw[i + 1];
+    int sz = lpp_size(ty);
+    if (sz < 0 || i + 2 + sz > s_ptel_len) {
+      snprintf(out[n].label, sizeof(out[n].label), "(more)");
+      snprintf(out[n].value, sizeof(out[n].value), "+%d bytes (type %u)", s_ptel_len - i, ty);
+      n++;
+      break;
+    }
+    const uint8_t* p = &s_ptel_raw[i + 2];
+    lvd_kv_t* o = &out[n];
+    o->label[0] = o->value[0] = 0;
+    switch (ty) {
+      case LPP_VOLTAGE:
+        snprintf(o->label, sizeof(o->label), ch == TELEM_CHANNEL_SELF ? "Battery" : "Voltage %u", ch);
+        snprintf(o->value, sizeof(o->value), "%.2f V", be16(p) / 100.0f);
+        break;
+      case LPP_TEMPERATURE:
+        snprintf(o->label, sizeof(o->label), "Temp %u", ch);
+        snprintf(o->value, sizeof(o->value), "%.1f C", (int16_t)be16(p) / 10.0f);
+        break;
+      case LPP_RELATIVE_HUMIDITY:
+        snprintf(o->label, sizeof(o->label), "Humidity %u", ch);
+        snprintf(o->value, sizeof(o->value), "%.1f %%", p[0] / 2.0f);
+        break;
+      case LPP_BAROMETRIC_PRESSURE:
+        snprintf(o->label, sizeof(o->label), "Pressure %u", ch);
+        snprintf(o->value, sizeof(o->value), "%.1f hPa", be16(p) / 10.0f);
+        break;
+      case LPP_GPS:
+        snprintf(o->label, sizeof(o->label), "Position");
+        snprintf(o->value, sizeof(o->value), "%.4f, %.4f  alt %dm",
+                 be24s(p) / 10000.0, be24s(p + 3) / 10000.0, (int)(be24s(p + 6) / 100));
+        break;
+      case LPP_UNIXTIME: {
+        uint32_t e = ((uint32_t)be16(p) << 16) | be16(p + 2);
+        snprintf(o->label, sizeof(o->label), "Clock");
+        snprintf(o->value, sizeof(o->value), "%u", (unsigned)e);
+        break;
+      }
+      case LPP_PERCENTAGE:
+        snprintf(o->label, sizeof(o->label), "Level %u", ch);
+        snprintf(o->value, sizeof(o->value), "%u %%", p[0]);
+        break;
+      default:
+        snprintf(o->label, sizeof(o->label), "Type %u", ty);
+        snprintf(o->value, sizeof(o->value), "ch %u (%d bytes)", ch, sz);
+        break;
+    }
+    n++;
+    i += 2 + sz;
+  }
+  return n;
+}
+
+// ---- one-tap trace over a contact's learned path ----------------------------
+extern "C" int lvd_peer_trace(const char* name) {  // 0 sent, 1 unknown contact, 2 no routed path
+  ContactInfo c;
+  if (!find_contact_by_name(name, c)) return 1;
+  if (c.out_path_len == OUT_PATH_UNKNOWN || c.out_path_len == 0) return 2;  // flood or direct: nothing to trace
+  // seed the trace-screen state so it shows this run (same fields lvd_trace_go uses)
+  s_tpath_n = 0;
+  for (int i = 0; i < c.out_path_len && i < TRACE_MAX; i++) s_tpath[s_tpath_n++] = c.out_path[i];
+  strncpy(s_tr_target, name, sizeof(s_tr_target) - 1); s_tr_target[sizeof(s_tr_target) - 1] = 0;
+  s_tr_hops = 0; s_tr_seq++;
+  uint32_t tag;
+  if (the_mesh.sendTrace(c, tag)) { s_tr_tag = tag; s_tr_state = 1; s_tr_sent_ms = millis(); return 0; }
+  s_tr_state = 3;
+  return 2;
 }
 
 // ---- signal coverage (saved repeaters/rooms we've actually heard) ----------

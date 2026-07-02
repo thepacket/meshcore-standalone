@@ -77,6 +77,7 @@ static const Field F_TUNING[] = {
 };
 static const Field F_SECURITY[] = {
   {"BLE pin", F_VAL, "123456", 0},
+  {"Active BLE pin", F_INFO, "(BLE off)", 0},
 };
 static const Field F_TIME[] = {
   {"Set time (UTC)",  F_VAL, "", 0},        // edit as "YYYY-MM-DD HH:MM" (or epoch secs)
@@ -89,6 +90,7 @@ static const Field F_DEVICE[] = {
   {"On-screen keyboard", F_BOOL, NULL, 1},   // show the touch keyboard for text entry
   {"Buzzer quiet",    F_BOOL, NULL, 0},
   {"Battery/storage", F_INFO, "4050 mV  120/1536 KB", 0},
+  {"Contacts",        F_INFO, "0 / 100 used", 0},
   {"Firmware",        F_INFO, "v1.16.0", 0},
   {"Device",          F_INFO, "LilyGo T-Deck", 0},
   {"Reboot",          F_ACTION_WARN, NULL, 0},
