@@ -541,6 +541,10 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
     if (eq(label, "Longitude"))   { snprintf(val, len, "%.4f", sensors.node_lon); return true; }
     if (eq(label, "GPS enabled")) { *sel = p->gps_enabled ? 1 : 0; return true; }
     if (eq(label, "GPS interval")){ snprintf(val, len, "%u", (unsigned)p->gps_interval); return true; }
+  } else if (eq(group, "Telemetry")) {
+    if (eq(label, "Base"))        { *sel = p->telemetry_mode_base <= 2 ? p->telemetry_mode_base : 2; return true; }
+    if (eq(label, "Location"))    { *sel = p->telemetry_mode_loc  <= 2 ? p->telemetry_mode_loc  : 2; return true; }
+    if (eq(label, "Environment")) { *sel = p->telemetry_mode_env  <= 2 ? p->telemetry_mode_env  : 2; return true; }
   } else if (eq(group, "Tuning")) {
     if (eq(label, "Airtime factor")) { snprintf(val, len, "%.2f", p->airtime_factor); return true; }
     if (eq(label, "RX delay base"))  { snprintf(val, len, "%.0f", p->rx_delay_base); return true; }
@@ -589,6 +593,10 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
     if (eq(label, "GPS enabled"))        { the_mesh.setGpsEnabled(sel != 0); return; }
     if (eq(label, "GPS interval") && val){ the_mesh.setGpsInterval((uint32_t)atoi(val)); return; }
 #endif
+  } else if (eq(group, "Telemetry")) {
+    if (eq(label, "Base"))        { the_mesh.setTelemetryModes((uint8_t)sel, p->telemetry_mode_loc, p->telemetry_mode_env); return; }
+    if (eq(label, "Location"))    { the_mesh.setTelemetryModes(p->telemetry_mode_base, (uint8_t)sel, p->telemetry_mode_env); return; }
+    if (eq(label, "Environment")) { the_mesh.setTelemetryModes(p->telemetry_mode_base, p->telemetry_mode_loc, (uint8_t)sel); return; }
   } else if (eq(group, "Tuning")) {
     if (eq(label, "Airtime factor") && val) { the_mesh.setTuningParams(p->rx_delay_base, (float)atof(val)); return; }
     if (eq(label, "RX delay base") && val)  { the_mesh.setTuningParams((float)atof(val), p->airtime_factor); return; }
