@@ -72,7 +72,11 @@ A smartphone-style chat, fully on-device.
   as shortcodes like `:)`; word-boundary matched so URLs stay intact).
 - ✅ **URL → QR code** — tap a message containing a URL to show it as a scannable
   on-screen QR (vendored MIT qrcodegen; see `THIRD_PARTY.md`).
-- ⏳ **Contact-type-aware** room post/read niceties (rooms currently treated as DMs).
+- ✅ **Room-server support** — room threads attribute each post to its **original
+  author** (4-byte signer prefix resolved against contacts), opening a room chat
+  **auto-logs-in and syncs unseen posts** (remembered password or blank/ACL;
+  `sync_since` rides the login), our own echoed posts are deduped, and room
+  threads are styled distinctly in the DMs list (orange avatar, channel-style blip).
 
 ## M3 — RF diagnostics & tools  ✅ (done)
 - ✅ **Packet monitor** — decoded raw packet stream + per-packet detail + path search.

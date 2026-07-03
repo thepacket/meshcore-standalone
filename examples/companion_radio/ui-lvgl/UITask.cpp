@@ -2040,8 +2040,34 @@ static bool viewing_thread(bool is_ch, int ch, const uint8_t* peer6) {
   return !is_ch && peer6 && memcmp(peer6, s_conv_peer, 6) == 0;
 }
 
-void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who, const char* text, bool out, uint8_t path_len) {
+// find a saved contact whose pubkey starts with the given n-byte prefix
+static bool find_contact_by_prefix(const uint8_t* p, int n, ContactInfo& out) {
+  for (int i = MAX_ANON_CONTACTS, tot = the_mesh.getTotalContactSlots(); i < tot; i++) {
+    ContactInfo c;
+    if (the_mesh.getContactByIdx((uint32_t)i, c) && memcmp(c.id.pub_key, p, n) == 0) { out = c; return true; }
+  }
+  return false;
+}
+bool ui_peer_is_room(const uint8_t* peer6) {
+  ContactInfo c;
+  return find_contact_by_prefix(peer6, 6, c) && c.type == ADV_TYPE_ROOM;
+}
+
+void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who, const char* text, bool out, uint8_t path_len,
+                      const uint8_t* author4) {
   if (!s_msg) return;
+  char author_name[24];
+  if (author4) {   // room-server post: attribute to the original poster
+    if (memcmp(author4, the_mesh.self_id.pub_key, 4) == 0) return;   // the room echoing our own post back
+    ContactInfo a;
+    if (find_contact_by_prefix(author4, 4, a)) {
+      strncpy(author_name, a.name, sizeof(author_name) - 1); author_name[sizeof(author_name) - 1] = 0;
+    } else {
+      snprintf(author_name, sizeof(author_name), "%02X%02X%02X%02X",
+               author4[0], author4[1], author4[2], author4[3]);
+    }
+    who = author_name;
+  }
   if (!out) ui_screen_wake();   // incoming message lights the screen (M6 screen-wake)
   if (!out && !viewing_thread(is_ch, ch, peer6)) {   // unread unless already viewing this thread
     const char* cur = g_nav_sp > 0 ? g_nav_stack[g_nav_sp - 1] : "";
@@ -2117,6 +2143,24 @@ extern "C" void lvd_chat_open_dm(const char* contact_name) {
   if (s_conv_has_contact) memcpy(s_conv_peer, s_conv_contact.id.pub_key, 6);
   else memset(s_conv_peer, 0, 6);
   int* u = dm_unread_slot(s_conv_peer, false); if (u) *u = 0;   // mark read
+  // Opening a room-server thread: silently log in so the room pushes the posts
+  // we haven't seen (sendLogin carries contact.sync_since). Uses the remembered
+  // password from Manage > login, else blank (accepted if we're in the room's
+  // ACL). Rate-limited so re-opening the thread doesn't spam login packets.
+  if (s_conv_has_contact && s_conv_contact.type == ADV_TYPE_ROOM) {
+    static uint8_t  s_room_pk[6];
+    static uint32_t s_room_ms = 0;
+    if (memcmp(s_room_pk, s_conv_peer, 6) != 0 || s_room_ms == 0 ||
+        millis() - s_room_ms > 5 * 60 * 1000UL) {
+      char pw[16] = "";
+      the_mesh.getRepPassword(s_conv_peer, pw, sizeof(pw));
+      uint32_t timeout;
+      if (the_mesh.uiLogin(s_conv_peer, pw, timeout)) {
+        memcpy(s_room_pk, s_conv_peer, 6);
+        s_room_ms = millis();
+      }
+    }
+  }
 }
 extern "C" const char* lvd_chat_title(void) {
   if (s_conv_ch >= 0) return s_conv_chname;
@@ -2268,8 +2312,10 @@ extern "C" int lvd_dm_count(void) { dm_build(); return g_dm_n; }
 extern "C" bool lvd_dm_get(int i, lvd_dm_t* out) {
   if (i < 0 || i >= g_dm_n) return false;
   ContactInfo c;
+  out->is_room = 0;
   if (find_contact_by_pubkey6(g_dm_peer[i], c)) {
     strncpy(out->name, c.name, sizeof(out->name) - 1); out->name[sizeof(out->name) - 1] = 0;
+    out->is_room = (c.type == ADV_TYPE_ROOM) ? 1 : 0;
   } else {
     snprintf(out->name, sizeof(out->name), "%02X%02X%02X%02X",
              g_dm_peer[i][0], g_dm_peer[i][1], g_dm_peer[i][2], g_dm_peer[i][3]);

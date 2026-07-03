@@ -43,10 +43,14 @@ public:
   virtual void newMsg(uint8_t path_len, const char* from_name, const char* text, int msgcount) = 0;
   // Rich incoming-message hook for the on-device chat store. For channel messages
   // is_channel=true and channel_idx is set (dm_* are NULL); for direct messages
-  // dm_prefix6 (6-byte pubkey prefix) and dm_name identify the sender. Default no-op.
+  // dm_prefix6 (6-byte pubkey prefix) and dm_name identify the sender. txt_type is
+  // the TXT_TYPE_* of the message; for signed messages (room-server posts)
+  // author_prefix4 is the original poster's 4-byte pubkey prefix (else NULL).
+  // Default no-op.
   virtual void onTextMessage(bool is_channel, int channel_idx, const uint8_t* dm_prefix6,
                              const char* dm_name, const char* text, uint32_t timestamp,
-                             uint8_t path_len, int8_t snr_q) {}
+                             uint8_t path_len, int8_t snr_q, uint8_t txt_type,
+                             const uint8_t* author_prefix4) {}
   // An outgoing message was acknowledged (delivery confirmed). ack matches the
   // expected_ack returned when sending. Default no-op.
   virtual void onMsgSendConfirmed(uint32_t ack, uint32_t trip_millis) {}

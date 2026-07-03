@@ -529,7 +529,9 @@ void UITask::sendChatText(chat::Conv* c, const char* text) {
 
 void UITask::onTextMessage(bool is_channel, int channel_idx, const uint8_t* dm_prefix6,
                            const char* dm_name, const char* text, uint32_t timestamp,
-                           uint8_t path_len, int8_t snr_q) {
+                           uint8_t path_len, int8_t snr_q, uint8_t txt_type,
+                           const uint8_t* author_prefix4) {
+  (void)txt_type; (void)author_prefix4;   // room-post attribution is an ui-lvgl feature
   if (is_channel) {
     ChannelDetails cd;
     const char* cname = the_mesh.getChannel(channel_idx, cd) ? cd.name : "Channel";

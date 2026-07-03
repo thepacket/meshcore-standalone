@@ -294,8 +294,10 @@ const char* lvd_chat_chan_preview(int i);                          // last messa
 int         lvd_chat_chan_unread(int i);                           // unread count for channel row i
 const char* lvd_chat_chan_time(int i);                             // "HH:MM" of last message (or "")
 
-// chat list: DM threads (distinct peers we have message history with)
-typedef struct { char name[32]; char preview[100]; char time[8]; int unread; } lvd_dm_t;
+// chat list: DM threads (distinct peers we have message history with).
+// is_room marks room-server threads (posts attributed to their original
+// authors; opening the thread logs in + syncs unseen posts).
+typedef struct { char name[32]; char preview[100]; char time[8]; int unread; int is_room; } lvd_dm_t;
 int         lvd_dm_count(void);
 bool        lvd_dm_get(int i, lvd_dm_t* out);                      // name + last-message preview + time + unread
 void        lvd_dm_open(int i);                                    // make DM i the active conversation

@@ -38,7 +38,9 @@ chips, charts/gauges, real widgets). Live on-device:
   bubbles with **timestamps**, per-message **delivery status** (sent → delivered
   → failed), per-conversation **unread badges**, and an incoming **hop tag**
   (direct / N hops). Long-press a message to **Resend** (failed) or **Delete**;
-  **emergency position share** (confirm-guarded) to a channel
+  **emergency position share** (confirm-guarded) to a channel. **Room servers**
+  are first-class: posts show their **original author**, and opening a room
+  thread **auto-logs-in and pulls the posts you missed**
 - **Contacts** — live contact list with name search (space-separated OR tokens),
   a **node-type filter** (All / Chats / Repeaters / Rooms), favourites filter,
   type pills

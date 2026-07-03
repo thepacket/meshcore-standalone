@@ -692,7 +692,8 @@ void MyMesh::queueMessage(const ContactInfo &from, uint8_t txt_type, mesh::Packe
   if (should_display && _ui) {
     _ui->newMsg(path_len, from.name, text, offline_queue_len);
     _ui->onTextMessage(false, -1, from.id.pub_key, from.name, text, sender_timestamp,
-                       path_len, (int8_t)(pkt->getSNR() * 4));
+                       path_len, (int8_t)(pkt->getSNR() * 4), txt_type,
+                       (txt_type == TXT_TYPE_SIGNED_PLAIN && extra_len >= 4) ? extra : NULL);
     if (!_serial->isConnected()) {
       _ui->notify(UIEventType::contactMessage);
     }
@@ -815,7 +816,7 @@ void MyMesh::onChannelMessageRecv(const mesh::GroupChannel &channel, mesh::Packe
   if (_ui) {
     _ui->newMsg(path_len, channel_name, text, offline_queue_len);
     _ui->onTextMessage(true, channel_idx, NULL, NULL, text, timestamp, path_len,
-                       (int8_t)(pkt->getSNR() * 4));
+                       (int8_t)(pkt->getSNR() * 4), TXT_TYPE_PLAIN, NULL);
   }
 #endif
 }

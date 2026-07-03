@@ -200,7 +200,8 @@ void lv_chat_list_create(lv_obj_t* scr) {
     lvd_dm_t d;
     for (int i = 0; i < ndm; i++) {
       if (!lvd_dm_get(i, &d)) continue;
-      Row r = { d.name, d.preview, d.time, d.unread, UI_GREEN, false };
+      // room-server threads get an orange avatar (posts from many authors)
+      Row r = { d.name, d.preview, d.time, d.unread, d.is_room ? UI_ORANGE : UI_GREEN, false };
       add_row(list, &r, i, true);
     }
     if (ndm == 0) {

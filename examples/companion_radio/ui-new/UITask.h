@@ -161,7 +161,8 @@ public:
                      uint8_t path_len, uint8_t path_sz, int8_t final_snr_q) override;
   void onTextMessage(bool is_channel, int channel_idx, const uint8_t* dm_prefix6,
                      const char* dm_name, const char* text, uint32_t timestamp,
-                     uint8_t path_len, int8_t snr_q) override;
+                     uint8_t path_len, int8_t snr_q, uint8_t txt_type,
+                     const uint8_t* author_prefix4) override;
   void onMsgSendConfirmed(uint32_t ack, uint32_t trip_millis) override;
   void onLoginResult(const uint8_t* prefix6, bool success, uint8_t perms) override;
   void onStatusResponse(const uint8_t* prefix6, const uint8_t* data, uint8_t len) override;
