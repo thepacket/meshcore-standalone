@@ -159,6 +159,7 @@ static void detail_fill(lv_obj_t* list) {
   lv_obj_add_event_cb(act_btn(acts, "Login", UI_INDIGO), login_clicked, LV_EVENT_CLICKED, NULL);
   lv_obj_add_event_cb(act_btn(acts, "Status", UI_BLUE), status_clicked, LV_EVENT_CLICKED, NULL);
   lv_ui_clickable(act_btn(acts, "Console", UI_AMBER), "rep_cli");
+  lv_ui_clickable(act_btn(acts, "Nodes", UI_TEAL), "rep_neigh");   // remote neighbour list
 
   // status stat cards
   lvd_repstat_t s; lvd_rep_status_get(&s);
@@ -345,4 +346,96 @@ void lv_rep_cli_create(lv_obj_t* scr) {
   lv_ui_kbd_focus(s_cli_in);   // route the T-Deck physical keyboard into the prompt
 
   lv_ui_set_refresh(cli_tick);
+}
+
+// ---- remote neighbour list ---------------------------------------------------
+// The strongest direct neighbours the repeater itself hears (name resolved from
+// our contacts, heard-age, SNR at the repeater's antenna). Requires login.
+static lv_obj_t* s_ne_list = NULL;
+static unsigned  s_ne_seq = 0;
+static int       s_ne_state_seen = -1;
+
+static void neigh_hint(const char* txt) {
+  lv_obj_t* h = lv_label_create(s_ne_list);
+  lv_label_set_text(h, txt);
+  lv_label_set_long_mode(h, LV_LABEL_LONG_WRAP);
+  lv_obj_set_width(h, lv_pct(100));
+  lv_obj_set_style_text_font(h, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(h, lv_color_hex(UI_MUTED), 0);
+}
+static void on_neigh_refresh(lv_event_t* e) {
+  (void)e;
+  lvd_rep_neigh_request();
+}
+
+static void neigh_fill(void) {
+  if (!s_ne_list) return;
+  lv_obj_clean(s_ne_list);
+  int st = lvd_rep_neigh_state();
+
+  // "ask again" row
+  lv_obj_t* re = lv_ui_md_card(s_ne_list);
+  lv_obj_set_height(re, 38);
+  lv_obj_add_flag(re, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(re, on_neigh_refresh, LV_EVENT_CLICKED, NULL);
+  lv_ui_press_fx(re);
+  lv_obj_t* rl = lv_label_create(re);
+  lv_label_set_text(rl, st == 1 ? LV_SYMBOL_REFRESH "  Fetching..." : LV_SYMBOL_REFRESH "  Refresh");
+  lv_obj_set_style_text_font(rl, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(rl, lv_color_hex(MD_PRIMARY), 0);
+  lv_obj_center(rl);
+
+  if (st == 3) {
+    neigh_hint("No reply. Log in first, then Refresh. Note: the repeater must run "
+               "firmware from Oct 2025 or later - older builds don't know this "
+               "request and never answer.");
+    return;
+  }
+  if (st != 2) { neigh_hint("Asking the repeater for its direct neighbours..."); return; }
+
+  int n = lvd_rep_neigh_count(), total = lvd_rep_neigh_total();
+  char sum[64];
+  if (total >= 0 && total > n) snprintf(sum, sizeof(sum), "%d neighbours - strongest %d shown", total, n);
+  else                         snprintf(sum, sizeof(sum), "%d direct neighbour%s", n, n == 1 ? "" : "s");
+  neigh_hint(n == 0 ? "The repeater has heard no direct neighbours yet." : sum);
+
+  for (int i = 0; i < n; i++) {
+    lvd_neigh_t e;
+    if (!lvd_rep_neigh_get(i, &e)) break;
+    lv_obj_t* row = lv_ui_md_card(s_ne_list);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+
+    lv_obj_t* nm = lv_label_create(row);
+    lv_label_set_text(nm, e.name);
+    lv_label_set_long_mode(nm, LV_LABEL_LONG_DOT);
+    lv_obj_set_flex_grow(nm, 1);
+    lv_obj_set_style_text_font(nm, &lv_font_montserrat_16, 0);
+    lv_obj_set_style_text_color(nm, lv_color_hex(e.known ? MD_ON : UI_MUTED), 0);
+
+    lv_obj_t* meta = lv_label_create(row);
+    lv_label_set_text_fmt(meta, "%s  %s", e.snr, e.age);
+    lv_obj_set_style_text_font(meta, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(meta, lv_color_hex(UI_MUTED), 0);
+  }
+}
+
+static void neigh_tick(void) {
+  int st = lvd_rep_neigh_state();
+  if (lvd_rep_seq() != s_ne_seq || st != s_ne_state_seen) {
+    s_ne_seq = lvd_rep_seq(); s_ne_state_seen = st;
+    neigh_fill();
+  }
+}
+
+void lv_rep_neigh_create(lv_obj_t* scr) {
+  lv_ui_screen_bg(scr);
+  char title[44]; snprintf(title, sizeof(title), "Neighbours - %s", lvd_rep_name());
+  lv_ui_md_topbar(scr, title);
+  s_ne_list = lv_ui_md_scroll(scr);
+  lv_obj_set_style_pad_row(s_ne_list, 8, 0);
+  if (lvd_rep_neigh_state() != 1) lvd_rep_neigh_request();   // fresh ask on entry
+  s_ne_seq = lvd_rep_seq(); s_ne_state_seen = -1;
+  neigh_fill();
+  lv_ui_set_refresh(neigh_tick);
 }

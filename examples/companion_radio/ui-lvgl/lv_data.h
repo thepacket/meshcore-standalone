@@ -251,6 +251,15 @@ const char* lvd_rep_cli_line(int i);                // oldest..newest
 
 unsigned    lvd_rep_seq(void);                      // refresh detection
 
+// remote neighbour list (REQ_TYPE_GET_NEIGHBOURS on the active repeater; the
+// strongest ~11 direct neighbours with heard-age and SNR; requires login)
+typedef struct { char name[28]; char age[12]; char snr[12]; int known; } lvd_neigh_t;
+int  lvd_rep_neigh_request(void);   // ask the active repeater; 0 = sent
+int  lvd_rep_neigh_state(void);     // 0 idle, 1 waiting, 2 have, 3 timed out
+int  lvd_rep_neigh_total(void);     // repeater-side neighbour count (-1 unknown)
+int  lvd_rep_neigh_count(void);     // entries received
+bool lvd_rep_neigh_get(int i, lvd_neigh_t* out);
+
 // ---- peer / contact details ------------------------------------------------
 typedef struct {
   char type[16];        // "Chat contact", "Repeater", ...

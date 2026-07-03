@@ -61,6 +61,9 @@ public:
   virtual void onStatusResponse(const uint8_t* pubkey_prefix6, const uint8_t* data, uint8_t len) {}
   // A telemetry response from a contact (CayenneLPP blob, len bytes).
   virtual void onTelemetryResponse(const uint8_t* pubkey_prefix6, const uint8_t* data, uint8_t len) {}
+  // A neighbour-list response from a repeater (REQ_TYPE_GET_NEIGHBOURS v0 reply:
+  // i16 total, i16 results, then per entry: pubkey prefix + u32 heard-secs-ago + i8 snr*4).
+  virtual void onNeighboursResponse(const uint8_t* pubkey_prefix6, const uint8_t* data, uint8_t len) {}
   // A CLI reply (TXT_TYPE_CLI_DATA) from a contact, e.g. the result of a remote command.
   virtual void onCommandReply(const uint8_t* pubkey_prefix6, const char* text) {}
   virtual void notify(UIEventType t = UIEventType::none) = 0;

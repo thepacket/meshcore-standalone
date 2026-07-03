@@ -30,6 +30,8 @@ void ui_rep_on_status(const uint8_t* pk6, const uint8_t* data, uint8_t len);
 void ui_rep_on_cmdreply(const uint8_t* pk6, const char* text);
 // telemetry response for the peer card (UITask.cpp)
 void ui_peer_on_telemetry(const uint8_t* pk6, const uint8_t* data, uint8_t len);
+// neighbour-list response for the repeater admin screen (UITask.cpp)
+void ui_rep_on_neighbours(const uint8_t* pk6, const uint8_t* data, uint8_t len);
 // delivery ack for one of our outbound DMs (UITask.cpp)
 void ui_msg_confirmed(uint32_t ack);
 
@@ -82,5 +84,6 @@ public:
   void onLoginResult(const uint8_t* pk6, bool ok, uint8_t perms) override { ui_rep_on_login(pk6, ok, perms); }
   void onStatusResponse(const uint8_t* pk6, const uint8_t* data, uint8_t len) override { ui_rep_on_status(pk6, data, len); }
   void onTelemetryResponse(const uint8_t* pk6, const uint8_t* data, uint8_t len) override { ui_peer_on_telemetry(pk6, data, len); }
+  void onNeighboursResponse(const uint8_t* pk6, const uint8_t* data, uint8_t len) override { ui_rep_on_neighbours(pk6, data, len); }
   void onCommandReply(const uint8_t* pk6, const char* text) override { ui_rep_on_cmdreply(pk6, text); }
 };

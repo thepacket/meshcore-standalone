@@ -94,8 +94,10 @@ chips, charts/gauges, real widgets). Live on-device:
   **Manage** for repeaters/rooms
 - **Repeater admin** — reached from a repeater/room's peer card (**Manage**):
   remote login with a **remembered per-repeater password** (silent auto-login +
-  auto status fetch), live parsed status, and a real **Console** terminal
-  (scrollback + inline prompt) for remote CLI
+  auto status fetch), live parsed status, a real **Console** terminal
+  (scrollback + inline prompt) for remote CLI, and a **remote neighbour list**
+  (the repeater's own strongest direct neighbours with heard-age and SNR at
+  *its* antenna — a coverage picture from the repeater's point of view)
 - **Input & feedback** — physical keyboard typing into focused fields; press
   feedback + confirmation toasts on every action; **audio notifications** on the
   built-in speaker (distinct chirps for DMs vs channel messages, **Low/Med/High

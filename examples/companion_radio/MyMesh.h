@@ -125,6 +125,7 @@ public:
   // All take a 6-byte pubkey prefix and look the contact up internally.
   bool uiLogin(const uint8_t* pubkey6, const char* password, uint32_t& est_timeout);
   bool uiRequestStatus(const uint8_t* pubkey6, uint32_t& est_timeout);
+  bool uiRequestNeighbours(const uint8_t* pubkey6, uint32_t& est_timeout);   // REQ_TYPE_GET_NEIGHBOURS
   bool uiRequestTelemetry(const uint8_t* pubkey6, uint32_t& est_timeout);  // LPP reply via onTelemetryResponse
   void rememberRepPassword(const uint8_t* pubkey6, const char* pw);   // upsert + persist (per repeater)
   bool getRepPassword(const uint8_t* pubkey6, char* out, int len);    // true if one is remembered
@@ -241,6 +242,7 @@ protected:
 
   void clearPendingReqs() {
     pending_login = pending_status = pending_telemetry = pending_discovery = pending_req = 0;
+    pending_neighbours = 0;
   }
 
 public:
@@ -291,6 +293,7 @@ private:
   uint32_t pending_status;
   uint32_t pending_telemetry, pending_discovery;   // pending _TELEMETRY_REQ
   uint32_t pending_req;   // pending _BINARY_REQ
+  uint32_t pending_neighbours;   // pending REQ_TYPE_GET_NEIGHBOURS (on-device UI)
   BaseSerialInterface *_serial;
   AbstractUITask* _ui;
 

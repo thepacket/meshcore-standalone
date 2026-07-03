@@ -115,8 +115,11 @@ Delivered alongside M3 to host the diagnostic tiles:
   discovery of new nodes is handled by the Discover screen (not a separate Scan tab).
 - ✅ **Remote triggers** — send `advert` / `clock sync` CLI commands over the air; the
   repeater's CLI reply is surfaced (`onCommandReply`).
-- ⏳ Remote neighbour-list view (repeaters don't return neighbours in the status blob;
-  would need a dedicated request).
+- ✅ **Remote neighbour list** — a **Nodes** button on the repeater admin screen asks
+  the repeater for its own direct neighbours (`REQ_TYPE_GET_NEIGHBOURS`, strongest
+  first): names resolved from contacts, heard-age, and the SNR **at the repeater's
+  antenna**. Requires login and repeater firmware from Oct 2025+ (older builds
+  don't know the request; the screen says so on timeout).
 
 ## M6 — Terminal & system
 - ✅ **On-device terminal** — the repeater/room **Console** (reached from a node's

@@ -56,6 +56,7 @@ extern "C" {
   void lv_repeater_detail_create(lv_obj_t* scr);
   void lv_rep_login_create(lv_obj_t* scr);
   void lv_rep_cli_create(lv_obj_t* scr);
+  void lv_rep_neigh_create(lv_obj_t* scr);
   void lv_peer_create(lv_obj_t* scr);
   void lv_peer_export_create(lv_obj_t* scr);
   void lv_channels_create(lv_obj_t* scr);
@@ -106,6 +107,7 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "repeater_detail")) lv_repeater_detail_create(s);
   else if (!strcmp(name, "rep_login")) lv_rep_login_create(s);
   else if (!strcmp(name, "rep_cli")) lv_rep_cli_create(s);
+  else if (!strcmp(name, "rep_neigh")) lv_rep_neigh_create(s);
   else if (!strcmp(name, "peer")) lv_peer_create(s);
   else if (!strcmp(name, "peer_export")) lv_peer_export_create(s);
   else if (!strcmp(name, "channels")) lv_channels_create(s);
@@ -2639,6 +2641,76 @@ void ui_rep_on_cmdreply(const uint8_t* pk6, const char* text) {
   if (s_cli_n < CLI_LINES) { memcpy(s_cli[s_cli_n], line, sizeof(line)); s_cli_n++; }
   else { for (int i = 1; i < CLI_LINES; i++) memcpy(s_cli[i - 1], s_cli[i], sizeof(s_cli[0])); memcpy(s_cli[CLI_LINES - 1], line, sizeof(line)); }
   s_rep_seq++;
+}
+
+// ---- remote neighbour list (REQ_TYPE_GET_NEIGHBOURS on the active repeater) --
+#define NEIGH_MAX 11              // entries per page (repeater reply-buffer limit)
+#define NEIGH_TIMEOUT_MS 20000
+static struct { char name[28]; uint32_t ago_secs; int snr_q; int known; } s_neigh[NEIGH_MAX];
+static int      s_neigh_n = 0;
+static int      s_neigh_total = -1;   // repeater-side neighbour count
+static uint8_t  s_neigh_state = 0;    // 0 idle, 1 waiting, 2 have
+static uint32_t s_neigh_ms = 0;
+
+void ui_rep_on_neighbours(const uint8_t* pk6, const uint8_t* data, uint8_t len) {
+  if (!s_rep_active || memcmp(pk6, s_rep_peer, 6) != 0) return;
+  // reply v0: i16 total, i16 results, then per entry: 6-byte prefix, u32 secs-ago, i8 snr*4
+  if (len < 4) return;
+  int16_t total, results;
+  memcpy(&total, &data[0], 2);
+  memcpy(&results, &data[2], 2);
+  s_neigh_total = total;
+  s_neigh_n = 0;
+  int off = 4;
+  // results_count bounds the parse: the decrypted payload can carry padding
+  // beyond the real entries, which would otherwise read as ghost all-zero rows
+  while (s_neigh_n < results && s_neigh_n < NEIGH_MAX && off + 11 <= len) {
+    auto& e = s_neigh[s_neigh_n];
+    ContactInfo c;
+    if (find_contact_by_prefix(&data[off], 6, c)) {
+      strncpy(e.name, c.name, sizeof(e.name) - 1); e.name[sizeof(e.name) - 1] = 0;
+      e.known = 1;
+    } else {
+      snprintf(e.name, sizeof(e.name), "%02X%02X%02X%02X",
+               data[off], data[off + 1], data[off + 2], data[off + 3]);
+      e.known = 0;
+    }
+    memcpy(&e.ago_secs, &data[off + 6], 4);
+    e.snr_q = (int8_t)data[off + 10];
+    off += 11;
+    s_neigh_n++;
+  }
+  s_neigh_state = 2;
+  s_rep_seq++;
+}
+
+extern "C" int lvd_rep_neigh_request(void) {
+  if (!s_rep_active) return 1;
+  uint32_t timeout;
+  if (!the_mesh.uiRequestNeighbours(s_rep_peer, timeout)) return 1;
+  s_neigh_state = 1; s_neigh_ms = millis();
+  s_neigh_n = 0; s_neigh_total = -1;
+  s_rep_seq++;
+  return 0;
+}
+extern "C" int lvd_rep_neigh_state(void) {
+  if (s_neigh_state == 1 && millis() - s_neigh_ms > NEIGH_TIMEOUT_MS) return 3;   // timed out
+  return s_neigh_state;
+}
+extern "C" int lvd_rep_neigh_total(void) { return s_neigh_total; }
+extern "C" int lvd_rep_neigh_count(void) { return s_neigh_n; }
+extern "C" bool lvd_rep_neigh_get(int i, lvd_neigh_t* out) {
+  if (i < 0 || i >= s_neigh_n) return false;
+  strncpy(out->name, s_neigh[i].name, sizeof(out->name) - 1); out->name[sizeof(out->name) - 1] = 0;
+  out->known = s_neigh[i].known;
+  uint32_t a = s_neigh[i].ago_secs;
+  if (a < 60)         snprintf(out->age, sizeof(out->age), "%us", (unsigned)a);
+  else if (a < 3600)  snprintf(out->age, sizeof(out->age), "%um", (unsigned)(a / 60));
+  else if (a < 86400) snprintf(out->age, sizeof(out->age), "%uh", (unsigned)(a / 3600));
+  else                snprintf(out->age, sizeof(out->age), "%ud", (unsigned)(a / 86400));
+  int v10 = s_neigh[i].snr_q * 10 / 4, abs10 = v10 < 0 ? -v10 : v10;
+  snprintf(out->snr, sizeof(out->snr), "%s%d.%d dB", v10 < 0 ? "-" : "", abs10 / 10, abs10 % 10);
+  return true;
 }
 
 // ---- peer / contact details ------------------------------------------------

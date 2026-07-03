@@ -553,6 +553,30 @@ bool MyMesh::uiRequestStatus(const uint8_t* pubkey6, uint32_t& est_timeout) {
   return true;
 }
 
+#define REQ_TYPE_GET_NEIGHBOURS  0x06   // matches simple_repeater (not yet in BaseChatMesh.h)
+
+bool MyMesh::uiRequestNeighbours(const uint8_t* pubkey6, uint32_t& est_timeout) {
+  ContactInfo* c = lookupContactByPubKey(pubkey6, 6);
+  if (!c) return false;
+  clearPendingReqs();
+  // request v0: count, offset, order, pubkey-prefix len, 4-byte uniqueness blob.
+  // 11 entries of (6-byte prefix + 4 age + 1 snr) fit the repeater's 130-byte
+  // results buffer; strongest-first gives the most useful single page.
+  uint8_t req[11];
+  req[0] = REQ_TYPE_GET_NEIGHBOURS;
+  req[1] = 0;                        // request version
+  req[2] = 11;                       // count
+  uint16_t offset = 0;
+  memcpy(&req[3], &offset, 2);
+  req[5] = 2;                        // order: strongest to weakest
+  req[6] = 6;                        // pubkey prefix bytes (enough to resolve contacts)
+  getRNG()->random(&req[7], 4);
+  uint32_t tag;
+  if (sendRequest(*c, req, sizeof(req), tag, est_timeout) == MSG_SEND_FAILED) return false;
+  pending_neighbours = tag;   // matched in onContactResponse()
+  return true;
+}
+
 void MyMesh::rememberRepPassword(const uint8_t* pubkey6, const char* pw) {
   if (!pw) return;
   int slot = -1;
@@ -960,6 +984,11 @@ void MyMesh::onContactResponse(const ContactInfo &contact, const uint8_t *data, 
     _serial->writeFrame(out_frame, i);
 #ifdef DISPLAY_CLASS
     if (_ui) _ui->onStatusResponse(contact.id.pub_key, &data[4], len - 4);
+#endif
+  } else if (len > 4 && pending_neighbours && tag == pending_neighbours) {  // neighbour-list response (on-device UI)
+    pending_neighbours = 0;
+#ifdef DISPLAY_CLASS
+    if (_ui) _ui->onNeighboursResponse(contact.id.pub_key, &data[4], len - 4);
 #endif
   } else if (len > 4 && tag == pending_telemetry) {  // check for matching response tag
     pending_telemetry = 0;
