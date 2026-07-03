@@ -82,6 +82,7 @@ static const Field F_SECURITY[] = {
 };
 static const Field F_TIME[] = {
   {"Set time (UTC)",  F_VAL, "", 0},        // edit as "YYYY-MM-DD HH:MM" (or epoch secs)
+  {"UTC offset",     F_VAL, "+0", 0},       // display timezone, hours (e.g. -5, +5.5); clock stays UTC
   {"Sync from GPS",  F_BOOL, NULL, 1},      // when GPS has a fix, take time from it (highest priority)
   {"Time source 1",  F_VAL, "(none)", 0},   // else named repeaters used as clock references
   {"Time source 2",  F_VAL, "(none)", 0},

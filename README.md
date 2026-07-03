@@ -69,6 +69,7 @@ chips, charts/gauges, real widgets). Live on-device:
 - **Settings** — every companion config field, editable **and persisted**: radio
   params + **region presets**, RX-boosted-gain and **hardware CAD** toggles,
   telemetry modes, GPS + **time sources / GPS clock sync**, manual clock set,
+  a **UTC-offset timezone** for displayed times (clock + chat timestamps),
   **factory reset** (confirm-guarded), **SD backup/restore of config and
   contacts+channels** (+ packet export to serial), contacts + BLE-pin info,
   the on-screen-keyboard toggle, **notification volume**, and **brightness +

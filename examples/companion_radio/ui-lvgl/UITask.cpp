@@ -443,9 +443,31 @@ extern "C" const char* lvd_device_label(void) {
   return "device";
 #endif
 }
+// Timezone: a display-only UTC offset (NVS). The RTC and every protocol
+// timestamp stay UTC -- the offset is applied only when rendering HH:MM.
+static bool s_tz_loaded = false;
+static int  s_tz_mins = 0;
+static int tz_offset_mins(void) {
+  if (!s_tz_loaded) {
+    Preferences p; p.begin("ui", true);
+    s_tz_mins = p.getInt("tzofs", 0);
+    p.end();
+    s_tz_loaded = true;
+  }
+  return s_tz_mins;
+}
+static void tz_set_mins(int m) {
+  if (m < -14 * 60) m = -14 * 60; else if (m > 14 * 60) m = 14 * 60;
+  s_tz_mins = m; s_tz_loaded = true;
+  Preferences p; p.begin("ui", false); p.putInt("tzofs", m); p.end();
+}
+// epoch -> local display seconds (offset can be negative; epoch is far from 0)
+static uint32_t tz_local(uint32_t e) { return (uint32_t)((int64_t)e + (int64_t)tz_offset_mins() * 60); }
+
 extern "C" void lvd_clock_hhmm(char* out, int len) {
   uint32_t e = rtc_clock.getCurrentTime();
   if (e < 1000000) { strncpy(out, "--:--", len); out[len - 1] = 0; return; }
+  e = tz_local(e);
   snprintf(out, len, "%02u:%02u", (unsigned)((e / 3600) % 24), (unsigned)((e / 60) % 60));
 }
 extern "C" int lvd_batt_pct(void) {
@@ -1142,6 +1164,12 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
       return true;
     }
     if (eq(label, "Sync from GPS")) { *sel = p->time_sync_gps ? 1 : 0; return true; }
+    if (eq(label, "UTC offset")) {
+      int m = tz_offset_mins();
+      if (m % 60 == 0) snprintf(val, len, "%+d", m / 60);
+      else             snprintf(val, len, "%+.1f", m / 60.0);
+      return true;
+    }
     if (strncmp(label, "Time source ", 12) == 0) {
       int i = atoi(label + 12) - 1;
       if (i < 0 || i > 2) return false;
@@ -1249,6 +1277,7 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
 #if ENV_INCLUDE_GPS == 1
     if (eq(label, "Sync from GPS")) { the_mesh.setTimeSyncFromGps(sel != 0); return; }
 #endif
+    if (eq(label, "UTC offset") && val) { tz_set_mins((int)lroundf((float)atof(val) * 60.0f)); return; }
     if (strncmp(label, "Time source ", 12) == 0 && val) { the_mesh.setTimeSource(atoi(label + 12) - 1, val); return; }
   } else if (eq(group, "Tuning")) {
     if (eq(label, "Airtime factor") && val) { the_mesh.setTuningParams(p->rx_delay_base, (float)atof(val)); return; }
@@ -2206,6 +2235,7 @@ extern "C" int  lvd_chat_count(void) { return count_idx(in_active_conv); }
 // "HH:MM" from an RTC epoch, or "" if the clock isn't set
 static void fmt_hhmm(uint32_t e, char* out, int len) {
   if (e < 1000000) { out[0] = 0; return; }
+  e = tz_local(e);   // display-only timezone offset
   snprintf(out, len, "%02u:%02u", (unsigned)((e / 3600) % 24), (unsigned)((e / 60) % 60));
 }
 extern "C" bool lvd_chat_get(int i, lvd_msg_t* out) {
