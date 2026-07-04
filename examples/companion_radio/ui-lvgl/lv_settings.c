@@ -97,7 +97,8 @@ static const Field F_WIFI[] = {
   {"Ping test",      F_ACTION, NULL, 0},        // 4 ICMP pings to 8.8.8.8 (internet check)
   {"Ping",           F_INFO,   "--", 0},        // live result of the last ping test
   {"NTP clock sync", F_BOOL,   NULL, 1},        // set the mesh RTC from pool.ntp.org
-  {"Map tile URL",   F_VAL,    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", 0},  // offline-map tile source ({z}/{x}/{y})
+  {"Map provider",   F_ENUM,   "Satellite (Esri)\nStreet (OSM)\nTopo (OpenTopoMap)\nCustom URL", 0},  // offline-map tile source
+  {"Map tile URL",   F_VAL,    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", 0},  // custom {z}/{x}/{y} URL (selects Custom)
 };
 static const Field F_DEVICE[] = {
   {"On-screen keyboard", F_BOOL, NULL, 1},   // show the touch keyboard for text entry

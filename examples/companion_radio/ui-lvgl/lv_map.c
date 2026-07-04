@@ -260,6 +260,8 @@ void lv_map_create(lv_obj_t* scr) {
   if (s_z < s_zmin) s_z = s_zmin;
   if (s_z > s_zmax) s_z = s_zmax;
 
+  tile_cache_reset();   // provider may have changed since last open -> drop cached tiles
+
   s_canvas = lv_canvas_create(scr);
   lv_canvas_set_buffer(s_canvas, s_cbuf, MW, MH, LV_COLOR_FORMAT_RGB565);
   lv_obj_set_pos(s_canvas, 0, 0);

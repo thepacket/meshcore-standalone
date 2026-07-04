@@ -1435,9 +1435,10 @@ extern "C" int lvd_region_delete(int i) {
 
 // ===========================================================================
 // Offline map bridge: our position, GPS-carrying contact markers, and raw
-// RGB565 tile reads from /maps/{z}/{x}/{y}.bin on the SD card. All lat/lon are
-// degrees; contact fixes are stored as 1e-6 int32 (ContactInfo.gps_lat/lon).
+// RGB565 tile reads from /maps/<provider>/{z}/{x}/{y}.bin on the SD card. All
+// lat/lon are degrees; contact fixes are 1e-6 int32 (ContactInfo.gps_lat/lon).
 // ===========================================================================
+static const char* map_prov_tag(void);   // active provider's cache-dir tag (defined below)
 extern "C" int lvd_map_here(double* lat, double* lon) {
   if (lat) *lat = sensors.node_lat;
   if (lon) *lon = sensors.node_lon;
@@ -1473,8 +1474,8 @@ extern "C" bool lvd_map_marker_get(int idx, lvd_marker_t* out) {
 extern "C" int lvd_map_tile(int z, int x, int y, unsigned char* buf, int maxbytes) {
   int need = LVD_MAP_TILE_PX * LVD_MAP_TILE_PX * 2;
   if (maxbytes < need) return 0;
-  char path[48];
-  snprintf(path, sizeof(path), "/maps/%d/%d/%d.bin", z, x, y);
+  char path[64];
+  snprintf(path, sizeof(path), "/maps/%s/%d/%d/%d.bin", map_prov_tag(), z, x, y);
   int n = tdeck_sd_read(path, buf, need);
   return (n == need) ? 1 : 0;   // must be a full raw RGB565 tile
 }
@@ -1483,7 +1484,8 @@ extern "C" void lvd_map_zoom_range(int* zmin, int* zmax) {
   int lo = -1, hi = -1;
   if (tdeck_sd_ok()) {
     static SdEntry ent[24];
-    int n = tdeck_sd_list("/maps", ent, 24);
+    char dir[32]; snprintf(dir, sizeof(dir), "/maps/%s", map_prov_tag());
+    int n = tdeck_sd_list(dir, ent, 24);
     for (int i = 0; i < n; i++) {
       if (!ent[i].is_dir) continue;
       int z = atoi(ent[i].name);
@@ -1504,23 +1506,59 @@ extern "C" void lvd_map_zoom_range(int* zmin, int* zmax) {
 // Cache-first: a fetched tile is served from SD forever after (Wi-Fi can be off).
 #define MAP_RGB565(r, g, b) ((uint16_t)(((r) & 0xF8) << 8 | ((g) & 0xFC) << 3 | (b) >> 3))
 
-static char s_map_url[128];
-static bool s_map_url_loaded = false;
+// Selectable tile providers. Each caches to its own /maps/<tag>/ dir so
+// switching providers never shows another provider's cached tiles. "Custom"
+// uses the user-entered URL (any {z}/{x}/{y} source, PNG or JPEG). OSM's public
+// tiles are policy-limited to light personal use -- see the compliant UA/Referer
+// + rate-limit in the fetch path below.
+static void map_fetch_state_reset(void);   // clears the fetch queue + attempted-ring (defined below)
+struct MapProvider { const char* name; const char* tag; const char* url; };
+static const MapProvider MAP_PROVIDERS[] = {
+  {"Satellite (Esri)",   "sat",    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}"},
+  {"Street (OSM)",       "osm",    "https://tile.openstreetmap.org/{z}/{x}/{y}.png"},
+  {"Topo (OpenTopoMap)", "topo",   "https://a.tile.opentopomap.org/{z}/{x}/{y}.png"},
+  {"Custom URL",         "custom", NULL},
+};
+#define MAP_PROV_N      ((int)(sizeof(MAP_PROVIDERS) / sizeof(MAP_PROVIDERS[0])))
+#define MAP_PROV_CUSTOM (MAP_PROV_N - 1)
+
+static char s_map_custom[128];   // the Custom-provider URL
+static int  s_map_prov = -1;     // -1 = not loaded
+static void map_cfg_load(void) {
+  if (s_map_prov >= 0) return;
+  Preferences p; p.begin("map", true);
+  s_map_prov = p.getInt("prov", 0);
+  String s = p.getString("url", "");
+  p.end();
+  if (s_map_prov < 0 || s_map_prov >= MAP_PROV_N) s_map_prov = 0;
+  strncpy(s_map_custom, s.c_str(), sizeof(s_map_custom) - 1); s_map_custom[sizeof(s_map_custom) - 1] = 0;
+}
 static const char* map_url(void) {
-  if (!s_map_url_loaded) {
-    Preferences p; p.begin("map", true);
-    String s = p.getString("url", "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}");
-    p.end();
-    strncpy(s_map_url, s.c_str(), sizeof(s_map_url) - 1); s_map_url[sizeof(s_map_url) - 1] = 0;
-    s_map_url_loaded = true;
-  }
-  return s_map_url;
+  map_cfg_load();
+  if (s_map_prov == MAP_PROV_CUSTOM) return s_map_custom[0] ? s_map_custom : MAP_PROVIDERS[0].url;
+  return MAP_PROVIDERS[s_map_prov].url;
+}
+static const char* map_prov_tag(void) {
+  map_cfg_load();
+  return MAP_PROVIDERS[s_map_prov].tag;
 }
 extern "C" const char* lvd_map_url(void) { return map_url(); }
-extern "C" void lvd_map_set_url(const char* u) {
-  strncpy(s_map_url, (u && u[0]) ? u : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", sizeof(s_map_url) - 1);
-  s_map_url[sizeof(s_map_url) - 1] = 0; s_map_url_loaded = true;
-  Preferences p; p.begin("map", false); p.putString("url", s_map_url); p.end();
+extern "C" void lvd_map_set_url(const char* u) {   // editing the URL selects Custom
+  map_cfg_load();
+  strncpy(s_map_custom, u ? u : "", sizeof(s_map_custom) - 1); s_map_custom[sizeof(s_map_custom) - 1] = 0;
+  s_map_prov = MAP_PROV_CUSTOM;
+  map_fetch_state_reset();
+  Preferences p; p.begin("map", false); p.putInt("prov", s_map_prov); p.putString("url", s_map_custom); p.end();
+}
+extern "C" int         lvd_map_provider(void) { map_cfg_load(); return s_map_prov; }
+extern "C" int         lvd_map_provider_count(void) { return MAP_PROV_N; }
+extern "C" const char* lvd_map_provider_name(int i) { return (i >= 0 && i < MAP_PROV_N) ? MAP_PROVIDERS[i].name : ""; }
+extern "C" void        lvd_map_set_provider(int i) {
+  map_cfg_load();
+  if (i < 0 || i >= MAP_PROV_N) i = 0;
+  s_map_prov = i;
+  map_fetch_state_reset();   // don't let the old provider's attempted/queued tiles block the new one
+  Preferences p; p.begin("map", false); p.putInt("prov", i); p.end();
 }
 
 struct TileKey { int16_t z; int32_t x, y; };
@@ -1531,6 +1569,7 @@ static TileKey s_tfq[TFQ]; static int s_tfq_head = 0, s_tfq_n = 0;
 static TileKey s_tfa[TFA]; static int s_tfa_n = 0, s_tfa_next = 0;
 static volatile uint32_t s_map_gen = 0;
 
+static void map_fetch_state_reset(void) { s_tfq_head = s_tfq_n = 0; s_tfa_n = s_tfa_next = 0; }
 static bool tfa_has(int z, int x, int y) { for (int i = 0; i < s_tfa_n; i++) if (tk_eq(s_tfa[i], z, x, y)) return true; return false; }
 static void tfa_add(int z, int x, int y) {
   if (tfa_has(z, x, y)) return;
@@ -1618,9 +1657,13 @@ static bool tile_fetch_now(int z, int x, int y) {
   if (ESP.getFreeHeap() < 60000 || ESP.getMaxAllocHeap() < 20000) return false;
   char url[176]; map_url_expand(z, x, y, url, sizeof(url));
   WiFiClientSecure cli; cli.setInsecure();          // public map tiles: no cert pinning
-  HTTPClient http; http.setUserAgent("meshcore-standalone/1.0 (T-Deck offline map)");
+  HTTPClient http;
+  // Identify the app + a contact URL and send a Referer -- OSM's tile policy
+  // requires an identifying User-Agent, and its CDN blocks generic clients.
+  http.setUserAgent("meshcore-standalone/1.0 (+https://github.com/thepacket/meshcore-standalone)");
   http.setTimeout(8000);
   if (!http.begin(cli, url)) return false;
+  http.addHeader("Referer", "https://github.com/thepacket/meshcore-standalone");
   int code = http.GET();
   if (code != HTTP_CODE_OK) { http.end(); return false; }
   int sz = http.getSize();
@@ -1645,23 +1688,29 @@ static bool tile_fetch_now(int z, int x, int y) {
   bool ok = tile_decode(png, got, tile);
   free(png);
   if (ok) {
-    char d[24];
+    const char* tag = map_prov_tag();
+    char d[40];
     tdeck_sd_mkdir("/maps");
-    snprintf(d, sizeof(d), "/maps/%d", z);     tdeck_sd_mkdir(d);
-    snprintf(d, sizeof(d), "/maps/%d/%d", z, x); tdeck_sd_mkdir(d);
-    char path[48]; snprintf(path, sizeof(path), "/maps/%d/%d/%d.bin", z, x, y);
+    snprintf(d, sizeof(d), "/maps/%s", tag);          tdeck_sd_mkdir(d);
+    snprintf(d, sizeof(d), "/maps/%s/%d", tag, z);    tdeck_sd_mkdir(d);
+    snprintf(d, sizeof(d), "/maps/%s/%d/%d", tag, z, x); tdeck_sd_mkdir(d);
+    char path[64]; snprintf(path, sizeof(path), "/maps/%s/%d/%d/%d.bin", tag, z, x, y);
     ok = tdeck_sd_write(path, (const uint8_t*)tile, LVD_MAP_TILE_PX * LVD_MAP_TILE_PX * 2, false);
   }
   free(tile);
   return ok;
 }
 
-// drained from UITask::loop when Wi-Fi is up (one tile per pass)
+// drained from UITask::loop when Wi-Fi is up. Rate-limited (~1 tile / 350 ms
+// between completions) so bursty pan/zoom stays within OSM's tile usage policy.
 void ui_map_fetch_poll(void) {
+  static uint32_t s_last_fetch = 0;
   if (s_tfq_n == 0 || WiFi.status() != WL_CONNECTED) return;
+  if (millis() - s_last_fetch < 350) return;
   TileKey k = s_tfq[s_tfq_head]; s_tfq_head = (s_tfq_head + 1) % TFQ; s_tfq_n--;
   tfa_add(k.z, k.x, k.y);                 // mark attempted regardless of outcome
   if (tile_fetch_now(k.z, k.x, k.y)) s_map_gen++;
+  s_last_fetch = millis();
 }
 
 // auto-add bitmask bit for a Contacts toggle label (0 if not an auto-add field)
@@ -1759,6 +1808,7 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
     if (eq(label, "Status"))         { lvd_wifi_status(val, len); return true; }
     if (eq(label, "Ping"))           { lvd_wifi_ping_status(val, len); return true; }
     if (eq(label, "NTP clock sync")) { *sel = lvd_ntp_enabled(); return true; }
+    if (eq(label, "Map provider"))   { *sel = lvd_map_provider(); return true; }
     if (eq(label, "Map tile URL"))   { snprintf(val, len, "%s", lvd_map_url()); return true; }
   } else if (eq(group, "Device")) {
     if (eq(label, "Contacts")) { snprintf(val, len, "%d / %d used", the_mesh.getNumContacts(), MAX_CONTACTS); return true; }
@@ -1846,6 +1896,7 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
     if (eq(label, "Network") && val)  { lvd_wifi_set_ssid(eq(val, "(none)") ? "" : val); return; }
     if (eq(label, "Password") && val) { lvd_wifi_set_pass(val); return; }
     if (eq(label, "NTP clock sync"))  { lvd_ntp_set(sel); return; }
+    if (eq(label, "Map provider"))    { lvd_map_set_provider(sel); return; }
     if (eq(label, "Map tile URL") && val) { lvd_map_set_url(val); return; }
   } else if (eq(group, "Device")) {
     if (eq(label, "On-screen keyboard")) { lvd_osk_set(sel != 0); return; }

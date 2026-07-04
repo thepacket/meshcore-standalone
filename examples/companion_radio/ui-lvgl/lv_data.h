@@ -105,8 +105,13 @@ void lvd_map_zoom_range(int* zmin, int* zmax);
 int      lvd_map_online(void);                  // 1 if Wi-Fi is connected (fetch possible)
 int      lvd_map_fetch(int z, int x, int y);    // queue a missing tile for background fetch
 unsigned lvd_map_fetch_gen(void);               // bumps when a fetched tile lands -> redraw
-const char* lvd_map_url(void);                  // tile URL template ({z}/{x}/{y})
-void        lvd_map_set_url(const char* u);
+const char* lvd_map_url(void);                  // active tile URL template ({z}/{x}/{y})
+void        lvd_map_set_url(const char* u);     // set a custom URL (selects the Custom provider)
+// tile provider selector (each caches to its own dir; Custom uses the URL above)
+int         lvd_map_provider(void);             // active provider index
+int         lvd_map_provider_count(void);
+const char* lvd_map_provider_name(int i);
+void        lvd_map_set_provider(int i);
 
 // ---- Wi-Fi (internet access, station mode) ----------------------------------
 // Runtime STA connection for internet-backed features (NTP clock sync first).
