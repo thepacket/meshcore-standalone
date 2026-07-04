@@ -89,9 +89,14 @@ chips, charts/gauges, real widgets). Live on-device:
   independent of the companion transport
 - **Files** — a **microSD browser** (read + write): navigate folders, see sizes
   and card usage, delete files, and **format the card as FAT32**. The card also
-  backs the SD backup/restore in Settings and is the store for future features
-  (message history, offline maps). Shares the radio's SPI bus, re-claiming it
-  after each access so RX/TX is undisturbed
+  backs the SD backup/restore in Settings and the offline-map tile cache. Shares
+  the radio's SPI bus, re-claiming it after each access so RX/TX is undisturbed
+- **Map** — a full-screen **offline slippy map** with touch pan, zoom, a GPS
+  **you-are-here** marker, and **tappable node dots** (contacts with a position →
+  their peer card). Tiles **download themselves over Wi-Fi** on demand (no PC
+  toolchain) and **cache to the SD card**, so a browsed area works offline
+  afterward. Defaults to key-free **Esri World Imagery** (satellite); the tile
+  source is editable in Settings (any `{z}/{x}/{y}` provider, PNG or JPEG)
 - **Trace** — build a path through chosen repeaters **or trace a saved contact
   over its learned path**; result shows a summary (hops · **RTT** · weakest link),
   per-hop SNR bars, a bottleneck flag, and a **Repeat** button; live elapsed timer
