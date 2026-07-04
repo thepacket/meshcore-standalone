@@ -111,6 +111,13 @@ void halt() {
   unsigned long last_wifi_reconnect_attempt = 0;
 #endif
 
+#if defined(ESP32) && defined(TDECK_LVGL_UI)
+// The LVGL map fetches tiles over HTTPS from the loop task; mbedTLS's handshake
+// is stack-hungry and overflows the default 8 KB loop stack (-> reboot). 16 KB
+// gives TLS + LVGL headroom.
+SET_LOOP_TASK_STACK_SIZE(16 * 1024);
+#endif
+
 void setup() {
   Serial.begin(115200);
 

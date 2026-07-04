@@ -12,7 +12,7 @@ static const Tile TILES[12] = {
   {ICON_FILES,     UI_PURPLE,  true,  "files"},   // microSD browser (manage repeaters via their contact card)
   {ICON_CHANNELS,  UI_CYAN,    true,  "channels"},
   {ICON_HEARD,     UI_TEAL,    true,  "heard"},
-  {ICON_MAP,       UI_ORANGE,  false, ""},
+  {ICON_MAP,       UI_ORANGE,  true,  "map"},
   {ICON_ADVERT,    UI_PINK,    true,  "discover"},
   {ICON_SETTINGS,  UI_INDIGO,  true,  "settings"},
   {ICON_TRACE,     UI_AMBER,   true,  "trace"},

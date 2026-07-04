@@ -97,6 +97,7 @@ static const Field F_WIFI[] = {
   {"Ping test",      F_ACTION, NULL, 0},        // 4 ICMP pings to 8.8.8.8 (internet check)
   {"Ping",           F_INFO,   "--", 0},        // live result of the last ping test
   {"NTP clock sync", F_BOOL,   NULL, 1},        // set the mesh RTC from pool.ntp.org
+  {"Map tile URL",   F_VAL,    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", 0},  // offline-map tile source ({z}/{x}/{y})
 };
 static const Field F_DEVICE[] = {
   {"On-screen keyboard", F_BOOL, NULL, 1},   // show the touch keyboard for text entry
@@ -148,10 +149,10 @@ static const Group GROUPS[] = {
 static const char* SG_DEST[] = {"sg0","sg1","sg2","sg3","sg4","sg5","sg6","sg7","sg8","sg9","sg10","sg11","sg12"};
 
 // ---- mutable value overlay (prototype state; persists across navigation) ----
-// width fits a 63-char Wi-Fi passphrase (the longest editable value); ~7KB, so
-// it lives on the lv_malloc heap (PSRAM on device) instead of static DRAM
-typedef char val_row_t[MAX_FIELDS][68];
-static val_row_t* g_val = NULL;   // g_val[g][f] -> char[68]
+// width fits the longest editable value (the ~90-char map tile URL); on the
+// lv_malloc heap (PSRAM on device) instead of static DRAM
+typedef char val_row_t[MAX_FIELDS][128];
+static val_row_t* g_val = NULL;   // g_val[g][f] -> char[128]
 static int  g_sel[N_GROUPS][MAX_FIELDS];
 static bool g_inited = false;
 static int  g_edit_g = 0, g_edit_f = 0;   // field currently being edited
@@ -386,7 +387,7 @@ void lv_settings_group_create(lv_obj_t* scr, int idx) {
     const Field* f = &g->fields[i];
     int ud = (idx << 8) | i;
     // overlay live config onto the prototype default for any bound field
-    { char lv[68]; int ls = g_sel[idx][i];
+    { char lv[128]; int ls = g_sel[idx][i];   // wide enough for the map tile URL
       if (lvd_cfg_get(g->title, f->label, lv, sizeof(lv), &ls)) {
         strncpy(g_val[idx][i], lv, sizeof(g_val[0][0]) - 1);
         g_val[idx][i][sizeof(g_val[0][0]) - 1] = 0;

@@ -89,6 +89,25 @@ int  lvd_region_create(const char* name);              // snapshot current -> ne
 int  lvd_region_select(int i);                         // switch to region i (saves current first); 1 ok
 int  lvd_region_delete(int i);                         // delete region i; 1 ok, -1 active (refused), 0 fail
 
+// ---- offline map (raw RGB565 tiles on SD at /maps/{z}/{x}/{y}.bin) ----------
+#define LVD_MAP_TILE_PX 256   // tile edge, pixels (standard slippy tiles)
+// our current position (GPS or the manual Settings lat/lon); 1 if known (non-zero)
+int  lvd_map_here(double* lat, double* lon);
+// map markers = saved contacts/repeaters that carry a GPS fix
+typedef struct { double lat, lon; char name[32]; int type; } lvd_marker_t;
+int  lvd_map_marker_count(void);
+bool lvd_map_marker_get(int i, lvd_marker_t* out);
+// read one raw RGB565 tile into buf (needs TILE_PX*TILE_PX*2 bytes); 1 ok, 0 missing/no card
+int  lvd_map_tile(int z, int x, int y, unsigned char* buf, int maxbytes);
+// lowest/highest zoom level present on the card (scans /maps); both -1 if none
+void lvd_map_zoom_range(int* zmin, int* zmax);
+// on-device tile fetch over Wi-Fi (cache-miss -> HTTPS GET -> RGB565 -> SD cache)
+int      lvd_map_online(void);                  // 1 if Wi-Fi is connected (fetch possible)
+int      lvd_map_fetch(int z, int x, int y);    // queue a missing tile for background fetch
+unsigned lvd_map_fetch_gen(void);               // bumps when a fetched tile lands -> redraw
+const char* lvd_map_url(void);                  // tile URL template ({z}/{x}/{y})
+void        lvd_map_set_url(const char* u);
+
 // ---- Wi-Fi (internet access, station mode) ----------------------------------
 // Runtime STA connection for internet-backed features (NTP clock sync first).
 // Credentials persist in NVS; independent of the companion transport (USB/BLE).

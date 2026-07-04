@@ -14,6 +14,10 @@
 #include <math.h>
 #include <Preferences.h>
 #include <WiFi.h>
+#include <HTTPClient.h>         // on-device map-tile fetch over Wi-Fi
+#include <WiFiClientSecure.h>   // HTTPS tile CDNs (setInsecure: public map tiles)
+#include <lgfx/utility/lgfx_pngle.h>   // streaming PNG decoder bundled with LovyanGFX
+#include <lgfx/utility/lgfx_tjpgd.h>   // JPEG decoder (Esri World Imagery serves JPEG tiles)
 #include <time.h>
 #include <ping/ping_sock.h>   // ESP-IDF async ICMP ping (Wi-Fi ping test)
 #include <lwip/ip_addr.h>
@@ -81,6 +85,7 @@ extern "C" {
   void lv_regions_create(lv_obj_t* scr);
   void lv_region_detail_create(lv_obj_t* scr);
   void lv_region_add_create(lv_obj_t* scr);
+  void lv_map_create(lv_obj_t* scr);
 }
 
 // incoming messages since the chat list / a conversation was last viewed
@@ -133,6 +138,7 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "regions")) lv_regions_create(s);
   else if (!strcmp(name, "region_detail")) lv_region_detail_create(s);
   else if (!strcmp(name, "region_add")) lv_region_add_create(s);
+  else if (!strcmp(name, "map")) lv_map_create(s);
   else lv_home_create(s);
 }
 
@@ -415,6 +421,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 
 void ui_wifi_poll(void);   // Wi-Fi manager, defined with the lvd_wifi_* bridge below
 void ui_sleep_enter(void); // radio-watch light sleep, defined with the cfg actions below
+void ui_map_fetch_poll(void);   // map-tile fetch queue drain, defined with the lvd_map_* bridge
 static bool screenshot_write(void);   // BMP to SD, defined with the cfg actions below
 
 // Notification chirps on the I2S speaker, gated by the "Buzzer quiet" setting:
@@ -529,6 +536,8 @@ void UITask::loop() {
     s_shot_req = false;
     lv_ui_toast(screenshot_write() ? "Screenshot saved to SD" : "Screenshot failed (no card?)");
   }
+
+  ui_map_fetch_poll();   // drain one queued map tile over Wi-Fi (no-op unless the map queued one)
 }
 
 // ===========================================================================
@@ -1419,6 +1428,238 @@ extern "C" int lvd_region_delete(int i) {
   return 1;
 }
 
+// ===========================================================================
+// Offline map bridge: our position, GPS-carrying contact markers, and raw
+// RGB565 tile reads from /maps/{z}/{x}/{y}.bin on the SD card. All lat/lon are
+// degrees; contact fixes are stored as 1e-6 int32 (ContactInfo.gps_lat/lon).
+// ===========================================================================
+extern "C" int lvd_map_here(double* lat, double* lon) {
+  if (lat) *lat = sensors.node_lat;
+  if (lon) *lon = sensors.node_lon;
+  return (sensors.node_lat != 0.0 || sensors.node_lon != 0.0) ? 1 : 0;
+}
+
+// markers = saved contacts with a non-zero GPS fix. Enumerated on demand; the
+// map screen caches the result for a redraw pass (contact count is small).
+extern "C" int lvd_map_marker_count(void) {
+  int n = 0;
+  for (int i = MAX_ANON_CONTACTS, tot = the_mesh.getTotalContactSlots(); i < tot; i++) {
+    ContactInfo c;
+    if (the_mesh.getContactByIdx((uint32_t)i, c) && c.type != ADV_TYPE_NONE &&
+        (c.gps_lat != 0 || c.gps_lon != 0)) n++;
+  }
+  return n;
+}
+extern "C" bool lvd_map_marker_get(int idx, lvd_marker_t* out) {
+  int n = 0;
+  for (int i = MAX_ANON_CONTACTS, tot = the_mesh.getTotalContactSlots(); i < tot; i++) {
+    ContactInfo c;
+    if (!the_mesh.getContactByIdx((uint32_t)i, c) || c.type == ADV_TYPE_NONE) continue;
+    if (c.gps_lat == 0 && c.gps_lon == 0) continue;
+    if (n++ != idx) continue;
+    out->lat = c.gps_lat / 1e6; out->lon = c.gps_lon / 1e6;
+    out->type = c.type;
+    strncpy(out->name, c.name, sizeof(out->name) - 1); out->name[sizeof(out->name) - 1] = 0;
+    return true;
+  }
+  return false;
+}
+
+extern "C" int lvd_map_tile(int z, int x, int y, unsigned char* buf, int maxbytes) {
+  int need = LVD_MAP_TILE_PX * LVD_MAP_TILE_PX * 2;
+  if (maxbytes < need) return 0;
+  char path[48];
+  snprintf(path, sizeof(path), "/maps/%d/%d/%d.bin", z, x, y);
+  int n = tdeck_sd_read(path, buf, need);
+  return (n == need) ? 1 : 0;   // must be a full raw RGB565 tile
+}
+
+extern "C" void lvd_map_zoom_range(int* zmin, int* zmax) {
+  int lo = -1, hi = -1;
+  if (tdeck_sd_ok()) {
+    static SdEntry ent[24];
+    int n = tdeck_sd_list("/maps", ent, 24);
+    for (int i = 0; i < n; i++) {
+      if (!ent[i].is_dir) continue;
+      int z = atoi(ent[i].name);
+      if (z <= 0 && strcmp(ent[i].name, "0") != 0) continue;
+      if (lo < 0 || z < lo) lo = z;
+      if (hi < 0 || z > hi) hi = z;
+    }
+  }
+  if (zmin) *zmin = lo;
+  if (zmax) *zmax = hi;
+}
+
+// ---- Wi-Fi tile fetch: XYZ PNG -> RGB565 -> SD cache ------------------------
+// On a cache miss the map screen enqueues a tile; UITask::loop drains the queue
+// (one blocking HTTPS GET per pass, self-throttled) when Wi-Fi is up: decode the
+// PNG with LovyanGFX's pngle straight into a 256x256 RGB565 buffer, write it to
+// /maps/{z}/{x}/{y}.bin, and bump a generation counter so the map redraws it in.
+// Cache-first: a fetched tile is served from SD forever after (Wi-Fi can be off).
+#define MAP_RGB565(r, g, b) ((uint16_t)(((r) & 0xF8) << 8 | ((g) & 0xFC) << 3 | (b) >> 3))
+
+static char s_map_url[128];
+static bool s_map_url_loaded = false;
+static const char* map_url(void) {
+  if (!s_map_url_loaded) {
+    Preferences p; p.begin("map", true);
+    String s = p.getString("url", "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}");
+    p.end();
+    strncpy(s_map_url, s.c_str(), sizeof(s_map_url) - 1); s_map_url[sizeof(s_map_url) - 1] = 0;
+    s_map_url_loaded = true;
+  }
+  return s_map_url;
+}
+extern "C" const char* lvd_map_url(void) { return map_url(); }
+extern "C" void lvd_map_set_url(const char* u) {
+  strncpy(s_map_url, (u && u[0]) ? u : "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", sizeof(s_map_url) - 1);
+  s_map_url[sizeof(s_map_url) - 1] = 0; s_map_url_loaded = true;
+  Preferences p; p.begin("map", false); p.putString("url", s_map_url); p.end();
+}
+
+struct TileKey { int16_t z; int32_t x, y; };
+static bool tk_eq(const TileKey& a, int z, int x, int y) { return a.z == z && a.x == x && a.y == y; }
+#define TFQ 12                     // pending fetch queue
+static TileKey s_tfq[TFQ]; static int s_tfq_head = 0, s_tfq_n = 0;
+#define TFA 96                     // recently-attempted ring (dedup; don't hammer 404s)
+static TileKey s_tfa[TFA]; static int s_tfa_n = 0, s_tfa_next = 0;
+static volatile uint32_t s_map_gen = 0;
+
+static bool tfa_has(int z, int x, int y) { for (int i = 0; i < s_tfa_n; i++) if (tk_eq(s_tfa[i], z, x, y)) return true; return false; }
+static void tfa_add(int z, int x, int y) {
+  if (tfa_has(z, x, y)) return;
+  TileKey k = {(int16_t)z, x, y};
+  if (s_tfa_n < TFA) s_tfa[s_tfa_n++] = k;
+  else { s_tfa[s_tfa_next] = k; s_tfa_next = (s_tfa_next + 1) % TFA; }
+}
+
+extern "C" int      lvd_map_online(void) { return (WiFi.status() == WL_CONNECTED) ? 1 : 0; }
+extern "C" uint32_t lvd_map_fetch_gen(void) { return s_map_gen; }
+extern "C" int lvd_map_fetch(int z, int x, int y) {
+  if (WiFi.status() != WL_CONNECTED) return 0;
+  if (tfa_has(z, x, y)) return 0;                      // already tried this session
+  for (int i = 0; i < s_tfq_n; i++) { int idx = (s_tfq_head + i) % TFQ; if (tk_eq(s_tfq[idx], z, x, y)) return 0; }
+  if (s_tfq_n >= TFQ) return 0;
+  s_tfq[(s_tfq_head + s_tfq_n) % TFQ] = (TileKey){(int16_t)z, x, y}; s_tfq_n++;
+  return 1;
+}
+
+// decode glue: read compressed bytes from a RAM buffer, write decoded pixels
+// RGB565 into a 256x256 tile. Handles PNG (pngle) and JPEG (tjpgd) -- Esri's
+// World Imagery serves JPEG, OSM/Carto serve PNG -- auto-detected by magic bytes.
+struct DecCtx { const uint8_t* data; uint32_t len, pos; uint16_t* out; };
+static uint32_t dec_read_cb(void* u, uint8_t* buf, uint32_t len) {
+  DecCtx* c = (DecCtx*)u; uint32_t rem = c->len - c->pos; if (len > rem) len = rem;
+  if (buf) memcpy(buf, c->data + c->pos, len);   // buf==NULL means SKIP (pngle IEND CRC / tjpgd)
+  c->pos += len; return len;
+}
+static void png_draw_cb(void* u, uint32_t x, uint32_t y, uint_fast8_t div_x, size_t len, const uint8_t* argb) {
+  DecCtx* c = (DecCtx*)u;
+  if (y >= LVD_MAP_TILE_PX) return;
+  for (size_t i = 0; i < len; i++) {
+    uint32_t px = x + i * div_x;
+    if (px >= LVD_MAP_TILE_PX) break;
+    c->out[y * LVD_MAP_TILE_PX + px] = MAP_RGB565(argb[i * 4 + 1], argb[i * 4 + 2], argb[i * 4 + 3]);
+  }
+}
+static uint32_t jpg_out_cb(void* u, void* bitmap, JRECT* rect) {
+  DecCtx* c = (DecCtx*)u; const uint8_t* p = (const uint8_t*)bitmap;   // RGB888, row-major within rect
+  for (uint32_t yy = rect->top; yy <= rect->bottom; yy++)
+    for (uint32_t xx = rect->left; xx <= rect->right; xx++) {
+      uint8_t r = p[0], g = p[1], b = p[2]; p += 3;
+      if (xx < LVD_MAP_TILE_PX && yy < LVD_MAP_TILE_PX) c->out[yy * LVD_MAP_TILE_PX + xx] = MAP_RGB565(r, g, b);
+    }
+  return 1;
+}
+static bool tile_decode(const uint8_t* data, uint32_t len, uint16_t* out) {
+  DecCtx ctx = { data, len, 0, out };
+  if (len >= 3 && data[0] == 0xFF && data[1] == 0xD8) {          // JPEG (tjpgd)
+    void* pool = big_alloc(4096); if (!pool) return false;
+    static lgfxJdec jd;                                          // ~2 KB; keep off the stack
+    bool ok = (lgfx_jd_prepare(&jd, dec_read_cb, pool, 3900, &ctx) == JDR_OK) &&
+              (lgfx_jd_decomp(&jd, jpg_out_cb, 0) == JDR_OK);
+    free(pool);
+    return ok;
+  }
+  if (len >= 8 && data[0] == 0x89 && data[1] == 0x50) {          // PNG (pngle)
+    pngle_t* p = lgfx_pngle_new(); if (!p) return false;
+    bool ok = false;
+    if (lgfx_pngle_prepare(p, dec_read_cb, &ctx) >= 0)
+      ok = (lgfx_pngle_decomp(p, png_draw_cb) >= 0) &&
+           lgfx_pngle_get_width(p) == LVD_MAP_TILE_PX && lgfx_pngle_get_height(p) == LVD_MAP_TILE_PX;
+    lgfx_pngle_destroy(p);
+    return ok;
+  }
+  return false;
+}
+
+static void map_url_expand(int z, int x, int y, char* out, int len) {
+  const char* t = map_url(); int k = 0;
+  for (const char* p = t; *p && k < len - 1; ) {
+    if (p[0] == '{' && p[1] == 'z' && p[2] == '}') { k += snprintf(out + k, len - k, "%d", z); p += 3; }
+    else if (p[0] == '{' && p[1] == 'x' && p[2] == '}') { k += snprintf(out + k, len - k, "%d", x); p += 3; }
+    else if (p[0] == '{' && p[1] == 'y' && p[2] == '}') { k += snprintf(out + k, len - k, "%d", y); p += 3; }
+    else out[k++] = *p++;
+  }
+  out[k] = 0;
+}
+
+static bool tile_fetch_now(int z, int x, int y) {
+  // The TLS handshake needs ~40 KB of internal heap (PSRAM is fine but mbedTLS
+  // allocates from internal RAM). Only ~45-50 KB is free with Wi-Fi + LVGL up,
+  // so under pressure a handshake could exhaust it and wedge the Wi-Fi stack
+  // (a freeze, not a crash). Skip the tile when the largest free internal block
+  // is too small -- it just retries later once the heap recovers.
+  if (ESP.getMaxAllocHeap() < 45000) return false;
+  char url[176]; map_url_expand(z, x, y, url, sizeof(url));
+  WiFiClientSecure cli; cli.setInsecure();          // public map tiles: no cert pinning
+  HTTPClient http; http.setUserAgent("meshcore-standalone/1.0 (T-Deck offline map)");
+  http.setTimeout(8000);
+  if (!http.begin(cli, url)) return false;
+  int code = http.GET();
+  if (code != HTTP_CODE_OK) { http.end(); return false; }
+  int sz = http.getSize();
+  uint32_t cap = (sz > 0 && sz < 200000) ? (uint32_t)sz : 131072;
+  uint8_t* png = (uint8_t*)ps_malloc(cap);   // PSRAM only: never eat the internal heap TLS/Wi-Fi need
+  if (!png) { http.end(); return false; }
+  WiFiClient* st = http.getStreamPtr();
+  if (!st) { free(png); http.end(); return false; }
+  uint32_t got = 0; uint32_t t0 = millis();
+  while ((sz < 0 || got < (uint32_t)sz) && got < cap && http.connected() && millis() - t0 < 8000) {
+    int avail = st->available();
+    if (avail <= 0) { delay(2); continue; }
+    int r = st->read(png + got, (int)(cap - got)); if (r > 0) { got += r; t0 = millis(); }
+    if (sz < 0 && got && !st->available() && !http.connected()) break;
+  }
+  http.end();
+  if (got < 8) { free(png); return false; }
+
+  uint16_t* tile = (uint16_t*)ps_malloc((size_t)LVD_MAP_TILE_PX * LVD_MAP_TILE_PX * 2);   // PSRAM only
+  if (!tile) { free(png); return false; }
+  for (int i = 0; i < LVD_MAP_TILE_PX * LVD_MAP_TILE_PX; i++) tile[i] = 0;
+  bool ok = tile_decode(png, got, tile);
+  free(png);
+  if (ok) {
+    char d[24];
+    tdeck_sd_mkdir("/maps");
+    snprintf(d, sizeof(d), "/maps/%d", z);     tdeck_sd_mkdir(d);
+    snprintf(d, sizeof(d), "/maps/%d/%d", z, x); tdeck_sd_mkdir(d);
+    char path[48]; snprintf(path, sizeof(path), "/maps/%d/%d/%d.bin", z, x, y);
+    ok = tdeck_sd_write(path, (const uint8_t*)tile, LVD_MAP_TILE_PX * LVD_MAP_TILE_PX * 2, false);
+  }
+  free(tile);
+  return ok;
+}
+
+// drained from UITask::loop when Wi-Fi is up (one tile per pass)
+void ui_map_fetch_poll(void) {
+  if (s_tfq_n == 0 || WiFi.status() != WL_CONNECTED) return;
+  TileKey k = s_tfq[s_tfq_head]; s_tfq_head = (s_tfq_head + 1) % TFQ; s_tfq_n--;
+  tfa_add(k.z, k.x, k.y);                 // mark attempted regardless of outcome
+  if (tile_fetch_now(k.z, k.x, k.y)) s_map_gen++;
+}
+
 // auto-add bitmask bit for a Contacts toggle label (0 if not an auto-add field)
 static uint8_t autoadd_bit(const char* label) {
   if (eq(label, "Overwrite oldest"))   return 0x01;
@@ -1514,6 +1755,7 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
     if (eq(label, "Status"))         { lvd_wifi_status(val, len); return true; }
     if (eq(label, "Ping"))           { lvd_wifi_ping_status(val, len); return true; }
     if (eq(label, "NTP clock sync")) { *sel = lvd_ntp_enabled(); return true; }
+    if (eq(label, "Map tile URL"))   { snprintf(val, len, "%s", lvd_map_url()); return true; }
   } else if (eq(group, "Device")) {
     if (eq(label, "Contacts")) { snprintf(val, len, "%d / %d used", the_mesh.getNumContacts(), MAX_CONTACTS); return true; }
     if (eq(label, "Battery/storage")) {
@@ -1600,6 +1842,7 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
     if (eq(label, "Network") && val)  { lvd_wifi_set_ssid(eq(val, "(none)") ? "" : val); return; }
     if (eq(label, "Password") && val) { lvd_wifi_set_pass(val); return; }
     if (eq(label, "NTP clock sync"))  { lvd_ntp_set(sel); return; }
+    if (eq(label, "Map tile URL") && val) { lvd_map_set_url(val); return; }
   } else if (eq(group, "Device")) {
     if (eq(label, "On-screen keyboard")) { lvd_osk_set(sel != 0); return; }
     if (eq(label, "Buzzer quiet"))       { the_mesh.setBuzzerQuiet(sel != 0); return; }

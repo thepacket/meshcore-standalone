@@ -41,5 +41,6 @@
 #define LV_USE_KEYBOARD 1
 #define LV_USE_CHART 1
 #define LV_USE_SNAPSHOT 1   // screenshot-to-SD (Settings > Data)
+#define LV_USE_CANVAS 1     // offline SD-tile map (raw RGB565 tiles blitted into a canvas)
 
 #endif
