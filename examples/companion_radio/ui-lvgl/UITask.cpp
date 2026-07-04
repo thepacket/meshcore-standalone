@@ -348,11 +348,16 @@ static void IRAM_ATTR tb_up_isr()   { s_tb_up++; }
 static void IRAM_ATTR tb_down_isr() { s_tb_down++; }
 #endif
 
-// two partial draw buffers (internal RAM); ~1/6 screen each. MUST be aligned:
-// lv_display_set_buffers asserts LV_DRAW_BUF_ALIGN alignment, and LVGL's assert
-// handler is an infinite loop -- an unaligned byte array here hangs boot
-// silently whenever the .bss layout happens to shift (bit us 2026-07-02).
-#define LV_BUF_LINES 40
+// two partial draw buffers (internal RAM). MUST be aligned: lv_display_set_buffers
+// asserts LV_DRAW_BUF_ALIGN alignment, and LVGL's assert handler is an infinite
+// loop -- an unaligned byte array here hangs boot silently whenever the .bss
+// layout happens to shift (bit us 2026-07-02).
+// 24 lines (was 40) frees ~20 KB of internal RAM back to the heap, which the map's
+// HTTPS tile fetch needs -- mbedTLS is hardwired to internal RAM in the Arduino
+// framework (CONFIG_MBEDTLS_INTERNAL_MEM_ALLOC), so this headroom is what lets the
+// deepest zooms fetch without exhausting the heap. Still partial double-buffered;
+// the extra flush chunks are cheap (flush is not the scroll bottleneck).
+#define LV_BUF_LINES 24
 static uint8_t g_buf1[320 * LV_BUF_LINES * 2] __attribute__((aligned(8)));
 static uint8_t g_buf2[320 * LV_BUF_LINES * 2] __attribute__((aligned(8)));
 
@@ -1606,12 +1611,11 @@ static void map_url_expand(int z, int x, int y, char* out, int len) {
 }
 
 static bool tile_fetch_now(int z, int x, int y) {
-  // The TLS handshake needs ~40 KB of internal heap (PSRAM is fine but mbedTLS
-  // allocates from internal RAM). Only ~45-50 KB is free with Wi-Fi + LVGL up,
-  // so under pressure a handshake could exhaust it and wedge the Wi-Fi stack
-  // (a freeze, not a crash). Skip the tile when the largest free internal block
-  // is too small -- it just retries later once the heap recovers.
-  if (ESP.getMaxAllocHeap() < 45000) return false;
+  // The TLS handshake needs ~43 KB of internal heap total (spread across many
+  // allocations, the largest ~16 KB) -- mbedTLS is hardwired to internal RAM.
+  // Skip the fetch unless there's comfortable headroom, so a handshake can never
+  // exhaust the heap and wedge the Wi-Fi stack (a freeze). It retries later.
+  if (ESP.getFreeHeap() < 60000 || ESP.getMaxAllocHeap() < 20000) return false;
   char url[176]; map_url_expand(z, x, y, url, sizeof(url));
   WiFiClientSecure cli; cli.setInsecure();          // public map tiles: no cert pinning
   HTTPClient http; http.setUserAgent("meshcore-standalone/1.0 (T-Deck offline map)");
