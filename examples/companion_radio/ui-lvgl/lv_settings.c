@@ -104,10 +104,12 @@ static const Field F_DEVICE[] = {
   {"Volume",          F_ENUM, "Low\nMedium\nHigh", 1},   // notification chirps; samples on change
   {"Brightness",      F_ENUM, "Low\nMedium\nHigh\nMax", 3},   // backlight level (applies live)
   {"Backlight timeout", F_ENUM, "Never\n15 s\n30 s\n1 min\n5 min", 0},   // idle screen-off; touch/key/message wakes
+  {"Accent colour",   F_ENUM, "Cyan\nGreen\nOrange\nPurple\nPink\nAmber", 0},   // Material primary; screens recolour as rebuilt
   {"Battery/storage", F_INFO, "4050 mV  120/1536 KB", 0},
   {"Contacts",        F_INFO, "0 / 100 used", 0},
   {"Firmware",        F_INFO, "v1.16.0", 0},
   {"Device",          F_INFO, "LilyGo T-Deck", 0},
+  {"Sleep (LoRa wakes)", F_ACTION, NULL, 0},   // deep sleep; LoRa packet / trackball click wakes
   {"Reboot",          F_ACTION_WARN, NULL, 0},
   {"Factory reset",   F_ACTION_WARN, NULL, 0},
 };
@@ -116,6 +118,7 @@ static const Field F_CHANNELS[] = {
   {"Add channel",  F_ACTION, NULL, 0},
 };
 static const Field F_DATA[] = {
+  {"Screenshot (5 s)", F_ACTION, NULL, 0},   // active screen -> /screenshots/*.bmp on SD
   {"Backup config",    F_ACTION, NULL, 0},   // config -> /meshcore/config.txt on SD
   {"Restore config",   F_ACTION, NULL, 0},   // config <- SD
   {"Backup contacts",  F_ACTION, NULL, 0},   // contacts + channels -> /meshcore/appdata.txt on SD
@@ -141,7 +144,7 @@ static const Group GROUPS[] = {
   GRP("Data",        UI_EMERALD, ICON_TERMINAL,  F_DATA),
 };
 #define N_GROUPS  ((int)(sizeof(GROUPS) / sizeof(GROUPS[0])))
-#define MAX_FIELDS 11
+#define MAX_FIELDS 13
 static const char* SG_DEST[] = {"sg0","sg1","sg2","sg3","sg4","sg5","sg6","sg7","sg8","sg9","sg10","sg11","sg12"};
 
 // ---- mutable value overlay (prototype state; persists across navigation) ----
@@ -235,12 +238,19 @@ void lv_settings_create(lv_obj_t* scr) {
 }
 
 // ---- event handlers ---------------------------------------------------------
+static void accent_rebuild_cb(void* p) {   // repaint the group screen in the new accent
+  lv_obj_t* s = lv_screen_active();
+  lv_obj_clean(s);
+  lv_settings_group_create(s, (int)(intptr_t)p);
+}
 static void on_enum_changed(lv_event_t* e) {
   int ud = (int)(intptr_t)lv_event_get_user_data(e);
   lv_obj_t* dd = (lv_obj_t*)lv_event_get_target(e);
   int g = ud >> 8, f = ud & 0xff;
   g_sel[g][f] = lv_dropdown_get_selected(dd);
   lvd_cfg_set(GROUPS[g].title, GROUPS[g].fields[f].label, NULL, g_sel[g][f]);
+  if (strcmp(GROUPS[g].fields[f].label, "Accent colour") == 0)
+    lv_async_call(accent_rebuild_cb, (void*)(intptr_t)g);   // instant feedback
 }
 static void on_bool_changed(lv_event_t* e) {
   int ud = (int)(intptr_t)lv_event_get_user_data(e);

@@ -52,7 +52,12 @@ lv_obj_t* lv_ui_topbar(lv_obj_t* scr, const char* title, uint32_t accent, lv_obj
 #define MD_SURFACE  0x141b22   // solid card container on black
 #define MD_ON       0xe6f2f5   // onSurface text
 #define MD_MUTED    0x7d878c   // onSurface @ ~60%
-#define MD_PRIMARY  0x3fc7e8   // primary (cyan) accent — matches Android Theme.kt
+// primary accent — runtime-selectable (Settings > Device > Accent colour);
+// defaults to the Android client's cyan. Screens pick the new colour up as
+// they are (re)built.
+uint32_t lv_ui_accent(void);
+void     lv_ui_set_accent(uint32_t rgb);
+#define MD_PRIMARY  lv_ui_accent()
 
 // flat top app bar (solid surface, plain white title, back chevron). Returns bar.
 lv_obj_t* lv_ui_md_topbar(lv_obj_t* scr, const char* title);

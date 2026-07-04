@@ -4,9 +4,15 @@
 uint32_t deviceOnline = 0x00;
 
 void TDeckBoard::begin() {
-  
+
   ESP32Board::begin();
-  
+
+  // Release the deep-sleep pad holds (no-op on a cold boot). The sleep path
+  // holds the peripheral rail HIGH so the radio keeps listening; without this
+  // release the power-cycle below would be silently ignored after a wake.
+  gpio_hold_dis((gpio_num_t)PIN_PERF_POWERON);
+  gpio_deep_sleep_hold_dis();
+
   // Power-CYCLE the peripheral rail (not just enable it). On a soft reset
   // (RTC_SW_SYS_RST) the rail stays HIGH, so the radio/display/touch keep the
   // wedged state from the previous run and their init can hang -> watchdog boot

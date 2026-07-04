@@ -2,6 +2,11 @@
 
 lv_nav_fn lv_nav_cb = NULL;
 
+// runtime-selectable primary accent (MD_PRIMARY); default = Android cyan
+static uint32_t s_accent = 0x3fc7e8;
+uint32_t lv_ui_accent(void) { return s_accent; }
+void     lv_ui_set_accent(uint32_t rgb) { s_accent = rgb; }
+
 static lv_refresh_fn g_refresh = NULL;
 void          lv_ui_set_refresh(lv_refresh_fn fn) { g_refresh = fn; }
 lv_refresh_fn lv_ui_get_refresh(void) { return g_refresh; }

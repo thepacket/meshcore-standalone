@@ -40,5 +40,6 @@
 #define LV_USE_QRCODE 1
 #define LV_USE_KEYBOARD 1
 #define LV_USE_CHART 1
+#define LV_USE_SNAPSHOT 1   // screenshot-to-SD (Settings > Data)
 
 #endif

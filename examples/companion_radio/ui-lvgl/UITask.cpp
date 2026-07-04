@@ -17,6 +17,8 @@
 #include <time.h>
 #include <ping/ping_sock.h>   // ESP-IDF async ICMP ping (Wi-Fi ping test)
 #include <lwip/ip_addr.h>
+#include <driver/gpio.h>      // pad holds for deep sleep (radio keeps listening)
+#include <esp_sleep.h>
 
 extern MyMesh the_mesh;   // global mesh instance (main.cpp)
 
@@ -237,6 +239,39 @@ static void touch_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
   }
 }
 
+// Accent colour: the Material primary (MD_PRIMARY) is runtime-selectable.
+// Screens pick the new colour up as they are rebuilt (the settings screen
+// rebuilds itself immediately on change for instant feedback).
+static const uint32_t ACCENTS[6] = {0x3fc7e8, 0x34d399, 0xf97316, 0xa855f7, 0xec4899, 0xeab308};
+#define ACCENT_N 6   // Cyan Green Orange Purple Pink Amber (order matches the enum)
+static bool s_acc_loaded = false;
+static int  s_acc = 0;
+static int accent_idx(void) {
+  if (!s_acc_loaded) {
+    Preferences p; p.begin("ui", true);
+    s_acc = p.getInt("acc", 0);
+    p.end();
+    if (s_acc < 0 || s_acc >= ACCENT_N) s_acc = 0;
+    s_acc_loaded = true;
+  }
+  return s_acc;
+}
+static void accent_set(int i) {
+  if (i < 0 || i >= ACCENT_N) i = 0;
+  s_acc = i; s_acc_loaded = true;
+  Preferences p; p.begin("ui", false); p.putInt("acc", i); p.end();
+  lv_ui_set_accent(ACCENTS[i]);
+}
+
+static bool s_shot_req = false;   // '$' screenshot request (handled in loop())
+
+// radio-watch sleep state (see ui_sleep_enter): 1 while watching; the loop
+// light-sleeps between LoRa packets and only fully wakes for real messages
+static uint8_t  s_sleep_mode = 0;
+static unsigned s_sleep_msgs = 0;      // chat-store total at watch entry
+static uint32_t s_linger_until = 0;    // post-wake window for the mesh to process
+static uint32_t s_sleep_at_ms = 0;     // deferred sleep deadline (Settings action / 'z' key)
+
 #if defined(UI_HAS_KEYBOARD)
 // map the T-Deck keyboard's ASCII byte to an LVGL key (printables pass through)
 static uint32_t kb_map(uint8_t c) {
@@ -254,6 +289,21 @@ static void kb_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
   static uint32_t held = 0;
   char c = tdeck_keyboard.read();
   if (c && s_screen_off) { ui_screen_wake(); c = 0; }   // the waking key is swallowed
+  // Screenshot hotkey: the '$' key. The stock keyboard C3 ignores Alt entirely
+  // (every combo sends the base letter -- verified by key capture), so a
+  // dedicated symbol key is the best hotkey available. Only intercepted when
+  // no text field is focused (where keys are discarded anyway); in editors
+  // '$' still types normally (use Settings > Data > Screenshot there).
+  if (c == '$' && !lv_group_get_focused(lv_ui_kbd_group())) { s_shot_req = true; c = 0; }
+  // Sleep hotkey: 'z' (zzz) enters the radio-watch sleep, same as the Settings
+  // action; same no-text-field guard. Trackball click / a message wakes it.
+  if (c == 'z' && !lv_group_get_focused(lv_ui_kbd_group())) {
+    if (!s_sleep_at_ms && !s_sleep_mode) {
+      lv_ui_toast("Watching - a message or trackball click wakes");
+      s_sleep_at_ms = millis() + 1200;
+    }
+    c = 0;
+  }
   if (c) { s_last_input = millis();
            held = kb_map((uint8_t)c); data->key = held; data->state = LV_INDEV_STATE_PRESSED; }
   else   {                            data->key = held; data->state = LV_INDEV_STATE_RELEASED; }
@@ -352,11 +402,14 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   bl_load();                  // apply the persisted brightness + start the idle timer
   s_last_input = millis();
   bl_apply();
+  lv_ui_set_accent(ACCENTS[accent_idx()]);   // persisted accent colour
 
   _lvgl_ready = true;
 }
 
 void ui_wifi_poll(void);   // Wi-Fi manager, defined with the lvd_wifi_* bridge below
+void ui_sleep_enter(void); // radio-watch light sleep, defined with the cfg actions below
+static bool screenshot_write(void);   // BMP to SD, defined with the cfg actions below
 
 // Notification chirps on the I2S speaker, gated by the "Buzzer quiet" setting:
 // a rising two-note chirp for direct messages, a single soft blip for channel
@@ -399,6 +452,36 @@ void UITask::notify(UIEventType t) {
 void UITask::loop() {
   if (!_lvgl_ready) return;
   tdeck_tones_poll();   // release the I2S driver once a chirp has played out
+
+  // ---- radio-watch sleep: light-sleep between LoRa packets ----
+  // Wake sources: DIO1 (a received packet; GPIO45 is not RTC-capable, so deep
+  // sleep can never wake on it -- light sleep can) and the trackball click.
+  // After each wake the mesh gets a ~3s window to process; a real message for
+  // us exits the watch (screen on, chirp already fired), anything else -- acks,
+  // routing chatter, adverts -- just re-sleeps: an invisible micro-wake.
+  if (s_sleep_mode) {
+    if (lvd_chat_total() != s_sleep_msgs) {           // a message arrived: wake fully
+      s_sleep_mode = 0;
+      ui_screen_wake();
+    } else if ((int32_t)(millis() - s_linger_until) >= 0 && !the_mesh.hasPendingWork()) {
+      gpio_wakeup_enable((gpio_num_t)P_LORA_DIO_1, GPIO_INTR_HIGH_LEVEL);
+      gpio_wakeup_enable((gpio_num_t)PIN_USER_BTN, GPIO_INTR_LOW_LEVEL);
+      esp_sleep_enable_gpio_wakeup();
+      esp_light_sleep_start();                        // resumes here on wake
+      gpio_wakeup_disable((gpio_num_t)P_LORA_DIO_1);
+      gpio_wakeup_disable((gpio_num_t)PIN_USER_BTN);
+      if (gpio_get_level((gpio_num_t)PIN_USER_BTN) == 0) {
+        delay(30);                                    // debounce: the click line is noisy
+        if (gpio_get_level((gpio_num_t)PIN_USER_BTN) == 0) {
+          s_sleep_mode = 0;
+          ui_screen_wake();
+          return;
+        }
+      }
+      s_linger_until = millis() + 3000;
+    }
+    return;   // screen stays dark; the main loop keeps running the mesh
+  }
   // lv_timer_handler() has ~26us fixed overhead per call; the main loop spins it
   // tens of thousands of times a second, burning >50% CPU on nothing. Throttle to
   // ~5ms (LVGL's refresh period is 16ms) so the rest of the CPU is free to render.
@@ -427,6 +510,18 @@ void UITask::loop() {
     s_last_wifi = lv_now;
     ui_wifi_poll();
     bl_poll();
+  }
+
+  // deferred sleep entry (set by the Settings action; the toast rendered by now)
+  if (s_sleep_at_ms && (int32_t)(millis() - s_sleep_at_ms) >= 0) {
+    s_sleep_at_ms = 0;
+    ui_sleep_enter();
+  }
+
+  // Alt+P screenshot: capture outside the indev read callback
+  if (s_shot_req) {
+    s_shot_req = false;
+    lv_ui_toast(screenshot_write() ? "Screenshot saved to SD" : "Screenshot failed (no card?)");
   }
 }
 
@@ -1218,6 +1313,7 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
     if (eq(label, "Volume"))             { *sel = notify_volume(); return true; }
     if (eq(label, "Brightness"))         { bl_load(); *sel = s_bl_bright; return true; }
     if (eq(label, "Backlight timeout"))  { bl_load(); *sel = s_bl_to; return true; }
+    if (eq(label, "Accent colour"))      { *sel = accent_idx(); return true; }
   }
   return false;
 }
@@ -1303,10 +1399,72 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
       if (sel >= 0 && sel <= 4) { s_bl_to = sel; bl_save(); s_last_input = millis(); }
       return;
     }
+    if (eq(label, "Accent colour")) { accent_set(sel); return; }
   }
 }
 
 static void ui_dump_packet_ring(void);   // defined after the packet ring below
+
+// ---- screenshot to SD (Settings > Data, 5 s delayed) ------------------------
+// One-shot timer so the user can navigate to the screen they want captured;
+// the active screen is rendered via lv_snapshot into PSRAM and written to the
+// card as a 24-bit BMP (320x3 rows are 4-byte aligned, so no padding needed).
+static bool screenshot_write(void) {
+  lv_draw_buf_t* snap = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB565);
+  if (!snap) return false;
+  const int w = 320, h = 240;
+  const uint32_t rowb = w * 3, img = rowb * h, total = 54 + img;
+  uint8_t* bmp = (uint8_t*)big_alloc(total);
+  if (!bmp) { lv_draw_buf_destroy(snap); return false; }
+  memset(bmp, 0, 54);
+  bmp[0] = 'B'; bmp[1] = 'M';
+  memcpy(&bmp[2], &total, 4);
+  bmp[10] = 54;                       // pixel data offset
+  bmp[14] = 40;                       // BITMAPINFOHEADER
+  int32_t ww = w, hh = h;
+  memcpy(&bmp[18], &ww, 4);
+  memcpy(&bmp[22], &hh, 4);
+  bmp[26] = 1;                        // planes
+  bmp[28] = 24;                       // bpp
+  memcpy(&bmp[34], &img, 4);
+  for (int y = 0; y < h; y++) {       // RGB565 -> BGR888, bottom-up rows
+    const uint16_t* row = (const uint16_t*)(snap->data + y * snap->header.stride);
+    uint8_t* out = bmp + 54 + (uint32_t)(h - 1 - y) * rowb;
+    for (int x = 0; x < w; x++) {
+      uint16_t c = row[x];
+      out[x * 3 + 0] = (uint8_t)((c & 0x1F) << 3);
+      out[x * 3 + 1] = (uint8_t)(((c >> 5) & 0x3F) << 2);
+      out[x * 3 + 2] = (uint8_t)(((c >> 11) & 0x1F) << 3);
+    }
+  }
+  lv_draw_buf_destroy(snap);
+  tdeck_sd_mkdir("/screenshots");
+  uint32_t e = rtc_clock.getCurrentTime();
+  char path[44];
+  snprintf(path, sizeof(path), "/screenshots/scr_%u.bmp", (unsigned)(e > 1000000 ? e : millis()));
+  bool ok = tdeck_sd_write(path, bmp, total, false);
+  free(bmp);
+  return ok;
+}
+static void screenshot_timer_cb(lv_timer_t* t) {
+  (void)t;
+  lv_ui_toast(screenshot_write() ? "Screenshot saved to SD" : "Screenshot failed (no card?)");
+}
+
+// ---- radio-watch sleep entry (Settings > Device) ----------------------------
+// Screen + Wi-Fi off, then the loop above light-sleeps between LoRa packets.
+// Light sleep (not deep): DIO1 is GPIO45, which is not RTC-capable on the
+// ESP32-S3, so EXT1 deep-sleep wake on it is impossible -- and light sleep is
+// better anyway: RAM survives, the waking packet is processed (not lost in a
+// reboot), and a message for us pops the screen on with its chirp.
+// Scheduled ~1s out so the "Sleeping..." toast can render (s_sleep_at_ms).
+void ui_sleep_enter(void) {
+  s_screen_off = true; bl_apply();
+  wifi_drop();                    // the poll reconnects after the watch ends
+  s_sleep_msgs = lvd_chat_total();
+  s_linger_until = millis();      // first light-sleep on the next loop pass
+  s_sleep_mode = 1;
+}
 
 extern "C" void lvd_cfg_action(const char* group, const char* label) {
   if (eq(group, "Public info")) {
@@ -1316,6 +1474,11 @@ extern "C" void lvd_cfg_action(const char* group, const char* label) {
     if (eq(label, "Clear default scope")) { the_mesh.setDefaultFloodScope("", NULL); return; }
   } else if (eq(group, "Device")) {
     if (eq(label, "Reboot")) { the_mesh.rebootDevice(); return; }
+    if (eq(label, "Sleep (LoRa wakes)")) {
+      lv_ui_toast("Watching - a message or trackball click wakes");
+      s_sleep_at_ms = millis() + 1200;   // let the toast render; loop() enters the watch
+      return;
+    }
     // Factory reset goes through lvd_factory_reset() after the confirm dialog (lv_settings.c).
   } else if (eq(group, "Wi-Fi")) {
     if (eq(label, "Ping test")) {
@@ -1326,6 +1489,12 @@ extern "C" void lvd_cfg_action(const char* group, const char* label) {
     // One-way text dumps to USB serial. Safe alongside the companion frame
     // protocol (we only WRITE; reading Serial here would steal frame bytes).
     // SD backup / restore (paths under /meshcore on the card)
+    if (eq(label, "Screenshot (5 s)")) {
+      lv_timer_t* t = lv_timer_create(screenshot_timer_cb, 5000, NULL);
+      lv_timer_set_repeat_count(t, 1);   // one-shot; auto-deletes
+      lv_ui_toast("Screenshot in 5 s - go to the screen to capture");
+      return;
+    }
     if (eq(label, "Backup config"))    { lv_ui_toast(data_backup_config()  ? "Config saved to SD"  : "Backup failed (no card?)");  return; }
     if (eq(label, "Restore config"))   { lv_ui_toast(data_restore_config() ? "Config restored"      : "Restore failed (no file?)"); return; }
     if (eq(label, "Backup contacts"))  { lv_ui_toast(data_backup_appdata()  ? "Contacts + channels saved"    : "Backup failed (no card?)");  return; }
