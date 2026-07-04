@@ -78,6 +78,9 @@ extern "C" {
   void lv_contacts_create(lv_obj_t* scr);
   void lv_contact_search_create(lv_obj_t* scr);
   void lv_wifi_scan_create(lv_obj_t* scr);
+  void lv_regions_create(lv_obj_t* scr);
+  void lv_region_detail_create(lv_obj_t* scr);
+  void lv_region_add_create(lv_obj_t* scr);
 }
 
 // incoming messages since the chat list / a conversation was last viewed
@@ -127,6 +130,9 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "disc")) lv_disc_create(s);
   else if (!strcmp(name, "files")) lv_files_create(s);
   else if (!strcmp(name, "wifi_scan")) lv_wifi_scan_create(s);
+  else if (!strcmp(name, "regions")) lv_regions_create(s);
+  else if (!strcmp(name, "region_detail")) lv_region_detail_create(s);
+  else if (!strcmp(name, "region_add")) lv_region_add_create(s);
   else lv_home_create(s);
 }
 
@@ -1082,7 +1088,7 @@ extern "C" int lvd_sd_format(void) { return tdeck_sd_format() ? 1 : 0; }   // re
 
 static void* big_alloc(size_t n);   // PSRAM-first allocator (defined with the UI caches)
 
-static bool data_backup_config(void) {
+static bool data_backup_config(const char* path = SD_CONFIG_PATH) {
   if (!tdeck_sd_ok()) return false;
   tdeck_sd_mkdir("/meshcore");
   NodePrefs* p = the_mesh.getNodePrefs();
@@ -1097,15 +1103,12 @@ static bool data_backup_config(void) {
   k += snprintf(b + k, sizeof(b) - k, "loc_policy=%u\nlat=%.6f\nlon=%.6f\n", p->advert_loc_policy, sensors.node_lat, sensors.node_lon);
   k += snprintf(b + k, sizeof(b) - k, "gps=%u\ngps_interval=%u\ntime_sync_gps=%u\n", p->gps_enabled, (unsigned)p->gps_interval, p->time_sync_gps);
   k += snprintf(b + k, sizeof(b) - k, "buzzer_quiet=%u\ndisc_autoadd=%u\nble_pin=%u\n", p->buzzer_quiet, p->disc_autoadd, (unsigned)p->ble_pin);
-  return tdeck_sd_write(SD_CONFIG_PATH, (const uint8_t*)b, k, false);
+  return tdeck_sd_write(path, (const uint8_t*)b, k, false);
 }
-static bool data_restore_config(void) {
-  if (!tdeck_sd_ok()) return false;
-  char* buf = (char*)big_alloc(8192);
-  if (!buf) return false;
-  int n = tdeck_sd_read(SD_CONFIG_PATH, (uint8_t*)buf, 8191);
-  if (n <= 0) { free(buf); return false; }
-  buf[n] = 0;
+// apply a config.txt already loaded into a NUL-terminated buffer (buf is
+// modified by strtok). Split out so the scope switch can validate+load the
+// target into memory before touching the live radio.
+static void apply_config_buf(char* buf) {
   NodePrefs* p = the_mesh.getNodePrefs();
   float freq = p->freq, bw = p->bw; int sf = p->sf, cr = p->cr, repeat = p->client_repeat;
   int tb = p->telemetry_mode_base, tl = p->telemetry_mode_loc, te = p->telemetry_mode_env;
@@ -1147,6 +1150,15 @@ static bool data_restore_config(void) {
   apply_radio(freq, bw, sf, cr, repeat);
   the_mesh.setTelemetryModes(tb, tl, te);
   if (have_loc) the_mesh.setAdvertLatLon((int32_t)(lat * 1e6), (int32_t)(lon * 1e6));
+}
+static bool data_restore_config(const char* path = SD_CONFIG_PATH) {
+  if (!tdeck_sd_ok()) return false;
+  char* buf = (char*)big_alloc(8192);
+  if (!buf) return false;
+  int n = tdeck_sd_read(path, (uint8_t*)buf, 8191);
+  if (n <= 0) { free(buf); return false; }
+  buf[n] = 0;
+  apply_config_buf(buf);
   free(buf);
   return true;
 }
@@ -1161,11 +1173,11 @@ static int hex_to_bytes(const char* s, uint8_t* out, int max) {
   }
   return n;
 }
-static bool data_backup_appdata(void) {
+static bool data_backup_appdata(const char* path = SD_APPDATA_PATH) {
   if (!tdeck_sd_ok()) return false;
   tdeck_sd_mkdir("/meshcore");
   const char* hdr = "# meshcore appdata backup v1\n[contacts]\n";
-  if (!tdeck_sd_write(SD_APPDATA_PATH, (const uint8_t*)hdr, strlen(hdr), false)) return false;
+  if (!tdeck_sd_write(path, (const uint8_t*)hdr, strlen(hdr), false)) return false;
   for (int i = MAX_ANON_CONTACTS, tot = the_mesh.getTotalContactSlots(); i < tot; i++) {
     ContactInfo c;
     if (!the_mesh.getContactByIdx((uint32_t)i, c) || c.type == ADV_TYPE_NONE || !c.name[0]) continue;
@@ -1174,34 +1186,237 @@ static bool data_backup_appdata(void) {
     char line[560]; int k = 0;
     for (int j = 0; j < bn && k < (int)sizeof(line) - 3; j++) k += snprintf(line + k, sizeof(line) - k, "%02X", blob[j]);
     k += snprintf(line + k, sizeof(line) - k, "\n");
-    tdeck_sd_write(SD_APPDATA_PATH, (const uint8_t*)line, k, true);
+    tdeck_sd_write(path, (const uint8_t*)line, k, true);
   }
-  tdeck_sd_write(SD_APPDATA_PATH, (const uint8_t*)"[channels]\n", 11, true);
+  tdeck_sd_write(path, (const uint8_t*)"[channels]\n", 11, true);
   for (int i = 0, cn = lvd_chan_count(); i < cn; i++) {
     lvd_chan_t ch;
     if (!lvd_chan_get(i, &ch)) continue;
+    if (ch.is_public) continue;   // Public (idx 0) always exists; snapshotting it would
+                                  // re-add a duplicate on restore (uiAddChannel appends)
     char line[128]; int k = snprintf(line, sizeof(line), "%s\t%s\n", ch.name, lvd_chan_psk(i));
-    tdeck_sd_write(SD_APPDATA_PATH, (const uint8_t*)line, k, true);
+    tdeck_sd_write(path, (const uint8_t*)line, k, true);
   }
   return true;
 }
-static bool data_restore_appdata(void) {
-  if (!tdeck_sd_ok()) return false;
-  char* buf = (char*)big_alloc(32768);
-  if (!buf) return false;
-  int n = tdeck_sd_read(SD_APPDATA_PATH, (uint8_t*)buf, 32767);
-  if (n <= 0) { free(buf); return false; }
-  buf[n] = 0;
+// apply an appdata.txt already loaded into a NUL-terminated buffer (modified by
+// strtok). Split out so the scope switch can validate the target in memory
+// before clearing the live store.
+static void apply_appdata_buf(char* buf) {
   int section = 0;   // 1 contacts, 2 channels
   for (char* line = strtok(buf, "\r\n"); line; line = strtok(NULL, "\r\n")) {
     if      (!strcmp(line, "[contacts]")) section = 1;
     else if (!strcmp(line, "[channels]")) section = 2;
     else if (line[0] == '#' || !line[0])  continue;
-    else if (section == 1) { uint8_t blob[256]; int bn = hex_to_bytes(line, blob, sizeof(blob)); if (bn > 0) the_mesh.importContact(blob, (uint8_t)bn); }
-    else if (section == 2) { char* tab = strchr(line, '\t'); if (tab) { *tab = 0; the_mesh.uiAddChannel(line, tab + 1); } }
+    else if (section == 1) { uint8_t blob[256]; int bn = hex_to_bytes(line, blob, sizeof(blob));
+      // importContact is async: it stashes a single _pendingLoopback packet that
+      // the mesh loop turns into a contact. Pump the mesh after each one so the
+      // contact is actually created before the next import overwrites the pending
+      // slot (otherwise only the last contact of a bulk restore survives).
+      if (bn > 0 && the_mesh.importContact(blob, (uint8_t)bn)) the_mesh.loop();
+    }
+    else if (section == 2) { char* tab = strchr(line, '\t'); if (tab) { *tab = 0;
+      if (strcmp(line, "Public") != 0) the_mesh.uiAddChannel(line, tab + 1);   // never re-add Public
+    } }
   }
+}
+static bool data_restore_appdata(const char* path = SD_APPDATA_PATH) {
+  if (!tdeck_sd_ok()) return false;
+  char* buf = (char*)big_alloc(32768);
+  if (!buf) return false;
+  int n = tdeck_sd_read(path, (uint8_t*)buf, 32767);
+  if (n <= 0) { free(buf); return false; }
+  buf[n] = 0;
+  apply_appdata_buf(buf);
   free(buf);
   return true;
+}
+
+// ===========================================================================
+// Regions: a "region" is a named snapshot of the radio preset + contacts +
+// channels, stored as a {config.txt, appdata.txt} pair under
+// /meshcore/regions/<name>/ on the SD card. Selecting one saves the current
+// active region back to its folder, clears the live contacts/channels, then
+// restores the target -- all live: the radio params apply without a reboot
+// (apply_radio), and the live SPIFFS store always mirrors the active region so
+// the choice survives a reboot with no boot-path changes. The active region's
+// folder name is remembered in NVS ("region"/"cur").
+// ===========================================================================
+#define SD_REGIONS_DIR "/meshcore/regions"
+#define REGION_PK 32   // MeshCore public-key size (bytes)
+
+// list the region folder into a shared PSRAM buffer; returns entry count (may
+// be <0 if the folder does not exist yet). *out points at the buffer.
+static int region_list(SdEntry** out) {
+  static SdEntry* ent = NULL;
+  if (!ent) {
+    ent = (SdEntry*)ps_malloc(sizeof(SdEntry) * 32);
+    if (!ent) ent = (SdEntry*)malloc(sizeof(SdEntry) * 32);
+  }
+  *out = ent;
+  if (!ent) return -1;
+  return tdeck_sd_list(SD_REGIONS_DIR, ent, 32);
+}
+
+// sanitise a user name into a FAT-safe folder name (spaces kept, illegal chars
+// dropped, ends trimmed). Returns false if nothing usable remains.
+static bool region_slug(const char* name, char* out, int outlen) {
+  int k = 0;
+  for (const char* p = name; *p && k < outlen - 1; p++) {
+    char c = *p;
+    if (strchr("/\\:*?\"<>|", c) || (unsigned char)c < 0x20) continue;
+    out[k++] = c;
+  }
+  out[k] = 0;
+  while (k > 0 && out[k - 1] == ' ') out[--k] = 0;   // trailing spaces
+  int s = 0; while (out[s] == ' ') s++;              // leading spaces
+  if (s) memmove(out, out + s, k - s + 1);
+  return out[0] != 0;
+}
+
+static void region_cfg_path(const char* slug, char* o, int n) { snprintf(o, n, SD_REGIONS_DIR "/%s/config.txt", slug); }
+static void region_app_path(const char* slug, char* o, int n) { snprintf(o, n, SD_REGIONS_DIR "/%s/appdata.txt", slug); }
+static void region_dir_path(const char* slug, char* o, int n) { snprintf(o, n, SD_REGIONS_DIR "/%s", slug); }
+
+static void region_get_active(char* out, int outlen) {
+  Preferences p; p.begin("region", true);
+  String s = p.getString("cur", "");
+  p.end();
+  strncpy(out, s.c_str(), outlen - 1); out[outlen - 1] = 0;
+}
+static void region_set_active(const char* slug) {
+  Preferences p; p.begin("region", false);
+  p.putString("cur", slug);
+  p.end();
+}
+
+// write the current live state (radio config + contacts + channels) into a
+// region's folder, creating the folders as needed.
+static bool region_save_current_to(const char* slug) {
+  if (!tdeck_sd_ok()) return false;
+  tdeck_sd_mkdir("/meshcore");
+  tdeck_sd_mkdir(SD_REGIONS_DIR);
+  char dir[96]; region_dir_path(slug, dir, sizeof(dir)); tdeck_sd_mkdir(dir);
+  char cfg[128], app[128];
+  region_cfg_path(slug, cfg, sizeof(cfg));
+  region_app_path(slug, app, sizeof(app));
+  bool ok = data_backup_config(cfg);
+  ok = data_backup_appdata(app) && ok;
+  return ok;
+}
+
+// remove every real contact + every non-Public channel from the live store.
+static void region_clear_live(void) {
+  int tot = the_mesh.getTotalContactSlots();
+  uint8_t* keys = (uint8_t*)big_alloc((size_t)(tot > 0 ? tot : 1) * REGION_PK);
+  if (keys) {
+    int nk = 0;
+    for (int i = MAX_ANON_CONTACTS; i < tot; i++) {   // collect first: removal compacts the array
+      ContactInfo c;
+      if (the_mesh.getContactByIdx((uint32_t)i, c) && c.type != ADV_TYPE_NONE)
+        memcpy(keys + (nk++) * REGION_PK, c.id.pub_key, REGION_PK);
+    }
+    for (int i = 0; i < nk; i++) the_mesh.uiRemoveContact(keys + i * REGION_PK);
+    free(keys);
+  }
+  for (int i = MAX_GROUP_CHANNELS - 1; i >= 1; i--) the_mesh.uiRemoveChannel(i);   // keep Public (0)
+}
+
+extern "C" int lvd_region_count(void) {
+  if (!tdeck_sd_ok()) return -1;
+  SdEntry* ent; int n = region_list(&ent);
+  if (n < 0) return 0;   // folder not created yet
+  int c = 0;
+  for (int i = 0; i < n; i++) if (ent[i].is_dir) c++;
+  return c;
+}
+
+extern "C" int lvd_region_get(int i, char* name, int nlen, int* active) {
+  if (!tdeck_sd_ok()) return 0;
+  SdEntry* ent; int n = region_list(&ent);
+  if (n < 0) return 0;
+  char cur[64]; region_get_active(cur, sizeof(cur));
+  int c = 0;
+  for (int k = 0; k < n; k++) {
+    if (!ent[k].is_dir) continue;
+    if (c == i) {
+      strncpy(name, ent[k].name, nlen - 1); name[nlen - 1] = 0;
+      if (active) *active = (strcmp(ent[k].name, cur) == 0) ? 1 : 0;
+      return 1;
+    }
+    c++;
+  }
+  return 0;
+}
+
+extern "C" int lvd_region_active(char* name, int nlen) {
+  char cur[64]; region_get_active(cur, sizeof(cur));
+  strncpy(name, cur, nlen - 1); name[nlen - 1] = 0;
+  return cur[0] ? 1 : 0;
+}
+
+extern "C" int lvd_region_create(const char* name) {
+  if (!tdeck_sd_ok()) return 0;
+  char slug[64];
+  if (!region_slug(name, slug, sizeof(slug))) return -2;
+  SdEntry* ent; int n = region_list(&ent);   // reject a duplicate name
+  for (int k = 0; k < (n < 0 ? 0 : n); k++)
+    if (ent[k].is_dir && strcmp(ent[k].name, slug) == 0) return -1;
+  if (!region_save_current_to(slug)) return 0;
+  region_set_active(slug);
+  return 1;
+}
+
+// switch to scope i. Non-destructive: the target snapshot is loaded and
+// validated into memory BEFORE the live store is touched, so an unreadable or
+// empty target aborts the switch with the current data untouched (never wipes
+// then fails to restore). Returns 1 ok, 0 no card / OOM / bad index, -2 target
+// snapshot missing or empty.
+extern "C" int lvd_region_select(int i) {
+  char name[64]; int active = 0;
+  if (!lvd_region_get(i, name, sizeof(name), &active)) return 0;
+  if (active) return 1;   // already current
+  if (!tdeck_sd_ok()) return 0;
+
+  char cfgp[128], appp[128];
+  region_cfg_path(name, cfgp, sizeof(cfgp));
+  region_app_path(name, appp, sizeof(appp));
+
+  // 1) load the target fully into RAM and validate it first
+  char* cfg = (char*)big_alloc(8192);
+  char* app = (char*)big_alloc(32768);
+  if (!cfg || !app) { free(cfg); free(app); return 0; }
+  int an = tdeck_sd_read(appp, (uint8_t*)app, 32767);
+  int cn = tdeck_sd_read(cfgp, (uint8_t*)cfg, 8191);
+  if (an <= 0) { free(cfg); free(app); return -2; }   // target unreadable -> abort, no loss
+  app[an] = 0;
+  if (!strstr(app, "[channels]")) { free(cfg); free(app); return -2; }   // not a valid snapshot -> abort
+  if (cn > 0) cfg[cn] = 0; else cfg[0] = 0;
+
+  // 2) only now is it safe to mutate: save the outgoing scope, swap the live store
+  char cur[64]; region_get_active(cur, sizeof(cur));
+  if (cur[0]) region_save_current_to(cur);   // persist edits to the outgoing scope
+  region_clear_live();
+  if (cfg[0]) apply_config_buf(cfg);          // applies the radio preset live (apply_radio)
+  apply_appdata_buf(app);                     // imports the scope's contacts + channels
+  region_set_active(name);
+
+  free(cfg); free(app);
+  return 1;
+}
+
+extern "C" int lvd_region_delete(int i) {
+  char name[64]; int active = 0;
+  if (!lvd_region_get(i, name, sizeof(name), &active)) return 0;
+  if (active) return -1;   // never delete the active region
+  char cfg[128], app[128], dir[96];
+  region_cfg_path(name, cfg, sizeof(cfg));
+  region_app_path(name, app, sizeof(app));
+  region_dir_path(name, dir, sizeof(dir));
+  tdeck_sd_remove(cfg);
+  tdeck_sd_remove(app);
+  tdeck_sd_remove(dir);   // the now-empty folder
+  return 1;
 }
 
 // auto-add bitmask bit for a Contacts toggle label (0 if not an auto-add field)

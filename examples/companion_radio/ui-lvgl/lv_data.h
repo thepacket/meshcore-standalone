@@ -76,6 +76,19 @@ void lvd_sd_usage(char* out, int len);                 // "used / total" summary
 int  lvd_sd_remove(const char* path);                  // delete a file/empty dir; 1 on success
 int  lvd_sd_format(void);                              // reformat the card as FAT32 (destructive!); 1 on success
 
+// ---- regions: named {radio preset + contacts + channels} snapshots on SD ----
+// A region is a self-contained network profile stored under /meshcore/regions/
+// <name>/ (config.txt + appdata.txt). Selecting one saves the active region,
+// clears the live contacts/channels, and restores the target -- all live, no
+// reboot. The active region is remembered in NVS. Needs a mounted SD card.
+int  lvd_region_count(void);                           // saved regions; -1 if no card
+int  lvd_region_get(int i, char* name, int nlen, int* active);  // i-th name; *active=1 if current
+int  lvd_region_active(char* name, int nlen);          // active region name; 1 if any, 0 if none
+int  lvd_region_create(const char* name);              // snapshot current -> new region + make active
+                                                       // 1 ok, 0 no card/write fail, -1 exists, -2 bad name
+int  lvd_region_select(int i);                         // switch to region i (saves current first); 1 ok
+int  lvd_region_delete(int i);                         // delete region i; 1 ok, -1 active (refused), 0 fail
+
 // ---- Wi-Fi (internet access, station mode) ----------------------------------
 // Runtime STA connection for internet-backed features (NTP clock sync first).
 // Credentials persist in NVS; independent of the companion transport (USB/BLE).

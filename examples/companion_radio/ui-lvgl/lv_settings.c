@@ -195,6 +195,43 @@ static lv_obj_t* scroll_list(lv_obj_t* scr) {
 }
 
 // ---- category list ----------------------------------------------------------
+// one tappable category row (icon + title + subtitle + chevron), navigating to
+// `dest`. Used for the field groups and for the standalone "Scopes" category.
+static void settings_cat_row(lv_obj_t* list, const char* icon, const char* title,
+                             const char* sub, const char* dest) {
+  lv_obj_t* row = lv_ui_md_card(list);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_ui_clickable(row, dest);
+
+  lv_obj_t* ic = lv_label_create(row);
+  lv_label_set_text(ic, icon);
+  lv_obj_set_style_text_font(ic, &icons_fa, 0);
+  lv_obj_set_style_text_color(ic, lv_color_hex(MD_PRIMARY), 0);
+  lv_obj_set_style_margin_right(ic, 14, 0);
+
+  lv_obj_t* mid = lv_obj_create(row);
+  lv_obj_remove_flag(mid, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_remove_flag(mid, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_bg_opa(mid, 0, 0); lv_obj_set_style_border_width(mid, 0, 0);
+  lv_obj_set_style_pad_all(mid, 0, 0); lv_obj_set_flex_grow(mid, 1); lv_obj_set_height(mid, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(mid, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_flex_align(mid, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+  lv_obj_set_style_pad_row(mid, 2, 0);
+  lv_obj_t* t = lv_label_create(mid);
+  lv_label_set_text(t, title);
+  lv_obj_set_style_text_font(t, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_color(t, lv_color_hex(MD_ON), 0);
+  lv_obj_t* s = lv_label_create(mid);
+  lv_label_set_text(s, sub);
+  lv_obj_set_style_text_font(s, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(s, lv_color_hex(MD_MUTED), 0);
+
+  lv_obj_t* chev = lv_label_create(row);
+  lv_label_set_text(chev, LV_SYMBOL_RIGHT);
+  lv_obj_set_style_text_color(chev, lv_color_hex(MD_MUTED), 0);
+}
+
 void lv_settings_create(lv_obj_t* scr) {
   store_init();
   lv_ui_screen_bg(scr);
@@ -203,37 +240,12 @@ void lv_settings_create(lv_obj_t* scr) {
   lv_obj_set_style_pad_row(list, 8, 0);
   for (int i = 0; i < N_GROUPS; i++) {
     const Group* g = &GROUPS[i];
-    lv_obj_t* row = lv_ui_md_card(list);
-    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-    lv_ui_clickable(row, SG_DEST[i]);
-
-    lv_obj_t* ic = lv_label_create(row);
-    lv_label_set_text(ic, g->icon);
-    lv_obj_set_style_text_font(ic, &icons_fa, 0);
-    lv_obj_set_style_text_color(ic, lv_color_hex(MD_PRIMARY), 0);
-    lv_obj_set_style_margin_right(ic, 14, 0);
-
-    lv_obj_t* mid = lv_obj_create(row);
-    lv_obj_remove_flag(mid, LV_OBJ_FLAG_SCROLLABLE);
-    lv_obj_remove_flag(mid, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_style_bg_opa(mid, 0, 0); lv_obj_set_style_border_width(mid, 0, 0);
-    lv_obj_set_style_pad_all(mid, 0, 0); lv_obj_set_flex_grow(mid, 1); lv_obj_set_height(mid, LV_SIZE_CONTENT);
-    lv_obj_set_flex_flow(mid, LV_FLEX_FLOW_COLUMN);
-    lv_obj_set_flex_align(mid, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
-    lv_obj_set_style_pad_row(mid, 2, 0);
-    lv_obj_t* t = lv_label_create(mid);
-    lv_label_set_text(t, g->title);
-    lv_obj_set_style_text_font(t, &lv_font_montserrat_16, 0);
-    lv_obj_set_style_text_color(t, lv_color_hex(MD_ON), 0);
-    lv_obj_t* s = lv_label_create(mid);
-    lv_label_set_text_fmt(s, "%d settings", g->n);
-    lv_obj_set_style_text_font(s, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(s, lv_color_hex(MD_MUTED), 0);
-
-    lv_obj_t* chev = lv_label_create(row);
-    lv_label_set_text(chev, LV_SYMBOL_RIGHT);
-    lv_obj_set_style_text_color(chev, lv_color_hex(MD_MUTED), 0);
+    char sub[24]; snprintf(sub, sizeof(sub), "%d settings", g->n);
+    settings_cat_row(list, g->icon, g->title, sub, SG_DEST[i]);
+    // "Scopes" is a standalone category (not a field group): it opens the scope
+    // list directly. Placed right after Radio.
+    if (strcmp(g->title, "Radio") == 0)
+      settings_cat_row(list, ICON_MAP, "Scopes", "radio, contacts & channels profiles", "regions");
   }
 }
 
@@ -311,8 +323,8 @@ static void on_action_clicked(lv_event_t* e) {
   int ud = (int)(intptr_t)lv_event_get_user_data(e);
   const char* label = GROUPS[ud >> 8].fields[ud & 0xff].label;
   // actions that are UI-side (navigation / confirmation), not config commands
-  if (strcmp(label, "Add channel") == 0)   { if (lv_nav_cb) lv_nav_cb("chan_add"); return; }
-  if (strcmp(label, "Scan networks") == 0) { if (lv_nav_cb) lv_nav_cb("wifi_scan"); return; }
+  if (strcmp(label, "Add channel") == 0)    { if (lv_nav_cb) lv_nav_cb("chan_add"); return; }
+  if (strcmp(label, "Scan networks") == 0)  { if (lv_nav_cb) lv_nav_cb("wifi_scan"); return; }
   if (strcmp(label, "Factory reset") == 0) { confirm_factory_reset(); return; }
   lvd_cfg_action(GROUPS[ud >> 8].title, label);
   if (strncmp(label, "Export", 6) == 0) lv_ui_toast("Printed to USB serial");
