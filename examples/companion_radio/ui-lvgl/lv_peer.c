@@ -4,6 +4,7 @@
 #include "lv_data.h"
 #include <stdio.h>
 #include <string.h>
+#include <stdlib.h>   // atof (Show on map)
 
 const char* lv_chat_active_peer(void);  // provided by lv_chat.c
 void lv_peer_create(lv_obj_t* scr);     // fwd (for rebuild after an op)
@@ -33,6 +34,14 @@ static void op_manage(lv_event_t* e) {
 static void op_reset(lv_event_t* e)  { (void)e; bool ok = lvd_peer_reset_path(lv_chat_active_peer()); lv_ui_toast(ok ? "Path reset" : "Reset failed");          lv_async_call(peer_rebuild_cb, NULL); }
 static void op_remove(lv_event_t* e) { (void)e; bool ok = lvd_peer_remove(lv_chat_active_peer());      lv_ui_toast(ok ? "Contact removed" : "Remove failed");    if (ok && lv_nav_cb) lv_nav_cb("back"); }
 static void op_export(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("peer_export"); }
+static void op_showmap(lv_event_t* e) {   // centre the map on this contact's fix
+  (void)e;
+  lvd_peer_t p;
+  if (lvd_peer_get(lv_chat_active_peer(), &p) && strcmp(p.lat, "--") != 0) {
+    lvd_map_focus(atof(p.lat), atof(p.lon));
+    if (lv_nav_cb) lv_nav_cb("map");
+  } else lv_ui_toast("No location for this contact");
+}
 static void wire(lv_obj_t* b, lv_event_cb_t cb) { lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE); lv_obj_add_event_cb(b, cb, LV_EVENT_CLICKED, NULL); lv_ui_press_fx(b); }
 
 // "Message" -> open a DM conversation with this contact, then show it
@@ -284,6 +293,17 @@ void lv_peer_create(lv_obj_t* scr) {
   snprintf(latbuf, sizeof(latbuf), "%s deg", p.lat);
   kv_col(loc, "Longitude", lonbuf);
   kv_col(loc, "Latitude", latbuf);
+
+  // Show on map -- only when this contact has a real fix
+  if (strcmp(p.lat, "--") != 0) {
+    lv_obj_t* mrow = lv_obj_create(list);
+    lv_obj_remove_flag(mrow, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(mrow, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_width(mrow, lv_pct(100)); lv_obj_set_height(mrow, LV_SIZE_CONTENT);
+    lv_obj_set_style_bg_opa(mrow, 0, 0); lv_obj_set_style_border_width(mrow, 0, 0);
+    lv_obj_set_style_pad_all(mrow, 0, 0);
+    lv_obj_set_flex_flow(mrow, LV_FLEX_FLOW_ROW);
+    wire(act_btn(mrow, LV_SYMBOL_GPS, "Show on map", UI_ORANGE, NULL), op_showmap);
+  }
 
   // identity: full key wraps to its own line
   kv_block(list, "Public key", p.pubkey, true);

@@ -93,6 +93,9 @@ int  lvd_region_delete(int i);                         // delete region i; 1 ok,
 #define LVD_MAP_TILE_PX 256   // tile edge, pixels (standard slippy tiles)
 // our current position (GPS or the manual Settings lat/lon); 1 if known (non-zero)
 int  lvd_map_here(double* lat, double* lon);
+// "Show on map": set a one-shot centre target, then nav to "map" (consumed on open)
+void lvd_map_focus(double lat, double lon);
+int  lvd_map_take_focus(double* lat, double* lon);   // 1 + clears if a focus is pending
 // map markers = saved contacts/repeaters that carry a GPS fix
 typedef struct { double lat, lon; char name[32]; int type; } lvd_marker_t;
 int  lvd_map_marker_count(void);

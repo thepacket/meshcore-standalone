@@ -1439,6 +1439,18 @@ extern "C" int lvd_region_delete(int i) {
 // lat/lon are degrees; contact fixes are 1e-6 int32 (ContactInfo.gps_lat/lon).
 // ===========================================================================
 static const char* map_prov_tag(void);   // active provider's cache-dir tag (defined below)
+
+// one-shot map focus: a "Show on map" button anywhere with coords sets this;
+// the map screen consumes it on open to centre there instead of on our GPS fix.
+static double s_mfoc_lat = 0, s_mfoc_lon = 0;
+static bool   s_mfoc = false;
+extern "C" void lvd_map_focus(double lat, double lon) { s_mfoc_lat = lat; s_mfoc_lon = lon; s_mfoc = true; }
+extern "C" int  lvd_map_take_focus(double* lat, double* lon) {
+  if (!s_mfoc) return 0;
+  if (lat) *lat = s_mfoc_lat; if (lon) *lon = s_mfoc_lon;
+  s_mfoc = false; return 1;
+}
+
 extern "C" int lvd_map_here(double* lat, double* lon) {
   if (lat) *lat = sensors.node_lat;
   if (lon) *lon = sensors.node_lon;

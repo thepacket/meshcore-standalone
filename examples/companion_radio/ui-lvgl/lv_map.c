@@ -257,6 +257,12 @@ void lv_map_create(lv_obj_t* scr) {
     s_z = (s_zmin + s_zmax) / 2;
     s_seeded = true;
   }
+  // a pending "Show on map" target overrides the view: centre there, close zoom
+  double flat, flon;
+  if (lvd_map_take_focus(&flat, &flon)) {
+    s_cx = flon; s_cy = flat;
+    s_z = (s_zmax >= 15) ? 15 : s_zmax;
+  }
   if (s_z < s_zmin) s_z = s_zmin;
   if (s_z > s_zmax) s_z = s_zmax;
 
