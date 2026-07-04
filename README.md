@@ -47,6 +47,13 @@ chips, charts/gauges, real widgets). Live on-device:
 - **Channels** — manage group channels: list, view/share a channel's key as a QR,
   and add (join or create) by name + key — including **hashtag channels**
   (`#name` derives the key from `sha256`, matching the phone clients)
+- **Scopes** — named **radio + contacts + channels profiles** on the SD card, for
+  running several MeshCore networks (e.g. different region presets, or Home vs
+  Travel) from one device. Create a scope from your current setup, then switch
+  **live — no reboot** (the radio preset applies and the contacts/channels swap
+  in place); the fixed contact/channel limits become **per-scope** instead of
+  global. Switching is **non-destructive** — the target is validated before the
+  live store is touched. Under **Settings › Scopes**
 - **Heard** — recently-heard stations with SNR/RSSI, age, **distance + bearing**,
   **direct-vs-routed + hop count**, node-type colour, a saved-contact tick, and a
   Recent/Signal sort toggle; tap a row for its peer card
