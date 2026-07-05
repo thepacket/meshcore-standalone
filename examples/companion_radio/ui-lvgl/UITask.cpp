@@ -368,6 +368,9 @@ static void refresh_timer_cb(lv_timer_t*) {
 }
 
 void ui_alloc_caches(void);   // PSRAM rings (chat + packet log), defined with them below
+static void chat_persist_load(void);   // replay persisted chat history from SD, defined below
+static void chat_ring_reset(void);     // clear the message ring (on scope switch)
+static void chat_persist_clone_current_to(const char* slug);   // fork chat log into a new scope
 
 void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* node_prefs) {
   _display = display;
@@ -375,6 +378,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   _node_prefs = node_prefs;
   g_ui = this;
   ui_alloc_caches();   // before the mesh loop can deliver packets/messages
+  chat_persist_load();   // restore recent conversations (channels loaded by now)
 
   g_disp = display;
   g_gfx  = static_cast<LGFXDisplay*>(display)->gfxDevice();
@@ -1404,7 +1408,8 @@ extern "C" int lvd_region_create(const char* name) {
   for (int k = 0; k < (n < 0 ? 0 : n); k++)
     if (ent[k].is_dir && strcmp(ent[k].name, slug) == 0) return -1;
   if (!region_save_current_to(slug)) return 0;
-  region_set_active(slug);
+  chat_persist_clone_current_to(slug);   // fork the current chat history into the new scope
+  region_set_active(slug);               // (ring already holds these messages -> no reload)
   return 1;
 }
 
@@ -1441,6 +1446,8 @@ extern "C" int lvd_region_select(int i) {
   if (cfg[0]) apply_config_buf(cfg);          // applies the radio preset live (apply_radio)
   apply_appdata_buf(app);                     // imports the scope's contacts + channels
   region_set_active(name);
+  chat_ring_reset();                          // drop the outgoing scope's messages...
+  chat_persist_load();                        // ...and load the new scope's chat history
 
   free(cfg); free(app);
   return 1;
@@ -1450,12 +1457,14 @@ extern "C" int lvd_region_delete(int i) {
   char name[64]; int active = 0;
   if (!lvd_region_get(i, name, sizeof(name), &active)) return 0;
   if (active) return -1;   // never delete the active region
-  char cfg[128], app[128], dir[96];
+  char cfg[128], app[128], dir[96], clog[140];
   region_cfg_path(name, cfg, sizeof(cfg));
   region_app_path(name, app, sizeof(app));
   region_dir_path(name, dir, sizeof(dir));
+  snprintf(clog, sizeof(clog), "/meshcore/regions/%s/chats.log", name);
   tdeck_sd_remove(cfg);
   tdeck_sd_remove(app);
+  tdeck_sd_remove(clog);  // per-scope chat history
   tdeck_sd_remove(dir);   // the now-empty folder
   return 1;
 }
@@ -2895,6 +2904,132 @@ bool ui_peer_is_room(const uint8_t* peer6) {
   return find_contact_by_prefix(peer6, 6, c) && c.type == ADV_TYPE_ROOM;
 }
 
+// ---- chat persistence (SD) -------------------------------------------------
+// Every message is appended to /meshcore/chats.log; on boot the tail is replayed
+// into the ring so conversations survive a reboot. The render stays bounded by
+// the ring size (MSG_LOG), so scrolling is unaffected. Channels are keyed by name
+// (stable across slots/scopes), DMs by the 6-byte pubkey prefix (globally unique).
+#define CHATLOG_CAP  (64 * 1024)
+static uint32_t s_chatlog_bytes = 0;
+// chat history is per-scope: the active scope's folder, or the default file when
+// no scope is active. Switching scopes reloads the ring from the new scope's log.
+static void chatlog_path(char* out, int len) {
+  char scope[64]; region_get_active(scope, sizeof(scope));
+  if (scope[0]) snprintf(out, len, "/meshcore/regions/%s/chats.log", scope);
+  else          snprintf(out, len, "/meshcore/chats.log");
+}
+
+static int channel_slot_by_name(const char* name) {
+  for (int i = 0; i < MAX_GROUP_CHANNELS; i++) {
+    ChannelDetails c;
+    if (the_mesh.getChannel(i, c) && c.name[0] && strcmp(c.name, name) == 0) return i;
+  }
+  return -1;
+}
+static void chatlog_san(const char* in, char* out, int outlen) {   // strip TSV-breaking chars
+  int k = 0;
+  for (const char* p = in; *p && k < outlen - 1; p++)
+    out[k++] = (*p == '\t' || *p == '\r' || *p == '\n') ? ' ' : *p;
+  out[k] = 0;
+}
+static void msg_ring_replay(bool is_ch, int ch, const uint8_t* peer6, const char* who,
+                            const char* text, bool out, uint32_t ts, uint8_t state, uint8_t path_len) {
+  if (!s_msg) return;
+  MsgRec& m = s_msg[s_msg_head];
+  m.is_ch = is_ch; m.ch = ch; m.out = out;
+  if (peer6) memcpy(m.peer6, peer6, 6); else memset(m.peer6, 0, 6);
+  strncpy(m.who, who ? who : "", sizeof(m.who) - 1); m.who[sizeof(m.who) - 1] = 0;
+  strncpy(m.text, text ? text : "", sizeof(m.text) - 1); m.text[sizeof(m.text) - 1] = 0;
+  m.ts = ts; m.ack = 0; m.sent_ms = 0; m.state = state; m.path_len = path_len; m.deleted = false;
+  s_msg_head = (s_msg_head + 1) % MSG_LOG;
+  if (s_msg_n < MSG_LOG) s_msg_n++;
+  s_msg_total++;
+}
+// rewrite the log keeping only its last half, aligned to a line boundary
+static void chat_persist_compact(void) {
+  char path[96]; chatlog_path(path, sizeof(path));
+  char* buf = (char*)big_alloc(CHATLOG_CAP + 2048);
+  if (!buf) return;
+  int n = tdeck_sd_read(path, (uint8_t*)buf, CHATLOG_CAP + 2047);
+  if (n <= 0) { free(buf); s_chatlog_bytes = 0; return; }
+  int start = (n > CHATLOG_CAP / 2) ? (n - CHATLOG_CAP / 2) : 0;
+  while (start < n && buf[start] != '\n') start++;
+  if (start < n) start++;
+  tdeck_sd_write(path, (const uint8_t*)(buf + start), n - start, false);   // false = truncate
+  s_chatlog_bytes = n - start;
+  free(buf);
+}
+static void chat_persist_append(const MsgRec& m) {
+  if (!m.text[0] || !tdeck_sd_ok()) return;
+  char key[40];
+  if (m.is_ch) { ChannelDetails c; the_mesh.getChannel(m.ch, c);
+                 chatlog_san(c.name[0] ? c.name : "?", key, sizeof(key)); }
+  else snprintf(key, sizeof(key), "%02x%02x%02x%02x%02x%02x",
+                m.peer6[0], m.peer6[1], m.peer6[2], m.peer6[3], m.peer6[4], m.peer6[5]);
+  char who[24], text[124];
+  chatlog_san(m.who, who, sizeof(who));
+  chatlog_san(m.text, text, sizeof(text));
+  char line[240];
+  int len = snprintf(line, sizeof(line), "%u\t%c\t%s\t%d\t%d\t%d\t%s\t%s\n",
+                     (unsigned)m.ts, m.is_ch ? 'C' : 'D', key, m.out ? 1 : 0, m.state, m.path_len, who, text);
+  char path[96]; chatlog_path(path, sizeof(path));
+  // ensure the full parent-dir chain exists (the scope folder may not, and
+  // SD.open(FILE_APPEND) fails if any parent is missing)
+  tdeck_sd_mkdir("/meshcore");
+  char scope[64]; region_get_active(scope, sizeof(scope));
+  if (scope[0]) { tdeck_sd_mkdir("/meshcore/regions");
+                  char d[96]; snprintf(d, sizeof(d), "/meshcore/regions/%s", scope); tdeck_sd_mkdir(d); }
+  bool ok = tdeck_sd_write(path, (const uint8_t*)line, len, true);
+  if (ok) {
+    s_chatlog_bytes += len;
+    if (s_chatlog_bytes > CHATLOG_CAP) chat_persist_compact();
+  }
+}
+// clear the message ring (used on a scope switch before reloading the new log)
+static void chat_ring_reset(void) { s_msg_head = 0; s_msg_n = 0; s_msg_total++; }
+static void chat_persist_load(void) {
+  if (!tdeck_sd_ok()) return;
+  char path[96]; chatlog_path(path, sizeof(path));
+  char* buf = (char*)big_alloc(CHATLOG_CAP + 2048);
+  if (!buf) return;
+  int n = tdeck_sd_read(path, (uint8_t*)buf, CHATLOG_CAP + 2047);
+  s_chatlog_bytes = (n > 0) ? n : 0;
+  if (n <= 0) { free(buf); return; }
+  buf[n] = 0;
+  // replay every line; the ring keeps only the last MSG_LOG automatically. A
+  // channel whose name no longer maps to a slot (e.g. left in this scope) is
+  // skipped; DMs (keyed by pubkey prefix) always map.
+  for (char* line = strtok(buf, "\n"); line; line = strtok(NULL, "\n")) {
+    char* f = line; char* fld[7]; bool ok = true;
+    for (int i = 0; i < 7; i++) { char* t = strchr(f, '\t'); if (!t) { ok = false; break; } *t = 0; fld[i] = f; f = t + 1; }
+    if (!ok) continue;
+    char* text = f;
+    if (text[0] && text[strlen(text) - 1] == '\r') text[strlen(text) - 1] = 0;
+    uint32_t ts = strtoul(fld[0], NULL, 10);
+    bool out = atoi(fld[3]) != 0; uint8_t state = (uint8_t)atoi(fld[4]), path = (uint8_t)atoi(fld[5]);
+    if (fld[1][0] == 'C') {
+      int slot = channel_slot_by_name(fld[2]);
+      if (slot >= 0) msg_ring_replay(true, slot, NULL, fld[6], text, out, ts, state, path);
+    } else {
+      uint8_t peer6[6];
+      if (hex_to_bytes(fld[2], peer6, 6) == 6) msg_ring_replay(false, -1, peer6, fld[6], text, out, ts, state, path);
+    }
+  }
+  free(buf);
+}
+// copy the current active scope's chat log into a newly-created scope's folder
+static void chat_persist_clone_current_to(const char* slug) {
+  if (!tdeck_sd_ok()) return;
+  char src[96]; chatlog_path(src, sizeof(src));   // current (pre-switch) scope's log
+  char dst[100]; snprintf(dst, sizeof(dst), "/meshcore/regions/%s/chats.log", slug);
+  if (strcmp(src, dst) == 0) return;
+  char* buf = (char*)big_alloc(CHATLOG_CAP + 2048);
+  if (!buf) return;
+  int n = tdeck_sd_read(src, (uint8_t*)buf, CHATLOG_CAP + 2047);
+  if (n > 0) tdeck_sd_write(dst, (const uint8_t*)buf, n, false);
+  free(buf);
+}
+
 void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who, const char* text, bool out, uint8_t path_len,
                       const uint8_t* author4) {
   if (!s_msg) return;
@@ -2941,6 +3076,7 @@ void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who,
   s_msg_head = (s_msg_head + 1) % MSG_LOG;
   if (s_msg_n < MSG_LOG) s_msg_n++;
   s_msg_total++;
+  chat_persist_append(m);   // survive reboot (SD, no-op without a card)
 }
 static int last_msg_idx(void) { return (s_msg_head - 1 + MSG_LOG) % MSG_LOG; }
 static void fmt_hhmm(uint32_t e, char* out, int len);   // defined below
