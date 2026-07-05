@@ -200,13 +200,22 @@ lv_obj_t* lv_ui_md_row_v(lv_obj_t* card, const char* label, const char* value, u
   lv_obj_set_style_border_width(row, 0, 0);
   lv_obj_set_style_pad_all(row, 0, 0);
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  // top-aligned so a wrapped (multi-line) value lines up with the label; a gap
+  // keeps the value off the label
+  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+  lv_obj_set_style_pad_column(row, 12, 0);
   lv_obj_t* k = lv_label_create(row);
   lv_label_set_text(k, label);
+  lv_obj_set_flex_grow(k, 0);   // keep the label at its natural width, never shrunk
   lv_obj_set_style_text_font(k, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(k, lv_color_hex(MD_MUTED), 0);
   lv_obj_t* v = lv_label_create(row);
   lv_label_set_text(v, value);
+  // the value takes the remaining width and WRAPS rather than overrunning the
+  // label -- never truncated, never overlapping
+  lv_obj_set_flex_grow(v, 1);
+  lv_label_set_long_mode(v, LV_LABEL_LONG_WRAP);
+  lv_obj_set_style_text_align(v, LV_TEXT_ALIGN_RIGHT, 0);
   lv_obj_set_style_text_font(v, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(v, lv_color_hex(value_color ? value_color : MD_ON), 0);
   return v;
