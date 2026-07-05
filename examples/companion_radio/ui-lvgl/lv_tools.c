@@ -344,14 +344,6 @@ static void packets_fill(lv_obj_t* list) {
     if (lvd_packet_get(i, &p)) pkt_row(list, i, p.type, p.color, p.meta);
 }
 
-// rebuild when a new packet arrives (monotonic total changed)
-static void packets_tick(void) {
-  if (s_pkt_list && lvd_packet_total() != s_pkt_last) {
-    lv_obj_clean(s_pkt_list);
-    packets_fill(s_pkt_list);
-  }
-}
-
 static void pkt_open_search(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("pkt_search"); }
 static void pkt_clear_search_cb(void* p) {
   (void)p; lvd_packet_set_path_filter("");
@@ -359,14 +351,104 @@ static void pkt_clear_search_cb(void* p) {
 }
 static void pkt_clear_search(lv_event_t* e) { (void)e; lv_async_call(pkt_clear_search_cb, NULL); }
 
+// ---- Packets | Floods view toggle ------------------------------------------
+void lv_terminal_create(lv_obj_t* scr);   // rebuilt in place on view toggle
+static int s_pkt_view = 0;   // 0 = chronological packets, 1 = grouped floods
+static void term_rebuild(void* p) {
+  (void)p; lv_obj_t* s = lv_screen_active(); lv_ui_set_refresh(NULL); lv_obj_clean(s); lv_terminal_create(s);
+}
+static void view_seg_cb(lv_event_t* e) {
+  int v = (int)(intptr_t)lv_event_get_user_data(e);
+  if (v != s_pkt_view) { s_pkt_view = v; lv_async_call(term_rebuild, NULL); }
+}
+static void view_toggle(lv_obj_t* scr) {
+  lv_obj_t* seg = lv_ui_card(scr, 4, 40, 320 - 8, 30);
+  lv_obj_set_style_pad_all(seg, 3, 0);
+  lv_obj_set_flex_flow(seg, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(seg, 4, 0);
+  static const char* names[2] = { "Packets", "Floods" };
+  for (int i = 0; i < 2; i++) {
+    lv_obj_t* b = lv_obj_create(seg);
+    lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_grow(b, 1); lv_obj_set_height(b, lv_pct(100));
+    lv_obj_set_style_radius(b, 6, 0); lv_obj_set_style_pad_all(b, 0, 0); lv_obj_set_style_border_width(b, 0, 0);
+    bool sel = (s_pkt_view == i);
+    lv_obj_set_style_bg_color(b, lv_color_hex(sel ? MD_PRIMARY : 0x1a2230), 0);
+    lv_obj_set_style_bg_opa(b, sel ? 220 : 120, 0);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(b, view_seg_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+    lv_ui_press_fx(b);
+    lv_obj_t* l = lv_label_create(b); lv_label_set_text(l, names[i]);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(l, lv_color_hex(sel ? 0xffffff : MD_MUTED), 0);
+    lv_obj_center(l);
+  }
+}
+
+// ---- floods list (ring grouped by payhash) ---------------------------------
+static void flood_row(lv_obj_t* list, const lvd_flood_t* f) {
+  lv_obj_t* c = lv_ui_md_card(list);
+  lv_obj_set_width(c, lv_pct(100)); lv_obj_set_height(c, LV_SIZE_CONTENT);
+  lv_obj_set_style_min_height(c, 0, 0); lv_obj_set_style_pad_hor(c, 8, 0); lv_obj_set_style_pad_ver(c, 5, 0);
+  lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN); lv_obj_set_style_pad_row(c, 2, 0);
+  lv_obj_t* top = lv_obj_create(c);
+  lv_obj_remove_flag(top, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_style_bg_opa(top, 0, 0); lv_obj_set_style_border_width(top, 0, 0); lv_obj_set_style_pad_all(top, 0, 0);
+  lv_obj_set_width(top, lv_pct(100)); lv_obj_set_height(top, LV_SIZE_CONTENT);
+  lv_obj_set_flex_flow(top, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(top, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_t* tag = lv_ui_pill(top, f->type, f->color); lv_obj_set_style_margin_right(tag, 8, 0);
+  lv_obj_t* m = lv_label_create(top); lv_label_set_text(m, f->meta);
+  lv_obj_set_style_text_font(m, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(m, lv_color_hex(UI_TEXT), 0);
+  lv_obj_t* pth = lv_label_create(c); lv_label_set_text(pth, f->path[0] ? f->path : "direct");
+  lv_label_set_long_mode(pth, LV_LABEL_LONG_DOT); lv_obj_set_width(pth, lv_pct(100));
+  lv_obj_set_style_text_font(pth, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(pth, lv_color_hex(MD_MUTED), 0);
+}
+static void floods_fill(lv_obj_t* list) {
+  s_pkt_last = lvd_packet_total();
+  int n = lvd_flood_count();
+  if (n <= 0) {
+    lv_obj_t* h = lv_label_create(list);
+    lv_label_set_text(h, "No packets yet");
+    lv_obj_set_style_text_color(h, lv_color_hex(MD_MUTED), 0);
+    return;
+  }
+  int bins[8]; int used = lvd_flood_hophist(bins, 8);
+  char hs[80]; int k = snprintf(hs, sizeof(hs), "Hop spread   ");
+  for (int h = 0; h < used && k < (int)sizeof(hs) - 12; h++) {
+    if (!bins[h]) continue;
+    if (h == 0) k += snprintf(hs + k, sizeof(hs) - k, "direct:%d   ", bins[h]);
+    else        k += snprintf(hs + k, sizeof(hs) - k, "%dh:%d   ", h, bins[h]);
+  }
+  lv_obj_t* hh = lv_label_create(list); lv_label_set_text(hh, hs);
+  lv_obj_set_style_text_font(hh, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(hh, lv_color_hex(MD_MUTED), 0);
+  lvd_flood_t f;
+  for (int i = 0; i < n; i++) if (lvd_flood_get(i, &f)) flood_row(list, &f);
+}
+static void monitor_tick(void) {
+  if (!s_pkt_list || lvd_packet_total() == s_pkt_last) return;
+  lv_obj_clean(s_pkt_list);
+  if (s_pkt_view == 0) packets_fill(s_pkt_list); else floods_fill(s_pkt_list);
+}
+
 void lv_terminal_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
-  lv_ui_md_topbar(scr, "Packets");
+  lv_ui_md_topbar(scr, "Packet monitor");
+  view_toggle(scr);
 
-  // search-by-path field
+  if (s_pkt_view != 0) {   // floods view: grouped list, no path search
+    s_pkt_list = full_list(scr, 74);
+    floods_fill(s_pkt_list);
+    lv_ui_set_refresh(monitor_tick);
+    return;
+  }
+
+  // search-by-path field (packets view)
   const char* f = lvd_packet_path_filter();
   bool active = f && f[0];
-  lv_obj_t* sf = lv_ui_card(scr, 4, 40, 320 - 8, 30);
+  lv_obj_t* sf = lv_ui_card(scr, 4, 74, 320 - 8, 30);
   lv_obj_set_style_pad_hor(sf, 10, 0); lv_obj_set_style_pad_ver(sf, 0, 0);
   lv_obj_set_flex_flow(sf, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(sf, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
@@ -392,9 +474,9 @@ void lv_terminal_create(lv_obj_t* scr) {
     lv_ui_press_fx(cl);
   }
 
-  s_pkt_list = full_list(scr, 74);
+  s_pkt_list = full_list(scr, 108);
   packets_fill(s_pkt_list);
-  lv_ui_set_refresh(packets_tick);
+  lv_ui_set_refresh(monitor_tick);
 }
 
 // path-search keyboard screen

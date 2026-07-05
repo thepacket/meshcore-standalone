@@ -2283,6 +2283,96 @@ extern "C" bool lvd_packet_get(int i, lvd_packet_t* out) {
   return true;
 }
 
+// payload-type tag + colour, shared with the floods view
+static void pkt_type_tag(uint8_t header, const char** ty, uint32_t* col) {
+  switch ((header >> 2) & 0x0F) {
+    case 0x02: *ty = "TXT"; *col = UI_BLUE;   break;
+    case 0x03: *ty = "ACK"; *col = UI_GREEN;  break;
+    case 0x04: *ty = "ADV"; *col = UI_PURPLE; break;
+    case 0x05: case 0x06: *ty = "GRP"; *col = UI_CYAN; break;
+    case 0x08: *ty = "PTH"; *col = UI_INDIGO; break;
+    case 0x09: *ty = "TRC"; *col = UI_AMBER;  break;
+    case 0x0B: *ty = "CTL"; *col = UI_TEAL;   break;
+    case 0x00: *ty = "REQ"; *col = UI_MUTED;  break;
+    case 0x01: *ty = "RSP"; *col = UI_MUTED;  break;
+    case 0x07: *ty = "ANR"; *col = UI_MUTED;  break;
+    default:   *ty = "?";   *col = UI_MUTED;  break;
+  }
+}
+static int pkt_hop_count(const uint8_t* b, int rl) {   // low 6 bits of the path-length field
+  if (rl < 2) return -1;
+  int route = b[0] & 0x03;
+  int off = (route == 0 || route == 3) ? 5 : 1;
+  return (off < rl) ? (b[off] & 63) : -1;
+}
+
+// ---- floods view: group the ring by payhash (flood rebroadcasts) ------------
+// The same flooded packet is rebroadcast by many repeaters, so a receiver hears
+// it several times via different paths. payhash (type+payload, path excluded)
+// identifies a flood; grouping by it shows the mesh's redundancy and hop spread.
+struct FloodRec { uint32_t payhash; const char* type; uint32_t color;
+                  int copies, hop_min, hop_max, best_rssi, best_snr_q, rep_idx; };
+static FloodRec g_flood[PKT_LOG];
+static int      g_flood_n = 0;
+static unsigned g_flood_built = 0xFFFFFFFFu;
+
+static void flood_build(void) {
+  if (g_flood_built == s_pkt_total) return;   // cached until a new packet arrives
+  g_flood_built = s_pkt_total;
+  g_flood_n = 0;
+  for (int k = 0; k < s_pkt_n; k++) {
+    int idx = (s_pkt_head - 1 - k + PKT_LOG * 2) % PKT_LOG;   // newest first
+    const PktRec& r = s_pkt[idx];
+    int hc = pkt_hop_count(r.raw, r.rawlen); if (hc < 0) hc = 0;
+    int f = -1;
+    for (int j = 0; j < g_flood_n; j++) if (g_flood[j].payhash == r.payhash) { f = j; break; }
+    if (f < 0) {
+      FloodRec& nf = g_flood[g_flood_n++];
+      nf.payhash = r.payhash; pkt_type_tag(r.header, &nf.type, &nf.color);
+      nf.copies = 1; nf.hop_min = nf.hop_max = hc;
+      nf.best_rssi = r.rssi; nf.best_snr_q = r.snr_q; nf.rep_idx = idx;
+    } else {
+      FloodRec& ef = g_flood[f];
+      ef.copies++;
+      if (hc < ef.hop_min) ef.hop_min = hc; if (hc > ef.hop_max) ef.hop_max = hc;
+      if (r.snr_q > ef.best_snr_q) { ef.best_snr_q = r.snr_q; ef.best_rssi = r.rssi; ef.rep_idx = idx; }
+    }
+  }
+  for (int a = 0; a < g_flood_n; a++)   // most-rebroadcast first
+    for (int b = a + 1; b < g_flood_n; b++)
+      if (g_flood[b].copies > g_flood[a].copies) { FloodRec t = g_flood[a]; g_flood[a] = g_flood[b]; g_flood[b] = t; }
+}
+
+extern "C" int lvd_flood_count(void) { flood_build(); return g_flood_n; }
+extern "C" bool lvd_flood_get(int i, lvd_flood_t* out) {
+  flood_build();
+  if (i < 0 || i >= g_flood_n) return false;
+  const FloodRec& f = g_flood[i];
+  strncpy(out->type, f.type, sizeof(out->type) - 1); out->type[sizeof(out->type) - 1] = 0;
+  out->color = f.color; out->copies = f.copies;
+  char hb[16];
+  if (f.hop_max == 0)            snprintf(hb, sizeof(hb), "direct");
+  else if (f.hop_min == f.hop_max) snprintf(hb, sizeof(hb), "%d hop%s", f.hop_max, f.hop_max == 1 ? "" : "s");
+  else                          snprintf(hb, sizeof(hb), "%d-%d hops", f.hop_min, f.hop_max);
+  int snr10 = f.best_snr_q * 10 / 4, sa = snr10 < 0 ? -snr10 : snr10;
+  snprintf(out->meta, sizeof(out->meta), "x%d  %s  best %ddBm  %s%d.%d",
+           f.copies, hb, f.best_rssi, snr10 < 0 ? "-" : "", sa / 10, sa % 10);
+  packet_path_str(s_pkt[f.rep_idx], out->path, sizeof(out->path));   // strongest copy's path
+  return true;
+}
+extern "C" int lvd_flood_hophist(int* bins, int maxbins) {
+  flood_build();
+  for (int i = 0; i < maxbins; i++) bins[i] = 0;
+  int used = 0;
+  for (int k = 0; k < s_pkt_n; k++) {
+    int idx = (s_pkt_head - 1 - k + PKT_LOG * 2) % PKT_LOG;
+    int hc = pkt_hop_count(s_pkt[idx].raw, s_pkt[idx].rawlen);
+    if (hc < 0) continue; if (hc >= maxbins) hc = maxbins - 1;
+    bins[hc]++; if (hc + 1 > used) used = hc + 1;
+  }
+  return used;
+}
+
 // ---- packet detail (tap a row in the monitor) ------------------------------
 static PktRec s_psel;
 static bool   s_psel_valid = false;

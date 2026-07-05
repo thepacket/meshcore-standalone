@@ -190,6 +190,19 @@ const char* lvd_packet_hex(void);                      // raw hex of the selecte
 void        lvd_packet_set_path_filter(const char* s); // show only packets whose path matches
 const char* lvd_packet_path_filter(void);
 
+// floods view: the ring grouped by payhash (flood rebroadcasts). Shows mesh
+// redundancy -- how many times / how many hops a flooded packet arrived.
+typedef struct {
+  char     type[6];    // payload type tag
+  uint32_t color;
+  int      copies;     // # times this flood was heard in the ring
+  char     meta[64];   // "x4  2-3 hops  best -78 dBm  9.0"
+  char     path[96];   // strongest copy's path ("A > B > 7F", or "direct")
+} lvd_flood_t;
+int  lvd_flood_count(void);
+bool lvd_flood_get(int i, lvd_flood_t* out);      // sorted most-rebroadcast first
+int  lvd_flood_hophist(int* bins, int maxbins);   // bins[h] = # packets with h hops; returns bins used
+
 // ---- discover (direct neighbours that answered our discovery request) ------
 typedef struct {
   char name[32];
