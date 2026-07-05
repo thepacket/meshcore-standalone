@@ -92,8 +92,8 @@ static void disc_update_status(void) {
   if (!s_status) return;
   int secs = lvd_disc_next_secs();
   char b[80];
-  if (secs > 0) snprintf(b, sizeof(b), "Next scan %ds  \xC2\xB7  %s", secs, lvd_disc_summary());
-  else          snprintf(b, sizeof(b), "Scanning...  \xC2\xB7  %s", lvd_disc_summary());
+  if (secs > 0) snprintf(b, sizeof(b), "Next scan %ds  -  %s", secs, lvd_disc_summary());
+  else          snprintf(b, sizeof(b), "Scanning...  -  %s", lvd_disc_summary());
   lv_label_set_text(s_status, b);
 }
 static void disc_scan_cb(lv_event_t* e) { (void)e; s_secs = 0; lvd_disc_request(); disc_update_status(); }

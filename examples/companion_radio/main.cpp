@@ -254,6 +254,9 @@ void setup() {
 }
 
 void loop() {
+#if defined(DISPLAY_CLASS) && defined(UI_SCREEN_STREAM)
+  ui_task.screenshotPoll();   // dev: answer host screenshot triggers before the mesh reads serial
+#endif
   the_mesh.loop();
   sensors.loop();
 #ifdef DISPLAY_CLASS

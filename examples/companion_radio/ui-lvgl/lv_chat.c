@@ -97,13 +97,16 @@ static void add_row(lv_obj_t* list, const Row* r, int idx, bool is_dm) {
 
   lv_obj_t* nm = lv_label_create(mid);
   lv_label_set_text(nm, r->name);
+  lv_label_set_long_mode(nm, LV_LABEL_LONG_DOT);
+  lv_obj_set_size(nm, lv_pct(100), 19);   // one line; DOT only ellipsizes with a FIXED size
   lv_obj_set_style_text_font(nm, &lv_font_montserrat_16, 0);
   lv_obj_set_style_text_color(nm, lv_color_hex(UI_TEXT), 0);
 
   lv_obj_t* pv = lv_label_create(mid);
   lv_label_set_text(pv, r->preview);
   lv_label_set_long_mode(pv, LV_LABEL_LONG_DOT);
-  lv_obj_set_width(pv, lv_pct(100));
+  lv_obj_set_size(pv, lv_pct(100), 15);   // one line: with height=content a long preview WRAPS
+                                          // instead of ellipsizing and overflows the 54px row
   lv_obj_set_style_text_font(pv, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(pv, lv_color_hex(UI_MUTED), 0);
 
@@ -221,37 +224,78 @@ void lv_chat_list_create(lv_obj_t* scr) {
 // =============================================================================
 static void bubble_long_pressed(lv_event_t* e);   // defined below (message action sheet)
 
+// one message, phone-client style: a cyan meta line ("17:30 - 4 hops"), then
+// for incoming a small coloured avatar + the sender's name in its colour, then
+// the bubble itself (white text, roomy padding). Outgoing keeps the blue
+// gradient bubble, right-aligned, with the delivery glyph in the meta line.
 static void add_bubble(lv_obj_t* scroll, const char* sender, const char* text,
-                       bool outgoing, const char* status, int idx) {
+                       bool outgoing, const char* meta, int idx) {
   lv_obj_t* row = lv_obj_create(scroll);
   lv_obj_remove_flag(row, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_width(row, lv_pct(100));
   lv_obj_set_height(row, LV_SIZE_CONTENT);
   lv_obj_set_style_bg_opa(row, 0, 0); lv_obj_set_style_border_width(row, 0, 0);
   lv_obj_set_style_pad_all(row, 0, 0);
+  lv_obj_set_flex_flow(row, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(row, 2, 0);
+  // the whole message block hugs its side (cross-axis per message row)
+  lv_obj_set_flex_align(row, LV_FLEX_ALIGN_START,
+                        outgoing ? LV_FLEX_ALIGN_END : LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_START);
+
+  if (meta && meta[0]) {
+    lv_obj_t* mt = lv_label_create(row);
+    lv_label_set_text(mt, meta);
+    lv_obj_set_style_text_font(mt, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(mt, lv_color_hex(MD_MUTED), 0);
+  }
+
+  uint32_t scol = sender ? name_color(sender) : UI_GREEN;
+  if (!outgoing && sender) {
+    lv_obj_t* sr = lv_obj_create(row);
+    lv_obj_remove_flag(sr, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_size(sr, LV_SIZE_CONTENT, 22);
+    lv_obj_set_style_bg_opa(sr, 0, 0); lv_obj_set_style_border_width(sr, 0, 0);
+    lv_obj_set_style_pad_all(sr, 0, 0);
+    lv_obj_set_flex_flow(sr, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(sr, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_set_style_pad_column(sr, 6, 0);
+    lv_obj_add_flag(sr, LV_OBJ_FLAG_CLICKABLE);   // tap the sender line -> peer card
+    lv_obj_add_event_cb(sr, peer_clicked, LV_EVENT_CLICKED, (void*)sender);
+    lv_obj_t* av = lv_obj_create(sr);
+    lv_obj_remove_flag(av, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_size(av, 20, 20);
+    lv_obj_set_style_radius(av, LV_RADIUS_CIRCLE, 0);
+    lv_obj_set_style_bg_color(av, lv_color_hex(scol), 0);
+    lv_obj_set_style_bg_opa(av, LV_OPA_COVER, 0);
+    lv_obj_set_style_border_width(av, 0, 0); lv_obj_set_style_pad_all(av, 0, 0);
+    lv_obj_t* ai = lv_label_create(av);
+    char ini[2] = { sender[0], 0 };
+    if (ini[0] >= 'a' && ini[0] <= 'z') ini[0] -= 32;
+    lv_label_set_text(ai, ini);
+    lv_obj_set_style_text_font(ai, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(ai, lv_color_hex(0x000000), 0);
+    lv_obj_center(ai);
+    lv_obj_t* s = lv_label_create(sr);
+    lv_label_set_text(s, sender);
+    lv_obj_set_style_text_font(s, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(s, lv_color_hex(scol), 0);
+  }
 
   lv_obj_t* bub = lv_obj_create(row);
   lv_obj_remove_flag(bub, LV_OBJ_FLAG_SCROLLABLE);
   lv_obj_set_width(bub, LV_SIZE_CONTENT);
-  lv_obj_set_style_max_width(bub, 224, 0);
+  lv_obj_set_style_max_width(bub, 244, 0);
   lv_obj_set_height(bub, LV_SIZE_CONTENT);
-  lv_obj_set_style_radius(bub, 12, 0);
-  lv_obj_set_style_pad_all(bub, 7, 0);
+  lv_obj_set_style_radius(bub, 14, 0);
+  lv_obj_set_style_pad_all(bub, 10, 0);
   lv_obj_set_style_border_width(bub, 0, 0);
-  lv_obj_set_flex_flow(bub, LV_FLEX_FLOW_COLUMN);
-  lv_obj_set_style_pad_row(bub, 1, 0);
   if (outgoing) {
     lv_obj_set_style_bg_color(bub, lv_color_hex(UI_BLUE), 0);
     lv_obj_set_style_bg_grad_color(bub, lv_color_hex(UI_INDIGO), 0);
     lv_obj_set_style_bg_grad_dir(bub, LV_GRAD_DIR_VER, 0);
-    lv_obj_align(bub, LV_ALIGN_TOP_RIGHT, 0, 0);
   } else {
-    lv_obj_set_style_bg_color(bub, lv_color_hex(UI_CARD), 0);
-    lv_obj_set_style_bg_opa(bub, 22, 0);
-    lv_obj_align(bub, LV_ALIGN_TOP_LEFT, 0, 0);
-  }
-
-  if (!outgoing) {
+    lv_obj_set_style_bg_color(bub, lv_color_hex(0x2a3547), 0);   // reference-style slate bubble
+    lv_obj_set_style_bg_opa(bub, LV_OPA_COVER, 0);
     // tap an incoming bubble to see everything known about the sender
     lv_obj_add_flag(bub, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(bub, peer_clicked, LV_EVENT_CLICKED, (void*)(sender ? sender : "Peer"));
@@ -260,28 +304,14 @@ static void add_bubble(lv_obj_t* scroll, const char* sender, const char* text,
   // long-press any bubble for message actions (Resend a failed DM / Delete)
   lv_obj_add_flag(bub, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(bub, bubble_long_pressed, LV_EVENT_LONG_PRESSED, (void*)(intptr_t)idx);
-  if (!outgoing && sender) {
-    lv_obj_t* s = lv_label_create(bub);
-    lv_label_set_text(s, sender);
-    lv_obj_set_style_text_font(s, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(s, lv_color_hex(name_color(sender)), 0);
-  }
+
   lv_obj_t* t = lv_label_create(bub);
   lv_label_set_text(t, text);
   lv_label_set_long_mode(t, LV_LABEL_LONG_WRAP);
   lv_obj_set_width(t, LV_SIZE_CONTENT);
-  lv_obj_set_style_max_width(t, 210, 0);
+  lv_obj_set_style_max_width(t, 224, 0);
   lv_obj_set_style_text_font(t, &lv_font_montserrat_14, 0);
-  lv_obj_set_style_text_color(t, lv_color_hex(outgoing ? 0xffffff : UI_TEXT), 0);
-
-  // footer: timestamp (+ delivery glyph for outgoing), right-aligned + muted
-  if (status && status[0]) {
-    lv_obj_t* st = lv_label_create(bub);
-    lv_label_set_text(st, status);
-    lv_obj_set_style_text_font(st, &lv_font_montserrat_12, 0);
-    lv_obj_set_style_text_color(st, lv_color_hex(outgoing ? 0xd6e2ff : UI_MUTED), 0);
-    lv_obj_set_style_align(st, outgoing ? LV_ALIGN_RIGHT_MID : LV_ALIGN_LEFT_MID, 0);
-  }
+  lv_obj_set_style_text_color(t, lv_color_hex(0xffffff), 0);
 }
 
 // ---- live Public conversation ----------------------------------------------
@@ -358,8 +388,8 @@ static void conv_fill(lv_obj_t* scroll) {
         if (m.time[0]) snprintf(foot, sizeof(foot), "%s  %s", m.time, g);
         else           snprintf(foot, sizeof(foot), "%s", g);
       } else {
-        // incoming: route tag + time (e.g. "2 hops · 14:32")
-        if (m.route[0] && m.time[0]) snprintf(foot, sizeof(foot), "%s \xC2\xB7 %s", m.route, m.time);
+        // incoming: time first, then route (e.g. "14:32 · 2 hops")
+        if (m.route[0] && m.time[0]) snprintf(foot, sizeof(foot), "%s  -  %s", m.time, m.route);
         else if (m.route[0])         snprintf(foot, sizeof(foot), "%s", m.route);
         else                         snprintf(foot, sizeof(foot), "%s", m.time);
       }
@@ -422,12 +452,61 @@ static void loc_clicked(lv_event_t* e) {
 
 void lv_chat_conv_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
-  lv_ui_md_topbar(scr, lvd_chat_title());
+
+  // conversation header: back chevron + coloured avatar + title + kind subtitle
+  const char* title = lvd_chat_title();
+  int is_ch = lvd_chat_is_channel();
+  uint32_t hcol = name_color(title);
+  lv_obj_t* hbar = lv_obj_create(scr);
+  lv_obj_remove_flag(hbar, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(hbar, 320, 40); lv_obj_set_pos(hbar, 0, 0);
+  lv_obj_set_style_bg_color(hbar, lv_color_hex(UI_BLUE), 0);
+  lv_obj_set_style_bg_opa(hbar, 70, 0);
+  lv_obj_set_style_radius(hbar, 0, 0); lv_obj_set_style_pad_all(hbar, 0, 0);
+  lv_obj_set_style_border_side(hbar, LV_BORDER_SIDE_BOTTOM, 0);
+  lv_obj_set_style_border_color(hbar, lv_color_hex(UI_BLUE), 0);
+  lv_obj_set_style_border_opa(hbar, 235, 0); lv_obj_set_style_border_width(hbar, 2, 0);
+  lv_obj_t* back = lv_obj_create(hbar);
+  lv_obj_remove_flag(back, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_set_size(back, 34, 40); lv_obj_align(back, LV_ALIGN_LEFT_MID, 0, 0);
+  lv_obj_set_style_bg_opa(back, 0, 0); lv_obj_set_style_border_width(back, 0, 0);
+  lv_obj_set_style_pad_all(back, 0, 0);
+  lv_obj_t* bl = lv_label_create(back);
+  lv_label_set_text(bl, LV_SYMBOL_LEFT);
+  lv_obj_set_style_text_color(bl, lv_color_hex(0xffffff), 0);
+  lv_obj_center(bl);
+  lv_ui_clickable(back, "back");
+  lv_obj_t* hav = lv_obj_create(hbar);
+  lv_obj_remove_flag(hav, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_size(hav, 28, 28); lv_obj_set_pos(hav, 36, 6);
+  lv_obj_set_style_radius(hav, LV_RADIUS_CIRCLE, 0);
+  lv_obj_set_style_bg_color(hav, lv_color_hex(hcol), 0);
+  lv_obj_set_style_bg_opa(hav, LV_OPA_COVER, 0);
+  lv_obj_set_style_border_width(hav, 0, 0); lv_obj_set_style_pad_all(hav, 0, 0);
+  lv_obj_t* hai = lv_label_create(hav);
+  char hini[2] = { title[0] ? title[0] : '?', 0 };
+  if (hini[0] >= 'a' && hini[0] <= 'z') hini[0] -= 32;
+  lv_label_set_text(hai, hini);
+  lv_obj_set_style_text_font(hai, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(hai, lv_color_hex(0x000000), 0);
+  lv_obj_center(hai);
+  lv_obj_t* ht = lv_label_create(hbar);
+  lv_label_set_text(ht, title);
+  lv_obj_set_style_text_font(ht, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_color(ht, lv_color_hex(0xffffff), 0);
+  lv_obj_set_pos(ht, 72, 3);
+  lv_obj_t* hs = lv_label_create(hbar);
+  lv_label_set_text(hs, is_ch ? "Channel" : "Direct message");
+  lv_obj_set_style_text_font(hs, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(hs, lv_color_hex(MD_MUTED), 0);
+  lv_obj_set_pos(hs, 72, 22);
 
   int composeH = 32;
   s_conv_scroll = lv_obj_create(scr);
-  lv_obj_set_pos(s_conv_scroll, 4, 36);
-  lv_obj_set_size(s_conv_scroll, 320 - 8, 240 - 32 - composeH - 4);
+  lv_obj_set_pos(s_conv_scroll, 4, 44);
+  // scroll must END above the compose bar (it starts at 240-composeH-2): a
+  // too-tall scroll let the last bubble render underneath it (clipped)
+  lv_obj_set_size(s_conv_scroll, 320 - 8, 240 - 44 - composeH - 6);
   lv_obj_set_style_bg_opa(s_conv_scroll, 0, 0);
   lv_obj_set_style_border_width(s_conv_scroll, 0, 0);
   lv_obj_set_style_pad_all(s_conv_scroll, 4, 0);

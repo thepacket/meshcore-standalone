@@ -240,6 +240,7 @@ void        lvd_chat_open_public(void);
 void        lvd_chat_open_channel(int i);      // open channel by chat-list display index
 void        lvd_chat_open_dm(const char* contact_name);
 const char* lvd_chat_title(void);              // channel name or the DM peer name
+int         lvd_chat_is_channel(void);         // 1 if the active conversation is a channel
 
 int      lvd_chat_count(void);                 // messages in the active conversation
 bool     lvd_chat_get(int i, lvd_msg_t* out);  // oldest..newest

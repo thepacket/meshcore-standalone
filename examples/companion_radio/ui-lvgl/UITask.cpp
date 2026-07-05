@@ -545,6 +545,33 @@ void UITask::loop() {
   ui_map_fetch_poll();   // drain one queued map tile over Wi-Fi (no-op unless the map queued one)
 }
 
+#ifdef UI_SCREEN_STREAM
+// dev-only: on a host trigger byte (0x02), snapshot the active screen and stream
+// it over USB serial as raw little-endian RGB565, framed by a text header/footer
+// so tools/screenshot.py can decode it to a PNG. Write-only; the host reads
+// concurrently so the CDC never blocks.
+void UITask::screenshotPoll() {
+  if (!_lvgl_ready) return;
+  bool trig = false;
+  while (Serial.available()) if (Serial.read() == 0x02) { trig = true; break; }
+  if (!trig) return;
+  // the host sends a BURST of triggers (to win the race against the companion
+  // frame parser, which also reads Serial); rate-limit so a burst = one capture
+  static uint32_t s_last_shot = 0;
+  if (millis() - s_last_shot < 1500) return;
+  s_last_shot = millis();
+  lv_draw_buf_t* snap = lv_snapshot_take(lv_screen_active(), LV_COLOR_FORMAT_RGB565);
+  if (!snap) { Serial.print("\nSCRERR\n"); return; }
+  const int w = 320, h = 240;
+  Serial.printf("\nSCRSHOT %d %d %d\n", w, h, w * h * 2);
+  for (int y = 0; y < h; y++)
+    Serial.write(snap->data + (uint32_t)y * snap->header.stride, w * 2);
+  Serial.print("\nSCREND\n");
+  Serial.flush();
+  lv_draw_buf_destroy(snap);
+}
+#endif
+
 // ===========================================================================
 // Live data bridge (lv_data.h) -- the C screens query these.
 // ===========================================================================
@@ -683,9 +710,9 @@ extern "C" bool lvd_heard_get(int i, lvd_heard_t* out) {
                    out->type == ADV_TYPE_ROOM     ? "Room"      :
                    out->type == ADV_TYPE_SENSOR   ? "Sensor"    : "Node";
   int hops = a.path_len & 63;   // path_len is encoded: low 6 bits = hop count, top 2 = hash size
-  if (hops == 0)      snprintf(out->route, sizeof(out->route), "%s \xC2\xB7 direct", tn);
-  else if (hops == 1) snprintf(out->route, sizeof(out->route), "%s \xC2\xB7 1 hop", tn);
-  else                snprintf(out->route, sizeof(out->route), "%s \xC2\xB7 %d hops", tn, hops);
+  if (hops == 0)      snprintf(out->route, sizeof(out->route), "%s  -  direct", tn);
+  else if (hops == 1) snprintf(out->route, sizeof(out->route), "%s  -  1 hop", tn);
+  else                snprintf(out->route, sizeof(out->route), "%s  -  %d hops", tn, hops);
 
   uint32_t now = rtc_clock.getCurrentTime();
   uint32_t age = (now > a.recv_timestamp) ? now - a.recv_timestamp : 0;
@@ -2697,7 +2724,7 @@ extern "C" const char* lvd_disc_summary(void) {
   if (g_disc_n == 0) { strncpy(b, "No neighbours yet", sizeof(b)); return b; }
   int k = snprintf(b, sizeof(b), "%d direct neighbour%s", g_disc_n, g_disc_n == 1 ? "" : "s");
   if (rep || comp) {
-    k += snprintf(b + k, sizeof(b) - k, " \xC2\xB7 ");
+    k += snprintf(b + k, sizeof(b) - k, "  -  ");
     bool first = true;
     if (rep)  { k += snprintf(b + k, sizeof(b) - k, "%d repeater%s", rep, rep == 1 ? "" : "s"); first = false; }
     if (comp) { k += snprintf(b + k, sizeof(b) - k, "%s%d companion%s", first ? "" : ", ", comp, comp == 1 ? "" : "s"); }
@@ -2893,6 +2920,18 @@ void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who,
   MsgRec& m = s_msg[s_msg_head];
   m.is_ch = is_ch; m.ch = ch; m.out = out;
   if (peer6) memcpy(m.peer6, peer6, 6); else memset(m.peer6, 0, 6);
+  // channel payloads embed the sender as "Name: text" (MeshCore group-text
+  // convention, no separate sender field) -- split it out so the UI can render
+  // a coloured sender line like the phone clients do
+  char split_who[24];
+  if (is_ch && !out && (!who || !who[0]) && text) {
+    const char* c = strstr(text, ": ");
+    if (c && c - text > 0 && c - text < (int)sizeof(split_who)) {
+      int wl = (int)(c - text);
+      memcpy(split_who, text, wl); split_who[wl] = 0;
+      who = split_who; text = c + 2;
+    }
+  }
   strncpy(m.who,  who  ? who  : "", sizeof(m.who)  - 1); m.who[sizeof(m.who)   - 1] = 0;
   strncpy(m.text, text ? text : "", sizeof(m.text) - 1); m.text[sizeof(m.text) - 1] = 0;
   m.ts = rtc_clock.getCurrentTime();
@@ -2981,6 +3020,7 @@ extern "C" const char* lvd_chat_title(void) {
   if (s_conv_ch >= 0) return s_conv_chname;
   return s_conv_has_contact ? s_conv_contact.name : "Direct";
 }
+extern "C" int lvd_chat_is_channel(void) { return s_conv_ch >= 0 ? 1 : 0; }
 // chat list: enumerate channels (reuses the channel index map) + per-channel last preview
 extern "C" int  lvd_chat_chan_count(void) { return lvd_chan_count(); }
 extern "C" bool lvd_chat_chan_get(int i, lvd_chan_t* out) { return lvd_chan_get(i, out); }
@@ -2992,7 +3032,11 @@ extern "C" const char* lvd_chat_chan_preview(int i) {
   for (int k = s_msg_n - 1; k >= 0; k--) {
     int idx = (s_msg_head - s_msg_n + k + MSG_LOG * 2) % MSG_LOG;
     if (s_msg[idx].is_ch && s_msg[idx].ch == slot) {
-      strncpy(buf, s_msg[idx].text, sizeof(buf) - 1); buf[sizeof(buf) - 1] = 0; return buf;
+      // sender is stored separately now; the list preview shows "who: text"
+      if (s_msg[idx].who[0] && !s_msg[idx].out)
+        snprintf(buf, sizeof(buf), "%s: %s", s_msg[idx].who, s_msg[idx].text);
+      else { strncpy(buf, s_msg[idx].text, sizeof(buf) - 1); buf[sizeof(buf) - 1] = 0; }
+      return buf;
     }
   }
   return "No messages yet";
@@ -3274,10 +3318,10 @@ extern "C" const char* lvd_trace_summary(void) {
   int v10 = w * 10 / 4, a = v10 < 0 ? -v10 : v10;
   int total = s_tr_hops + 1;   // hops + final leg to us
   if (s_tr_rtt_ms >= 1000)
-    snprintf(b, sizeof(b), "%d hop%s \xC2\xB7 RTT %.1f s \xC2\xB7 weakest %s%d.%d dB",
+    snprintf(b, sizeof(b), "%d hop%s  -  RTT %.1f s  -  weakest %s%d.%d dB",
              total, total == 1 ? "" : "s", s_tr_rtt_ms / 1000.0, v10 < 0 ? "-" : "+", a / 10, a % 10);
   else
-    snprintf(b, sizeof(b), "%d hop%s \xC2\xB7 RTT %u ms \xC2\xB7 weakest %s%d.%d dB",
+    snprintf(b, sizeof(b), "%d hop%s  -  RTT %u ms  -  weakest %s%d.%d dB",
              total, total == 1 ? "" : "s", (unsigned)s_tr_rtt_ms, v10 < 0 ? "-" : "+", a / 10, a % 10);
   return b;
 }
@@ -3866,7 +3910,7 @@ extern "C" bool lvd_signal_get(int i, lvd_sig_t* out) {
   char db[12];
   if (fmt_distance(lat, lon, db, sizeof(db))) {
     const char* brg = heard_bearing(lat, lon);
-    snprintf(out->sub, sizeof(out->sub), "%s \xC2\xB7 %s%s%s", rt, db, brg[0] ? " " : "", brg);
+    snprintf(out->sub, sizeof(out->sub), "%s  -  %s%s%s", rt, db, brg[0] ? " " : "", brg);
   } else snprintf(out->sub, sizeof(out->sub), "%s", rt);
 
   out->trend = sig_trend_update(c.id.pub_key, h.rssi);

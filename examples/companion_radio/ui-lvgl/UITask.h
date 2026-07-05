@@ -53,6 +53,12 @@ public:
   // Called from setup() after the display is up (same signature as ui-new).
   void begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* node_prefs);
 
+#ifdef UI_SCREEN_STREAM
+  // dev only: reply to a host trigger byte (0x02) by streaming the framebuffer
+  // over USB serial. Called from loop() before the mesh consumes serial input.
+  void screenshotPoll();
+#endif
+
   // --- AbstractUITask ---
   void loop() override;
   void msgRead(int msgcount) override {}
