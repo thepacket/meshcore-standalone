@@ -97,12 +97,21 @@ Delivered alongside M3 to host the diagnostic tiles:
 - ✅ **Status bars** — top (menu · channel · clock), bottom (node · device · signal bars · battery).
 - ✅ **Hamburger menu** — Send advert · Bluetooth · Reboot · Shutdown.
 
-## M4 — GPS & offline mapping
-- ⏳ **Offline maps** from SD-card tiles (needs tile renderer + projection).
-- ⏳ **Node/repeater plotting** from advert lat/lon (`onAdvertRecv`).
-- ⏳ **Geographic route trace** (ties to M3 trace) + **share location** over RF.
-- ⏳ Touch pan/zoom (the trackball is disabled — unreliable hardware).
-- Requires the SD card (T-Deck Plus has one) — gate behind storage availability.
+## M4 — GPS & offline mapping ✅ (done)
+- ✅ **Offline slippy map** — full-screen tile renderer (Web-Mercator `{z}/{x}/{y}`)
+  with a GPS **you-are-here** marker. Tiles **download themselves over Wi-Fi** on
+  demand (no PC toolchain) and **cache to the SD card**, so a browsed area works
+  offline afterward; deepest-zoom (z16) fetch works within the tight internal heap.
+- ✅ **Node/repeater plotting** from advert lat/lon — **tappable node dots** on the
+  map open the peer card; a **"Show on map"** button on any peer card with a GPS
+  fix focuses the map there.
+- ✅ **Provider selector** — key-free **Esri World Imagery** (satellite) default,
+  plus **OSM** (compliant UA/Referer + rate-limit), **Topo**, or a custom
+  `{z}/{x}/{y}` source (PNG or JPEG), editable in Settings.
+- ✅ **Share location** over RF — confirm-guarded **emergency position share** to a
+  channel (route trace itself is the M3 Trace tool).
+- ✅ Touch pan/zoom (the trackball is disabled — unreliable hardware).
+- Requires the SD card (T-Deck Plus has one) — gated behind storage availability.
 
 ## M5 — Remote infrastructure / repeater management  🟡 (core done)
 - ✅ **Remote login** (password) to repeaters/rooms → pull **stats** (parsed RepeaterStats:
@@ -163,8 +172,10 @@ Delivered alongside M3 to host the diagnostic tiles:
   status, an async **ICMP ping test**, and a home status-bar indicator. The 2.4 GHz
   radio is fully off while disabled. First internet consumer: **NTP clock sync**
   (SNTP → mesh RTC, once per connection).
-- ⏳ More internet consumers on the Wi-Fi base: e.g. map-tile fetch (M4), firmware
-  OTA, MQTT gateway reporting.
+- ✅ **Map-tile fetch** — the offline map (M4) downloads `{z}/{x}/{y}` tiles over
+  this Wi-Fi base and caches them to SD (Esri/OSM/Topo/custom providers).
+- ⏳ More internet consumers on the Wi-Fi base: e.g. firmware OTA, MQTT gateway
+  reporting.
 - ⏳ **Unified transport image** (BLE + USB + Wi-Fi in one build) and optional **AirLink**
   bridging (relay a phone into the mesh without tethering). Largest/most speculative.
 
@@ -177,7 +188,9 @@ Delivered alongside M3 to host the diagnostic tiles:
 M1 settings; the MeshOS-style cyan-on-black icon-grid launcher home with status bars; all of
 M3 (packet monitor, **live RF scope**, last-heard, signal meter, trace route); M2 chat (Channels/DMs
 tabs, speech-bubble threads, colour-coded names, delivery status, compose, tap-to-reply, inline
-emoji, URL→QR); the M5 core (remote login, repeater stats, scanner/whitelist, remote triggers);
+emoji, URL→QR); **M4 offline mapping** (SD-cached slippy map with Wi-Fi tile download,
+Esri/OSM/Topo providers, node dots + Show-on-map); the M5 core (remote login, repeater
+stats, scanner/whitelist, remote triggers, **Controls CLI-as-widgets**);
 **channel management**, **active node discovery** (auto-add), peer-details **contact ops**
 (Share/Reset/Export-QR/Remove), **physical keyboard** input + on-screen-keyboard toggle, and
 global tap feedback/toasts; and the desktop simulator. (The T-Deck trackball is disabled —
