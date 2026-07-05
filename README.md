@@ -1,7 +1,7 @@
 # meshcore-standalone
 
 A standalone, **on-device UI** for [MeshCore](https://github.com/meshcore-dev/MeshCore)
-companion devices — starting with the **LilyGo T-Deck Plus** — so the radio can be
+devices — starting with the **LilyGo T-Deck Plus** — so the radio can be
 operated directly on the device, **without a phone or web app**.
 
 ## Mission
