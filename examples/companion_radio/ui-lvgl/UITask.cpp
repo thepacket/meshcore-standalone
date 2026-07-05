@@ -63,6 +63,8 @@ extern "C" {
   void lv_rep_login_create(lv_obj_t* scr);
   void lv_rep_cli_create(lv_obj_t* scr);
   void lv_rep_neigh_create(lv_obj_t* scr);
+  void lv_rep_controls_create(lv_obj_t* scr);
+  void lv_rep_ctl_edit_create(lv_obj_t* scr);
   void lv_peer_create(lv_obj_t* scr);
   void lv_peer_export_create(lv_obj_t* scr);
   void lv_channels_create(lv_obj_t* scr);
@@ -118,6 +120,8 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "rep_login")) lv_rep_login_create(s);
   else if (!strcmp(name, "rep_cli")) lv_rep_cli_create(s);
   else if (!strcmp(name, "rep_neigh")) lv_rep_neigh_create(s);
+  else if (!strcmp(name, "rep_controls")) lv_rep_controls_create(s);
+  else if (!strcmp(name, "rep_ctl_edit")) lv_rep_ctl_edit_create(s);
   else if (!strcmp(name, "peer")) lv_peer_create(s);
   else if (!strcmp(name, "peer_export")) lv_peer_export_create(s);
   else if (!strcmp(name, "channels")) lv_channels_create(s);

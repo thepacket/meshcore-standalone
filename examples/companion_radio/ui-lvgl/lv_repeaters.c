@@ -158,8 +158,16 @@ static void detail_fill(lv_obj_t* list) {
   lv_obj_set_flex_flow(acts, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(acts, 5, 0);
   lv_obj_add_event_cb(act_btn(acts, "Login", UI_INDIGO), login_clicked, LV_EVENT_CLICKED, NULL);
   lv_obj_add_event_cb(act_btn(acts, "Status", UI_BLUE), status_clicked, LV_EVENT_CLICKED, NULL);
-  lv_ui_clickable(act_btn(acts, "Console", UI_AMBER), "rep_cli");
   lv_ui_clickable(act_btn(acts, "Nodes", UI_TEAL), "rep_neigh");   // remote neighbour list
+  // (the interactive CLI terminal now lives on the Controls screen)
+
+  // Controls: form of buttons/fields wrapping the admin CLI (no memorising needed)
+  lv_obj_t* ctlrow = lv_obj_create(list);
+  lv_obj_remove_flag(ctlrow, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(ctlrow, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(ctlrow, lv_pct(100)); lv_obj_set_height(ctlrow, 34);
+  lv_obj_set_style_bg_opa(ctlrow, 0, 0); lv_obj_set_style_border_width(ctlrow, 0, 0); lv_obj_set_style_pad_all(ctlrow, 0, 0);
+  lv_obj_set_flex_flow(ctlrow, LV_FLEX_FLOW_ROW);
+  lv_ui_clickable(act_btn(ctlrow, LV_SYMBOL_SETTINGS "  Controls", UI_PURPLE), "rep_controls");
 
   // status stat cards
   lvd_repstat_t s; lvd_rep_status_get(&s);
@@ -212,15 +220,21 @@ void lv_repeater_detail_create(lv_obj_t* scr) {
   lv_ui_set_refresh(detail_tick);
 }
 
-// ---- keyboard screens: login password + CLI command ------------------------
+// ---- keyboard screens: login password + CLI command + controls field --------
 static lv_obj_t* s_kb_ta = NULL;
-static int       s_kb_mode = 0;   // 0 = login, 1 = cli
+static int       s_kb_mode = 0;   // 0 = login, 1 = cli, 2 = controls field (set)
+// active controls field being edited: the command prefix, e.g. "set name "
+static char s_ctl_prefix[40], s_ctl_label[40], s_ctl_ph[40];
 
 static void kb_ready(lv_event_t* e) {
   (void)e;
   if (s_kb_ta) {
     const char* txt = lv_textarea_get_text(s_kb_ta);
     if (s_kb_mode == 0) lvd_rep_login(txt);
+    else if (s_kb_mode == 2) {
+      if (txt && txt[0]) { char cmd[160]; snprintf(cmd, sizeof(cmd), "%s%s", s_ctl_prefix, txt);
+                           lvd_rep_send_cmd(cmd); lv_ui_toast("Command sent"); }
+    }
     else if (txt && txt[0]) lvd_rep_send_cmd(txt);
   }
   if (lv_nav_cb) lv_nav_cb("back");
@@ -438,4 +452,213 @@ void lv_rep_neigh_create(lv_obj_t* scr) {
   s_ne_seq = lvd_rep_seq(); s_ne_state_seen = -1;
   neigh_fill();
   lv_ui_set_refresh(neigh_tick);
+}
+
+// ===========================================================================
+// Controls: form of buttons + toggles + fields that wrap the admin CLI, so a
+// logged-in repeater/room can be configured without memorising commands. Each
+// widget composes a CLI string and sends it via lvd_rep_send_cmd; replies show
+// in the Console. Toggles command a state (they can't reflect the current one,
+// since the repeater doesn't report config back).
+// ===========================================================================
+typedef struct { const char* label; const char* cmd; uint32_t col; } CtlAct;
+static const CtlAct CTL_ACTS[] = {
+  {"Advert",        "advert",         UI_GREEN},
+  {"Advert 0-hop",  "advert.zerohop", UI_GREEN},
+  {"Sync clock",    "clock sync",     UI_CYAN},
+  {"GPS sync",      "gps sync",       UI_CYAN},
+  {"Clear stats",   "clear stats",    UI_AMBER},
+  {"Version",       "ver",            UI_BLUE},
+  {"Board",         "board",          UI_BLUE},
+  {"Log start",     "log start",      UI_TEAL},
+  {"Log stop",      "log stop",       UI_TEAL},
+  {"Log erase",     "log erase",      UI_ORANGE},
+  {"Reboot",        "reboot",         UI_RED},
+  {"Power off",     "poweroff",       UI_RED},
+};
+typedef struct { const char* label; const char* prefix; } CtlTog;
+static const CtlTog CTL_TOGS[] = {
+  {"Repeat (forward)",      "set repeat "},
+  {"Channel activity det.", "set cad "},
+  {"Allow read-only",       "set allow.read.only "},
+  {"FEM RX gain",           "set radio.fem.rxgain "},
+  {"GPS",                   "gps "},
+  {"Power saving",          "powersaving "},
+};
+typedef struct { const char* label; const char* prefix; const char* ph; } CtlFld;
+static const CtlFld CTL_FLDS[] = {
+  {"Name",                 "set name ",                  "device name"},
+  {"Admin password",       "password ",                  "new password"},
+  {"Guest password",       "set guest.password ",        "guest password"},
+  {"Owner info",           "set owner.info ",            "text"},
+  {"Radio: freq bw sf cr", "set radio ",                 "910.525 250 11 5"},
+  {"RX boosted gain",      "set radio.rxgain ",          "value"},
+  {"Airtime factor",       "set af ",                    "1.0"},
+  {"RX delay (0-20)",      "set rxdelay ",               "0"},
+  {"TX delay factor (0-2)","set txdelay ",               "0.5"},
+  {"Direct TX delay",      "set direct.txdelay ",        ""},
+  {"Advert interval (min)","set advert.interval ",       ""},
+  {"Flood advert int (hr)","set flood.advert.interval ", ""},
+  {"Flood max",            "set flood.max ",             ""},
+  {"Flood max unscoped",   "set flood.max.unscoped ",    ""},
+  {"Flood max advert",     "set flood.max.advert ",      ""},
+  {"Multi-acks",           "set multi.acks ",            ""},
+  {"Path hash mode (0-2)", "set path.hash.mode ",        ""},
+  {"Interference thresh.", "set int.thresh ",            ""},
+  {"AGC reset interval",   "set agc.reset.interval ",    ""},
+  {"Duty cycle",           "set dutycycle ",             ""},
+  {"Latitude",             "set lat ",                   ""},
+  {"Longitude",            "set lon ",                   ""},
+  {"Set time (epoch s)",   "time ",                      ""},
+};
+#define CTL_NACT ((int)(sizeof(CTL_ACTS)/sizeof(CTL_ACTS[0])))
+#define CTL_NTOG ((int)(sizeof(CTL_TOGS)/sizeof(CTL_TOGS[0])))
+#define CTL_NFLD ((int)(sizeof(CTL_FLDS)/sizeof(CTL_FLDS[0])))
+
+static void ctl_act_clicked(lv_event_t* e) {
+  const char* cmd = (const char*)lv_event_get_user_data(e);
+  lvd_rep_send_cmd(cmd);
+  char t[52]; snprintf(t, sizeof(t), "Sent: %s", cmd); lv_ui_toast(t);
+}
+static void ctl_tog_changed(lv_event_t* e) {
+  lv_obj_t* sw = (lv_obj_t*)lv_event_get_target(e);
+  const char* prefix = (const char*)lv_event_get_user_data(e);
+  bool on = lv_obj_has_state(sw, LV_STATE_CHECKED);
+  char cmd[52]; snprintf(cmd, sizeof(cmd), "%s%s", prefix, on ? "on" : "off");
+  lvd_rep_send_cmd(cmd);
+  char t[60]; snprintf(t, sizeof(t), "Sent: %s", cmd); lv_ui_toast(t);
+}
+static void ctl_fld_clicked(lv_event_t* e) {
+  int i = (int)(intptr_t)lv_event_get_user_data(e);
+  strncpy(s_ctl_prefix, CTL_FLDS[i].prefix, sizeof(s_ctl_prefix) - 1); s_ctl_prefix[sizeof(s_ctl_prefix) - 1] = 0;
+  strncpy(s_ctl_label,  CTL_FLDS[i].label,  sizeof(s_ctl_label) - 1);  s_ctl_label[sizeof(s_ctl_label) - 1] = 0;
+  strncpy(s_ctl_ph,     CTL_FLDS[i].ph,     sizeof(s_ctl_ph) - 1);     s_ctl_ph[sizeof(s_ctl_ph) - 1] = 0;
+  if (lv_nav_cb) lv_nav_cb("rep_ctl_edit");
+}
+
+// fixed-width action button for a wrapping grid
+static lv_obj_t* ctl_grid_btn(lv_obj_t* parent, const char* txt, uint32_t col) {
+  lv_obj_t* b = lv_ui_card(parent, -1, 0, 0, 0);
+  lv_obj_set_size(b, 100, 30); lv_obj_set_style_min_height(b, 0, 0); lv_obj_set_style_pad_all(b, 0, 0);
+  lv_obj_set_style_bg_color(b, lv_color_hex(col), 0); lv_obj_set_style_bg_opa(b, 48, 0);
+  lv_obj_set_style_border_color(b, lv_color_hex(col), 0); lv_obj_set_style_border_opa(b, 200, 0);
+  lv_obj_set_style_border_width(b, 1, 0);
+  lv_ui_press_fx(b);
+  lv_obj_t* l = lv_label_create(b);
+  lv_label_set_text(l, txt);
+  lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(l, lv_color_hex(0xffffff), 0);
+  lv_obj_center(l);
+  return b;
+}
+static void ctl_section(lv_obj_t* list, const char* title) {
+  lv_obj_t* h = lv_label_create(list);
+  lv_label_set_text(h, title);
+  lv_obj_set_style_text_font(h, &lv_font_montserrat_14, 0);
+  lv_obj_set_style_text_color(h, lv_color_hex(MD_MUTED), 0);
+  lv_obj_set_style_pad_top(h, 6, 0);
+}
+
+void lv_rep_controls_create(lv_obj_t* scr) {
+  lv_ui_screen_bg(scr);
+  char title[40]; snprintf(title, sizeof(title), "Controls - %s", lvd_rep_name());
+  lv_ui_md_topbar(scr, title);
+  lv_obj_t* list = lv_ui_md_scroll(scr);
+  lv_obj_set_style_pad_row(list, 8, 0);
+
+  if (lvd_rep_login_state() != 2) {
+    lv_ui_pill(list, "Log in first (from the repeater screen)", UI_RED);
+  }
+
+  // --- Console (terminal: replies from the buttons/fields below land here, and
+  //     you can still type raw commands at the prompt) ---
+  ctl_section(list, "Console");
+  s_cli_con = lv_obj_create(list);
+  lv_obj_set_width(s_cli_con, lv_pct(100)); lv_obj_set_height(s_cli_con, 96);
+  lv_obj_set_style_bg_color(s_cli_con, lv_color_hex(0x0e141c), 0);
+  lv_obj_set_style_border_color(s_cli_con, lv_color_hex(0x223046), 0);
+  lv_obj_set_style_border_width(s_cli_con, 1, 0);
+  lv_obj_set_style_radius(s_cli_con, 6, 0);
+  lv_obj_set_style_pad_all(s_cli_con, 8, 0);
+  lv_obj_set_flex_flow(s_cli_con, LV_FLEX_FLOW_COLUMN);
+  lv_obj_set_style_pad_row(s_cli_con, 3, 0);
+  cli_fill();
+  s_cli_seq = lvd_rep_seq();
+
+  // command prompt: "$" + one-line field (T-Deck physical keyboard)
+  lv_obj_t* inrow = lv_obj_create(list);
+  lv_obj_remove_flag(inrow, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(inrow, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(inrow, lv_pct(100)); lv_obj_set_height(inrow, 36);
+  lv_obj_set_style_bg_opa(inrow, 0, 0); lv_obj_set_style_border_width(inrow, 0, 0); lv_obj_set_style_pad_all(inrow, 0, 0);
+  lv_obj_set_flex_flow(inrow, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(inrow, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_set_style_pad_column(inrow, 6, 0);
+  lv_obj_t* prompt = lv_label_create(inrow);
+  lv_label_set_text(prompt, "$");
+  lv_obj_set_style_text_font(prompt, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_color(prompt, lv_color_hex(UI_GREEN), 0);
+  s_cli_in = lv_textarea_create(inrow);
+  lv_textarea_set_one_line(s_cli_in, true);
+  lv_textarea_set_placeholder_text(s_cli_in, "command");
+  lv_obj_set_flex_grow(s_cli_in, 1); lv_obj_set_height(s_cli_in, 34);
+  lv_obj_set_style_bg_color(s_cli_in, lv_color_hex(0x18202c), 0);
+  lv_obj_set_style_border_color(s_cli_in, lv_color_hex(MD_PRIMARY), 0);
+  lv_obj_set_style_border_width(s_cli_in, 1, 0);
+  lv_obj_set_style_text_color(s_cli_in, lv_color_hex(UI_TEXT), 0);
+  lv_obj_add_event_cb(s_cli_in, cli_submit, LV_EVENT_READY, NULL);
+  lv_ui_kbd_focus(s_cli_in);
+
+  // --- Actions (wrapping grid of buttons) ---
+  ctl_section(list, "Actions");
+  lv_obj_t* grid = lv_obj_create(list);
+  lv_obj_remove_flag(grid, LV_OBJ_FLAG_SCROLLABLE); lv_obj_remove_flag(grid, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_set_width(grid, lv_pct(100)); lv_obj_set_height(grid, LV_SIZE_CONTENT);
+  lv_obj_set_style_bg_opa(grid, 0, 0); lv_obj_set_style_border_width(grid, 0, 0); lv_obj_set_style_pad_all(grid, 0, 0);
+  lv_obj_set_flex_flow(grid, LV_FLEX_FLOW_ROW_WRAP);
+  lv_obj_set_style_pad_row(grid, 6, 0); lv_obj_set_style_pad_column(grid, 6, 0);
+  for (int i = 0; i < CTL_NACT; i++)
+    lv_obj_add_event_cb(ctl_grid_btn(grid, CTL_ACTS[i].label, CTL_ACTS[i].col),
+                        ctl_act_clicked, LV_EVENT_CLICKED, (void*)CTL_ACTS[i].cmd);
+
+  // --- Toggles (command a state) ---
+  ctl_section(list, "Toggles (send a command)");
+  for (int i = 0; i < CTL_NTOG; i++) {
+    lv_obj_t* row = lv_ui_md_card(list);
+    lv_obj_set_style_pad_ver(row, 6, 0);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_t* l = lv_label_create(row);
+    lv_label_set_text(l, CTL_TOGS[i].label);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(l, lv_color_hex(MD_ON), 0);
+    lv_obj_t* sw = lv_switch_create(row);
+    lv_obj_set_style_bg_color(sw, lv_color_hex(MD_PRIMARY), LV_PART_INDICATOR | LV_STATE_CHECKED);
+    lv_obj_add_event_cb(sw, ctl_tog_changed, LV_EVENT_VALUE_CHANGED, (void*)CTL_TOGS[i].prefix);
+  }
+
+  // --- Settings (tap to enter a value) ---
+  ctl_section(list, "Settings");
+  for (int i = 0; i < CTL_NFLD; i++) {
+    lv_obj_t* row = lv_ui_md_card(list);
+    lv_obj_set_style_pad_ver(row, 8, 0);
+    lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
+    lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+    lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(row, ctl_fld_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+    lv_ui_press_fx(row);
+    lv_obj_t* l = lv_label_create(row);
+    lv_label_set_text(l, CTL_FLDS[i].label);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(l, lv_color_hex(MD_ON), 0);
+    lv_obj_t* pen = lv_label_create(row);
+    lv_label_set_text(pen, LV_SYMBOL_EDIT);
+    lv_obj_set_style_text_color(pen, lv_color_hex(0x8090a4), 0);
+  }
+
+  lv_ui_set_refresh(cli_tick);   // stream CLI replies into the embedded console
+}
+
+void lv_rep_ctl_edit_create(lv_obj_t* scr) {
+  kb_screen(scr, s_ctl_label[0] ? s_ctl_label : "Set value",
+            s_ctl_ph[0] ? s_ctl_ph : "value", false, 2);
 }
