@@ -122,9 +122,17 @@ Delivered alongside M3 to host the diagnostic tiles:
   don't know the request; the screen says so on timeout).
 
 ## M6 — Terminal & system
-- ✅ **On-device terminal** — the repeater/room **Console** (reached from a node's
-  peer card → Manage): a scrollback console with an inline prompt that stays open,
-  streaming remote CLI replies (`uiSendCommand` + `onCommandReply`). Login uses a
+- ✅ **Controls screen** — the repeater/room admin CLI wrapped as widgets (peer
+  card → Manage → **Controls**), so nothing has to be memorised: **Actions**
+  buttons (advert, clock/GPS sync, clear stats, ver, board, logging, reboot,
+  power-off), **Toggles** (repeat, CAD, allow-read-only, FEM RX gain, GPS,
+  power-saving — each sends the state as a command), and tap-to-edit **Settings**
+  (name, passwords, `set radio`, gains, delays, advert/flood intervals, lat/lon,
+  time, …) that compose `set <key> <value>`.
+- ✅ **On-device terminal** — a scrollback console with an inline `$` prompt that
+  stays open, streaming remote CLI replies (`uiSendCommand` + `onCommandReply`).
+  Now lives at the top of the **Controls** screen, so replies from the widgets
+  above land in it live and raw commands can still be typed. Login uses a
   **remembered per-repeater password** (silent auto-login + auto status fetch).
 - ✅ **Notifications** — **audio alerts on the T-Deck's I2S speaker**: a rising
   two-note chirp for DMs, a single blip for channel/room messages, synthesized
