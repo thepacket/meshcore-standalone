@@ -1,11 +1,5 @@
 # Roadmap
 
-> ⚠️ **Early development.** A direction, not a promise — ordering and scope will change.
-
-**Goal:** feature parity with **MeshOS** (the closed/paid standalone MeshCore firmware) as
-an open, MIT alternative — a fully smartphone-independent on-device experience. We take
-MeshOS / MeshUltra only as *feature & look references* (no code is copied; they're closed).
-
 Status legend: ✅ done · 🟡 partial · ⏳ planned
 
 ---
