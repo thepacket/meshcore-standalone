@@ -100,6 +100,15 @@ static const Field F_WIFI[] = {
   {"Map provider",   F_ENUM,   "Satellite (Esri)\nStreet (OSM)\nTopo (OpenTopoMap)\nCustom URL", 0},  // offline-map tile source
   {"Map tile URL",   F_VAL,    "https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}", 0},  // custom {z}/{x}/{y} URL (selects Custom)
 };
+static const Field F_MQTT[] = {
+  {"Enabled",   F_BOOL,   NULL, 0},          // observe-only live feed (needs Wi-Fi)
+  {"Broker",    F_ENUM,   "Primary\nSecondary", 0},
+  {"Region",    F_ENUM,   "All regions\nToronto\nVancouver\nMontreal\nCalgary\nEdmonton\nOttawa\nHalifax\nWinnipeg", 0},
+  {"Username",  F_VAL,    "", 0},            // required (brokers are JWT-gated)
+  {"Token",     F_VAL,    "", 0},            // password / JWT token
+  {"Reconnect", F_ACTION, NULL, 0},          // force a fresh connection
+  {"Status",    F_INFO,   "off", 0},         // connection state + packet count
+};
 static const Field F_DEVICE[] = {
   {"On-screen keyboard", F_BOOL, NULL, 1},   // show the touch keyboard for text entry
   {"Buzzer quiet",    F_BOOL, NULL, 0},
@@ -141,13 +150,14 @@ static const Group GROUPS[] = {
   GRP("Security",    UI_TEAL,    ICON_SHIELD,    F_SECURITY),
   GRP("Time",        UI_AMBER,   ICON_CLOCK,     F_TIME),
   GRP("Wi-Fi",       UI_CYAN,    ICON_WIFI,      F_WIFI),
+  GRP("MQTT",        UI_TEAL,    ICON_SIGNAL,    F_MQTT),
   GRP("Device",      UI_INDIGO,  ICON_SETTINGS,  F_DEVICE),
   GRP("Channels",    UI_LIME,    ICON_CHAT,      F_CHANNELS),
   GRP("Data",        UI_EMERALD, ICON_TERMINAL,  F_DATA),
 };
 #define N_GROUPS  ((int)(sizeof(GROUPS) / sizeof(GROUPS[0])))
 #define MAX_FIELDS 13
-static const char* SG_DEST[] = {"sg0","sg1","sg2","sg3","sg4","sg5","sg6","sg7","sg8","sg9","sg10","sg11","sg12"};
+static const char* SG_DEST[] = {"sg0","sg1","sg2","sg3","sg4","sg5","sg6","sg7","sg8","sg9","sg10","sg11","sg12","sg13"};
 
 // ---- mutable value overlay (prototype state; persists across navigation) ----
 // width fits the longest editable value (the ~90-char map tile URL); on the
@@ -181,6 +191,8 @@ static bool field_numeric(const Field* f) {
   if (strcmp(f->label, "Set time (UTC)") == 0) return false;    // "YYYY-MM-DD HH:MM" is text
   if (strcmp(f->label, "Network") == 0)  return false;          // Wi-Fi SSID
   if (strcmp(f->label, "Password") == 0) return false;          // Wi-Fi passphrase
+  if (strcmp(f->label, "Username") == 0) return false;          // MQTT username
+  if (strcmp(f->label, "Token") == 0)    return false;          // MQTT JWT token
   return true;
 }
 
@@ -374,11 +386,30 @@ static void wifi_group_refresh(void) {
     lv_label_set_text(s_wifi_ping_lbl, v);
 }
 
+// live Status row on the MQTT group screen (connect progress + packet count)
+static lv_obj_t* s_mqtt_status_lbl = NULL;
+static void mqtt_group_refresh(void) {
+  char v[68]; int sel = 0;
+  if (s_mqtt_status_lbl && lvd_cfg_get("MQTT", "Status", v, sizeof(v), &sel))
+    lv_label_set_text(s_mqtt_status_lbl, v);
+}
+
+// What to show in an F_VAL pill: a secret token is elided to a short prefix so
+// a long JWT doesn't overrun the row (the real value stays in g_val for editing).
+static const char* field_display_val(const Field* f, const char* val, char* buf, int buflen) {
+  if (strcmp(f->label, "Token") == 0 && val[0] && (int)strlen(val) > 12) {
+    snprintf(buf, buflen, "%.10s...", val);   // first 10 chars + ellipsis
+    return buf;
+  }
+  return val;
+}
+
 void lv_settings_group_create(lv_obj_t* scr, int idx) {
   store_init();
   if (idx < 0 || idx >= N_GROUPS) idx = 0;
   const Group* g = &GROUPS[idx];
   s_wifi_status_lbl = s_wifi_ping_lbl = NULL;
+  s_mqtt_status_lbl = NULL;
   lv_ui_screen_bg(scr);
   lv_ui_md_topbar(scr, g->title);
   lv_obj_t* list = lv_ui_md_scroll(scr);
@@ -422,7 +453,8 @@ void lv_settings_group_create(lv_obj_t* scr, int idx) {
       }
       case F_VAL: {
         lv_obj_t* c = field_card(list, f->label);
-        lv_ui_pill(c, g_val[idx][i], g->color);
+        char db[32];
+        lv_ui_pill(c, field_display_val(f, g_val[idx][i], db, sizeof(db)), g->color);
         lv_ui_clickable(c, NULL);   // make the row tappable
         lv_obj_add_event_cb(c, on_edit_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)ud);
         lv_ui_press_fx(c);
@@ -442,11 +474,14 @@ void lv_settings_group_create(lv_obj_t* scr, int idx) {
           if (strcmp(f->label, "Status") == 0) s_wifi_status_lbl = v;
           if (strcmp(f->label, "Ping") == 0)   s_wifi_ping_lbl = v;
         }
+        if (strcmp(g->title, "MQTT") == 0 && strcmp(f->label, "Status") == 0)
+          s_mqtt_status_lbl = v;
         break;
       }
     }
   }
   if (s_wifi_status_lbl) lv_ui_set_refresh(wifi_group_refresh);
+  if (s_mqtt_status_lbl) lv_ui_set_refresh(mqtt_group_refresh);
 }
 
 // ---- keyboard editor for value fields ---------------------------------------

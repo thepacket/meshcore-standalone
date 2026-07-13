@@ -411,8 +411,10 @@ void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path
     strcpy(p->name, contact.name);
     p->recv_timestamp = getRTCClock()->getCurrentTime();
     p->path_len = mesh::Packet::copyPath(p->path, path, path_len);
-    p->snr_q = (int8_t)(_radio->getLastSNR() * 4);   // link quality of this advert
-    p->rssi = (int8_t)(_radio->getLastRSSI());
+    // Link quality of this advert: the observing gateway's values for an imported
+    // (MQTT) advert, else this radio's last-RX measurement for an on-air advert.
+    p->snr_q = _obs_signal_valid ? _obs_snr_q : (int8_t)(_radio->getLastSNR() * 4);
+    p->rssi  = _obs_signal_valid ? _obs_rssi  : (int8_t)(_radio->getLastRSSI());
     p->gps_lat = contact.gps_lat;                     // advert position (0 if none)
     p->gps_lon = contact.gps_lon;
   }
@@ -447,6 +449,44 @@ int MyMesh::getRecentlyHeard(AdvertPath dest[], int max_num) {
     dest[i] = advert_paths[i];
   }
   return max_num;
+}
+
+void MyMesh::importObservedPacket(float snr, float rssi, const uint8_t* raw, int len) {
+  mesh::Packet pkt;
+  if (!pkt.readFrom(raw, len)) return;
+  // Observe-only: only ADVERTs feed the Heard list; everything else is already
+  // visible in the packet monitor and must not trigger any mesh side effects.
+  if (pkt.getPayloadType() != PAYLOAD_TYPE_ADVERT) return;
+
+  // Decode + verify exactly as Mesh::onRecvPacket() does for an on-air advert,
+  // but WITHOUT the subsequent routeRecvPacket() call, so nothing is relayed.
+  if (pkt.payload_len < PUB_KEY_SIZE + 4 + SIGNATURE_SIZE) return;
+  int i = 0;
+  mesh::Identity id;
+  memcpy(id.pub_key, &pkt.payload[i], PUB_KEY_SIZE); i += PUB_KEY_SIZE;
+  uint32_t timestamp;
+  memcpy(&timestamp, &pkt.payload[i], 4); i += 4;
+  const uint8_t* signature = &pkt.payload[i]; i += SIGNATURE_SIZE;
+  if (i > pkt.payload_len || self_id.matches(id.pub_key)) return;
+
+  const uint8_t* app_data = &pkt.payload[i];
+  int app_data_len = pkt.payload_len - i;
+  if (app_data_len > MAX_ADVERT_DATA_SIZE) app_data_len = MAX_ADVERT_DATA_SIZE;
+
+  uint8_t message[PUB_KEY_SIZE + 4 + MAX_ADVERT_DATA_SIZE];
+  int msg_len = 0;
+  memcpy(&message[msg_len], id.pub_key, PUB_KEY_SIZE); msg_len += PUB_KEY_SIZE;
+  memcpy(&message[msg_len], &timestamp, 4); msg_len += 4;
+  memcpy(&message[msg_len], app_data, app_data_len); msg_len += app_data_len;
+  if (!id.verify(signature, message, msg_len)) return;   // forged/garbled -- drop
+
+  // Attribute the observing gateway's signal to the Heard entry, then run the
+  // normal advert handler (updates Heard + contacts, emits UI/serial events).
+  _obs_signal_valid = true;
+  _obs_snr_q = (int8_t)(snr * 4);
+  _obs_rssi  = (int8_t)rssi;
+  onAdvertRecv(&pkt, id, timestamp, app_data, app_data_len);
+  _obs_signal_valid = false;
 }
 
 bool MyMesh::sendTrace(const ContactInfo& contact, uint32_t& tag) {

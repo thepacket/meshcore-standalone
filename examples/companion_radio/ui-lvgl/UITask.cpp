@@ -5,6 +5,7 @@
 #include <helpers/ui/LGFXDisplay.h>
 #include "lv_ui.h"
 #include "lv_data.h"
+#include "MqttSource.h"
 #include "../MyMesh.h"
 #include "target.h"
 #include <string.h>
@@ -433,6 +434,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 }
 
 void ui_wifi_poll(void);   // Wi-Fi manager, defined with the lvd_wifi_* bridge below
+void ui_mqtt_poll(void);   // MQTT feed (re)connect, defined with the lvd_mqtt_* bridge below
 void ui_sleep_enter(void); // radio-watch light sleep, defined with the cfg actions below
 void ui_map_fetch_poll(void);   // map-tile fetch queue drain, defined with the lvd_map_* bridge
 static bool screenshot_write(void);   // BMP to SD, defined with the cfg actions below
@@ -535,8 +537,10 @@ void UITask::loop() {
   if (lv_now - s_last_wifi >= 1000) {
     s_last_wifi = lv_now;
     ui_wifi_poll();
+    ui_mqtt_poll();   // (re)connect the MQTT feed while Wi-Fi is up
     bl_poll();
   }
+  mqtt_src_drain();   // inject any MQTT packets received since the last loop
 
   // deferred sleep entry (set by the Settings action; the toast rendered by now)
   if (s_sleep_at_ms && (int32_t)(millis() - s_sleep_at_ms) >= 0) {
@@ -1102,6 +1106,130 @@ extern "C" void lvd_wifi_ping_status(char* out, int len) {
                                        (unsigned)s_ping_ok, PING_COUNT,
                                        (unsigned)(s_ping_total_ms / s_ping_ok));
 }
+
+// ---- MQTT live-packet feed (observe-only) ----------------------------------
+// Optional subscription to the meshcore.ca live-packet feed (MQTT 3.1.1 over
+// WebSocket+TLS -- the brokers only accept 443). Mirrors the Android app: each
+// JSON message's hex `raw` field is injected into the packet monitor via
+// ui_log_packet_net(). It is passive -- packets are shown, never rebroadcast
+// onto the LoRa mesh. Settings live in NVS (namespace "mqtt"); ui_mqtt_poll()
+// runs ~1/s and (re)connects only while Wi-Fi is up. The brokers are JWT-gated,
+// so a username + token are required. See MqttSource.{h,cpp} for the transport.
+#define MQTT_TOPIC_MAX 64
+#define MQTT_URL_MAX   128
+
+// Broker URLs (hidden behind the "Primary/Secondary" selector, like Android).
+static const char* const MQTT_BROKERS[] = {
+  "wss://mqtt1.meshcore.ca:443/mqtt",   // Primary
+  "wss://mqtt2.meshcore.ca:443/mqtt",   // Secondary
+};
+#define MQTT_N_BROKERS ((int)(sizeof(MQTT_BROKERS) / sizeof(MQTT_BROKERS[0])))
+
+// Region topic codes; index 0 ("+") means all regions. The order MUST match the
+// "Region" F_ENUM label list in lv_settings.c.
+static const char* const MQTT_REGIONS[] = {
+  "+", "YYZ", "YVR", "YUL", "YYC", "YEG", "YOW", "YHZ", "YWG",
+};
+#define MQTT_N_REGIONS ((int)(sizeof(MQTT_REGIONS) / sizeof(MQTT_REGIONS[0])))
+
+static bool s_mq_loaded = false;
+static bool s_mq_on = false;
+static bool s_mq_auth_failed = false;   // broker rejected credentials: stop retrying until changed
+static int  s_mq_broker = 0, s_mq_region = 0;
+static char s_mq_user[64] = "", s_mq_pass[256] = "";
+
+static void mqtt_load(void) {
+  if (s_mq_loaded) return;
+  Preferences p;
+  if (p.begin("mqtt", true)) {
+    s_mq_on     = p.getBool("on", false);
+    s_mq_broker = p.getInt("broker", 0);
+    s_mq_region = p.getInt("region", 0);
+    p.getString("user", s_mq_user, sizeof(s_mq_user));
+    p.getString("pass", s_mq_pass, sizeof(s_mq_pass));
+    p.end();
+  }
+  if (s_mq_broker < 0 || s_mq_broker >= MQTT_N_BROKERS) s_mq_broker = 0;
+  if (s_mq_region < 0 || s_mq_region >= MQTT_N_REGIONS) s_mq_region = 0;
+  s_mq_loaded = true;
+}
+static void mqtt_save(void) {
+  Preferences p; p.begin("mqtt", false);
+  p.putBool("on", s_mq_on);
+  p.putInt("broker", s_mq_broker);
+  p.putInt("region", s_mq_region);
+  p.putString("user", s_mq_user);
+  p.putString("pass", s_mq_pass);
+  p.end();
+}
+// A setting changed: clear any latched auth failure and drop the connection so
+// the next poll reconnects afresh with the new configuration.
+static void mqtt_drop(void) { s_mq_auth_failed = false; mqtt_src_stop(); }
+
+// ~1/s from UITask::loop(): connect when enabled + Wi-Fi up + credentials set,
+// otherwise stay stopped. (Injection of received packets is drained separately,
+// every loop, via mqtt_src_drain().)
+void ui_mqtt_poll(void) {
+  mqtt_load();
+  bool wifi_up  = (s_wf_run == 2 && WiFi.status() == WL_CONNECTED);
+  // TLS cert validation checks the certificate's validity period against the
+  // clock: an unsynced RTC (~1970) makes every cert look "not yet valid" and
+  // the handshake aborts. Wait for a real time (NTP/GPS) before connecting.
+  bool clock_ok = rtc_clock.getCurrentTime() >= NTP_VALID_EPOCH;
+  if (mqtt_src_state() == MQTT_SRC_AUTH_ERR) s_mq_auth_failed = true;   // latch (mqtt-task safe)
+  if (!s_mq_on || !wifi_up || !clock_ok || !s_mq_user[0] || !s_mq_pass[0] || s_mq_auth_failed) {
+    mqtt_src_stop();   // stops the client from the UI task (illegal from the mqtt task)
+    return;
+  }
+  char topic[MQTT_TOPIC_MAX];
+  snprintf(topic, sizeof(topic), "meshcore/%s/+/packets", MQTT_REGIONS[s_mq_region]);
+  mqtt_src_start(MQTT_BROKERS[s_mq_broker], topic, s_mq_user, s_mq_pass);
+}
+
+extern "C" int  lvd_mqtt_enabled(void) { mqtt_load(); return s_mq_on ? 1 : 0; }
+extern "C" void lvd_mqtt_set_enabled(int on) {
+  mqtt_load(); s_mq_on = (on != 0); mqtt_save();
+  if (!s_mq_on) mqtt_drop();   // enable path: the next poll connects
+}
+extern "C" int  lvd_mqtt_broker(void) { mqtt_load(); return s_mq_broker; }
+extern "C" void lvd_mqtt_set_broker(int i) {
+  mqtt_load();
+  if (i < 0 || i >= MQTT_N_BROKERS) return;
+  s_mq_broker = i; mqtt_save(); mqtt_drop();
+}
+extern "C" int  lvd_mqtt_region(void) { mqtt_load(); return s_mq_region; }
+extern "C" void lvd_mqtt_set_region(int i) {
+  mqtt_load();
+  if (i < 0 || i >= MQTT_N_REGIONS) return;
+  s_mq_region = i; mqtt_save(); mqtt_drop();
+}
+extern "C" const char* lvd_mqtt_user(void) { mqtt_load(); return s_mq_user; }
+extern "C" void lvd_mqtt_set_user(const char* u) {
+  mqtt_load();
+  strncpy(s_mq_user, u ? u : "", sizeof(s_mq_user) - 1); s_mq_user[sizeof(s_mq_user) - 1] = 0;
+  mqtt_save(); mqtt_drop();
+}
+extern "C" const char* lvd_mqtt_pass(void) { mqtt_load(); return s_mq_pass; }
+extern "C" void lvd_mqtt_set_pass(const char* pw) {
+  mqtt_load();
+  strncpy(s_mq_pass, pw ? pw : "", sizeof(s_mq_pass) - 1); s_mq_pass[sizeof(s_mq_pass) - 1] = 0;
+  mqtt_save(); mqtt_drop();
+}
+extern "C" void lvd_mqtt_status(char* out, int len) {
+  mqtt_load();
+  if (!s_mq_on)                       { snprintf(out, len, "off"); return; }
+  if (!s_mq_user[0] || !s_mq_pass[0]) { snprintf(out, len, "set username + token"); return; }
+  if (s_mq_auth_failed)               { snprintf(out, len, "not authorized - check token"); return; }
+  if (s_wf_run != 2)                  { snprintf(out, len, "waiting for Wi-Fi"); return; }
+  if (rtc_clock.getCurrentTime() < NTP_VALID_EPOCH) {
+    snprintf(out, len, "waiting for clock - enable Wi-Fi NTP sync"); return;
+  }
+  mqtt_src_status(out, len);
+}
+// "Reconnect" button: force a fresh connection on the next poll.
+extern "C" void lvd_mqtt_reconnect(void) { mqtt_drop(); }
+// Packets injected from the MQTT feed since boot (merged into the home RX count).
+extern "C" unsigned lvd_mqtt_rx(void) { return (unsigned)mqtt_src_received(); }
 
 // ---- microSD browser bridge (wraps the target's shared-bus SD helpers) ------
 extern "C" int lvd_sd_available(void) { return tdeck_sd_ok() ? 1 : 0; }
@@ -1862,6 +1990,13 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
     if (eq(label, "NTP clock sync")) { *sel = lvd_ntp_enabled(); return true; }
     if (eq(label, "Map provider"))   { *sel = lvd_map_provider(); return true; }
     if (eq(label, "Map tile URL"))   { snprintf(val, len, "%s", lvd_map_url()); return true; }
+  } else if (eq(group, "MQTT")) {
+    if (eq(label, "Enabled"))  { *sel = lvd_mqtt_enabled(); return true; }
+    if (eq(label, "Broker"))   { *sel = lvd_mqtt_broker(); return true; }
+    if (eq(label, "Region"))   { *sel = lvd_mqtt_region(); return true; }
+    if (eq(label, "Username")) { snprintf(val, len, "%s", lvd_mqtt_user()); return true; }
+    if (eq(label, "Token"))    { snprintf(val, len, "%s", lvd_mqtt_pass()); return true; }
+    if (eq(label, "Status"))   { lvd_mqtt_status(val, len); return true; }
   } else if (eq(group, "Device")) {
     if (eq(label, "Contacts")) { snprintf(val, len, "%d / %d used", the_mesh.getNumContacts(), MAX_CONTACTS); return true; }
     if (eq(label, "Battery/storage")) {
@@ -1950,6 +2085,12 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
     if (eq(label, "NTP clock sync"))  { lvd_ntp_set(sel); return; }
     if (eq(label, "Map provider"))    { lvd_map_set_provider(sel); return; }
     if (eq(label, "Map tile URL") && val) { lvd_map_set_url(val); return; }
+  } else if (eq(group, "MQTT")) {
+    if (eq(label, "Enabled"))         { lvd_mqtt_set_enabled(sel); return; }
+    if (eq(label, "Broker"))          { lvd_mqtt_set_broker(sel); return; }
+    if (eq(label, "Region"))          { lvd_mqtt_set_region(sel); return; }
+    if (eq(label, "Username") && val) { lvd_mqtt_set_user(val); return; }
+    if (eq(label, "Token") && val)    { lvd_mqtt_set_pass(val); return; }
   } else if (eq(group, "Device")) {
     if (eq(label, "On-screen keyboard")) { lvd_osk_set(sel != 0); return; }
     if (eq(label, "Buzzer quiet"))       { the_mesh.setBuzzerQuiet(sel != 0); return; }
@@ -2048,6 +2189,12 @@ extern "C" void lvd_cfg_action(const char* group, const char* label) {
   } else if (eq(group, "Wi-Fi")) {
     if (eq(label, "Ping test")) {
       if (!lvd_wifi_ping_start()) lv_ui_toast("Wi-Fi not connected");
+      return;
+    }
+  } else if (eq(group, "MQTT")) {
+    if (eq(label, "Reconnect")) {
+      lvd_mqtt_reconnect();
+      lv_ui_toast(lvd_mqtt_enabled() ? "Reconnecting..." : "Enable the feed first");
       return;
     }
   } else if (eq(group, "Data")) {
@@ -2189,7 +2336,7 @@ static int pkt_payload_off(const uint8_t* b, int rl) {
   return (off <= rl) ? off : -1;
 }
 
-void ui_log_packet(float snr, float rssi, const uint8_t* raw, int len) {
+static void ui_log_packet_impl(float snr, float rssi, const uint8_t* raw, int len, int16_t freq_err) {
   if (!s_pkt) return;
   PktRec& r = s_pkt[s_pkt_head];
   r.header = (len > 0) ? raw[0] : 0;
@@ -2198,9 +2345,7 @@ void ui_log_packet(float snr, float rssi, const uint8_t* raw, int len) {
   r.len = len;
   r.t = millis();
   r.epoch = rtc_clock.getCurrentTime();
-  { float fe = radio_driver.getLastFreqError();   // valid now (still the last-RX state)
-    float scaled = fe / 100.0f;
-    r.freq_err = (scaled > 32000.0f || scaled < -32000.0f) ? INT16_MIN : (int16_t)scaled; }
+  r.freq_err = freq_err;
   r.rawlen = (uint8_t)(len > PKT_RAW ? PKT_RAW : (len < 0 ? 0 : len));
   if (raw && r.rawlen) memcpy(r.raw, raw, r.rawlen);
   // FNV-1a over payload type + payload bytes; the path is excluded so flood
@@ -2213,6 +2358,26 @@ void ui_log_packet(float snr, float rssi, const uint8_t* raw, int len) {
   s_pkt_head = (s_pkt_head + 1) % PKT_LOG;
   if (s_pkt_n < PKT_LOG) s_pkt_n++;
   s_pkt_total++;
+}
+
+void ui_log_packet(float snr, float rssi, const uint8_t* raw, int len) {
+  float scaled = radio_driver.getLastFreqError() / 100.0f;   // valid now (still the last-RX state)
+  int16_t fe = (scaled > 32000.0f || scaled < -32000.0f) ? INT16_MIN : (int16_t)scaled;
+  ui_log_packet_impl(snr, rssi, raw, len, fe);
+}
+
+// Network-sourced (MQTT) packet: there was no radio RX, so the carrier offset
+// is unknown -- record it as such rather than reusing a stale RF measurement.
+void ui_log_packet_net(float snr, float rssi, const uint8_t* raw, int len) {
+  ui_log_packet_impl(snr, rssi, raw, len, INT16_MIN);
+}
+
+// Single entry point for an MQTT-observed packet: merge it into the same views
+// the radio feeds -- the packet monitor ring AND the mesh's Heard list (adverts
+// only, never relayed). Called from the UI task via mqtt_src_drain().
+void ui_inject_net_packet(float snr, float rssi, const uint8_t* raw, int len) {
+  ui_log_packet_net(snr, rssi, raw, len);
+  the_mesh.importObservedPacket(snr, rssi, raw, len);
 }
 
 // dump the capture ring (newest-first) to USB serial as CSV+hex, for offline

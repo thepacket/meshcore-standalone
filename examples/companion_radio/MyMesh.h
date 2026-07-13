@@ -106,6 +106,12 @@ public:
 
   int  getRecentlyHeard(AdvertPath dest[], int max_num);
 
+  // Import a packet observed off-mesh (e.g. from the MQTT live feed) for LOCAL
+  // processing only: an ADVERT updates the Heard list / contacts exactly like an
+  // over-the-air advert, merging the two sources, but the packet is NEVER relayed
+  // onto the radio. snr/rssi are the values the observing gateway reported.
+  void importObservedPacket(float snr, float rssi, const uint8_t* raw, int len);
+
   // Start a trace-route to a contact over its known direct path. Generates a
   // random tag (returned via `tag`) used to match the later onTraceResult().
   // Returns false if the contact has no known path or no packet was available.
@@ -336,6 +342,11 @@ private:
 
   #define ADVERT_PATH_TABLE_SIZE   16
   AdvertPath advert_paths[ADVERT_PATH_TABLE_SIZE]; // circular table
+
+  // signal of an advert imported via importObservedPacket(): onDiscoveredContact
+  // uses these instead of the (stale) radio SNR/RSSI while an import is in flight.
+  bool   _obs_signal_valid = false;
+  int8_t _obs_snr_q = 0, _obs_rssi = 0;
 
   // recently-heard but NOT-yet-saved nodes, for the on-device scanner (full identity)
   #define HEARD_CACHE_SIZE 8

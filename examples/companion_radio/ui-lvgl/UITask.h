@@ -11,6 +11,12 @@
 
 // records a received packet into the packet-monitor ring buffer (UITask.cpp)
 void ui_log_packet(float snr, float rssi, const uint8_t* raw, int len);
+// as ui_log_packet, but for a network-sourced (MQTT) packet: the carrier
+// frequency offset is recorded as unknown since there was no radio RX.
+void ui_log_packet_net(float snr, float rssi, const uint8_t* raw, int len);
+// merge an MQTT-observed packet into the monitor ring and the mesh Heard list
+// (adverts only, never relayed). Called from mqtt_src_drain() on the UI task.
+void ui_inject_net_packet(float snr, float rssi, const uint8_t* raw, int len);
 // records a text message (incoming or outgoing) into the chat store (UITask.cpp).
 // peer6 = 6-byte sender pubkey prefix for DMs (NULL for channel messages).
 // path_len is the encoded route length of an inbound message (0xFF = direct/unknown).

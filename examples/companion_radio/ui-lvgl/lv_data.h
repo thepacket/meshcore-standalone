@@ -119,6 +119,7 @@ void        lvd_map_set_provider(int i);
 // ---- Wi-Fi (internet access, station mode) ----------------------------------
 // Runtime STA connection for internet-backed features (NTP clock sync first).
 // Credentials persist in NVS; independent of the companion transport (USB/BLE).
+unsigned    lvd_mqtt_rx(void);                   // MQTT packets injected since boot (merged into RX)
 int         lvd_wifi_enabled(void);              // user toggle (persisted)
 void        lvd_wifi_set_enabled(int on);        // starts / tears down the connection
 const char* lvd_wifi_ssid(void);                 // "" if unset
