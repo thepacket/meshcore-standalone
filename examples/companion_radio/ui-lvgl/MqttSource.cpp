@@ -75,6 +75,11 @@ struct MqPkt {
 
 static esp_mqtt_client_handle_t s_client = nullptr;
 static QueueHandle_t            s_queue  = nullptr;
+// The decoded-packet queue storage lives in PSRAM (see mqtt_src_start): its
+// ~1.6 KB would otherwise sit in the internal DRAM that Wi-Fi/TLS need. Only the
+// small StaticQueue_t control block stays in internal .bss.
+static StaticQueue_t            s_queue_ctrl;
+static uint8_t*                 s_queue_store = nullptr;   // PSRAM
 static volatile int             s_state  = MQTT_SRC_OFF;
 static volatile uint32_t        s_recv   = 0;
 static char                     s_last_err[48] = "";   // last transport/refuse error, for the status row
@@ -109,8 +114,10 @@ static int hex_to_bytes(const char* hex, uint8_t* out, int cap) {
 // ---- payload assembly + JSON parse (runs on the esp-mqtt task) --------------
 // esp-mqtt can split a large publish across several MQTT_EVENT_DATA callbacks;
 // reassemble into this scratch buffer before parsing. Packets are tiny (well
-// under the 1 KB default RX buffer) so this rarely spans fragments.
-static char    s_asm[1024];
+// under the 1 KB RX buffer) so this rarely spans fragments. Buffer lives in
+// PSRAM (allocated in mqtt_src_start) to keep it out of internal DRAM.
+#define MQ_ASM_MAX 1024
+static char*   s_asm = nullptr;      // PSRAM
 static int     s_asm_len = 0;
 static bool    s_asm_skip = false;   // set when a message overflows the buffer
 
@@ -136,13 +143,14 @@ static void on_data(esp_mqtt_event_handle_t e) {
     parse_and_enqueue(e->data, e->data_len);
     return;
   }
-  // Multi-fragment: accumulate, then parse once complete.
+  // Multi-fragment: accumulate, then parse once complete. If the PSRAM buffer
+  // wasn't allocated, skip (single-fragment messages still work above).
   if (e->current_data_offset == 0) {                   // first fragment
     s_asm_len = 0;
-    s_asm_skip = (e->total_data_len > (int)sizeof(s_asm));
+    s_asm_skip = (!s_asm || e->total_data_len > MQ_ASM_MAX);
   }
   if (!s_asm_skip && e->data_len > 0 &&
-      s_asm_len + e->data_len <= (int)sizeof(s_asm)) {
+      s_asm_len + e->data_len <= MQ_ASM_MAX) {
     memcpy(s_asm + s_asm_len, e->data, e->data_len);
     s_asm_len += e->data_len;
   }
@@ -216,11 +224,24 @@ void mqtt_src_start(const char* url, const char* topic, const char* user, const 
   strncpy(s_user,  user ? user : "", sizeof(s_user) - 1); s_user[sizeof(s_user) - 1] = 0;
   strncpy(s_pass,  pass ? pass : "", sizeof(s_pass) - 1); s_pass[sizeof(s_pass) - 1] = 0;
 
-  if (!s_queue) s_queue = xQueueCreate(MQ_QUEUE_LEN, sizeof(MqPkt));
+  // One-time PSRAM allocations (kept for the client's lifetime): the reassembly
+  // buffer and the decoded-packet queue storage, so neither eats internal DRAM.
+  if (!s_asm) s_asm = (char*)ps_malloc(MQ_ASM_MAX);
+  if (!s_queue) {
+    if (!s_queue_store) s_queue_store = (uint8_t*)ps_malloc(MQ_QUEUE_LEN * sizeof(MqPkt));
+    if (s_queue_store)
+      s_queue = xQueueCreateStatic(MQ_QUEUE_LEN, sizeof(MqPkt), s_queue_store, &s_queue_ctrl);
+    else
+      s_queue = xQueueCreate(MQ_QUEUE_LEN, sizeof(MqPkt));   // fallback: internal RAM
+  }
 
   esp_mqtt_client_config_t cfg = {};
   cfg.uri = s_url;                                  // wss:// -> WebSocket+TLS auto-selected
   cfg.cert_pem = ISRG_ROOT_X1;                      // verify the broker against Let's Encrypt's root
+  // Halve esp-mqtt's internal RX/TX buffers (default 1 KB each): the feed's
+  // messages are small, and larger ones are reassembled in the PSRAM s_asm
+  // buffer, so this frees ~1 KB of internal DRAM.
+  cfg.buffer_size = 512;
   if (s_user[0]) cfg.username = s_user;
   if (s_pass[0]) cfg.password = s_pass;
 

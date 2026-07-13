@@ -454,9 +454,31 @@ int MyMesh::getRecentlyHeard(AdvertPath dest[], int max_num) {
 void MyMesh::importObservedPacket(float snr, float rssi, const uint8_t* raw, int len) {
   mesh::Packet pkt;
   if (!pkt.readFrom(raw, len)) return;
-  // Observe-only: only ADVERTs feed the Heard list; everything else is already
+  uint8_t ptype = pkt.getPayloadType();
+
+  // Channel (group) text: if we hold the channel key, decrypt and show it in the
+  // same chat view as an on-air channel message. Channel messages are broadcast
+  // -- no ACK, no reply -- and we never relay, so this stays observe-only. Deduped
+  // via the seen-table so a message heard on both RF and MQTT appears once.
+  if (ptype == PAYLOAD_TYPE_GRP_TXT) {
+    if (getTables()->hasSeen(&pkt)) return;
+    int i = 0;
+    uint8_t channel_hash = pkt.payload[i++];
+    if (i + 2 >= pkt.payload_len) return;
+    uint8_t* macAndData = &pkt.payload[i];
+    mesh::GroupChannel channels[4];
+    int num = searchChannelsByHash(&channel_hash, channels, 4);
+    for (int j = 0; j < num; j++) {
+      uint8_t data[MAX_PACKET_PAYLOAD];
+      int dlen = mesh::Utils::MACThenDecrypt(channels[j].secret, data, macAndData, pkt.payload_len - i);
+      if (dlen > 0) { onGroupDataRecv(&pkt, ptype, channels[j], data, dlen); break; }  // no relay
+    }
+    return;
+  }
+
+  // Only ADVERTs additionally feed the Heard list; other types are already
   // visible in the packet monitor and must not trigger any mesh side effects.
-  if (pkt.getPayloadType() != PAYLOAD_TYPE_ADVERT) return;
+  if (ptype != PAYLOAD_TYPE_ADVERT) return;
 
   // Decode + verify exactly as Mesh::onRecvPacket() does for an on-air advert,
   // but WITHOUT the subsequent routeRecvPacket() call, so nothing is relayed.
