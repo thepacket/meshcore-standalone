@@ -103,7 +103,20 @@ static const Field F_WIFI[] = {
 static const Field F_MQTT[] = {
   {"Enabled",   F_BOOL,   NULL, 0},          // observe-only live feed (needs Wi-Fi)
   {"Broker",    F_ENUM,   "Primary\nSecondary", 0},
-  {"Region",    F_ENUM,   "All regions\nToronto\nVancouver\nMontreal\nCalgary\nEdmonton\nOttawa\nHalifax\nWinnipeg", 0},
+  // City (IATA) labels; order is index-locked to MQTT_REGIONS[] in UITask.cpp.
+  // ASCII only (montserrat font has no accented glyphs). Mirrors meshcore-android MqttPrefs.REGIONS.
+  {"Region",    F_ENUM,   "All regions\n"
+    "Toronto (YYZ)\nVancouver (YVR)\nMontreal (YUL)\nCalgary (YYC)\nEdmonton (YEG)\n"
+    "Ottawa (YOW)\nHalifax (YHZ)\nWinnipeg (YWG)\nQuebec City (YQB)\nHamilton (YHM)\n"
+    "London (YXU)\nSaskatoon (YXE)\nVictoria (YYJ)\nKingston (YGK)\nKitchener (YKF)\n"
+    "Kamloops (YKA)\nNanaimo (YCD)\nThunder Bay (YQT)\nLethbridge (YQL)\nSaint John (YSJ)\n"
+    "Prince Albert (YPA)\nMuskoka (YQA)\nBarrie (YLK)\nTrenton (YTR)\nPembroke (YTA)\n"
+    "Alma (YTF)\nSt-Jean (YJN)\nSt-Hubert (YHU)\n"
+    "Appleton (ATW)\nBarcelona (BCN)\nCape Town (CPT)\nNew Bern (EWN)\nMunster (FMO)\n"
+    "Spokane (GEG)\nGreensboro (GSO)\nLodz (LCJ)\nLisbon (LIS)\nLinz (LNZ)\n"
+    "Manchester (MAN)\nMilwaukee (MKE)\nPrague (PRG)\nPontiac (PTK)\nRotterdam (RTM)\n"
+    "Seattle (SEA)\nSan Francisco (SFO)\nSt. George (SGU)\nSalt Lake City (SLC)\n"
+    "Orange County (SNA)\nWarsaw (WAW)", 0},
   {"Username",  F_VAL,    "", 0},            // required (brokers are JWT-gated)
   {"Token",     F_VAL,    "", 0},            // password / JWT token
   {"Reconnect", F_ACTION, NULL, 0},          // force a fresh connection
@@ -442,7 +455,11 @@ void lv_settings_group_create(lv_obj_t* scr, int idx) {
         lv_obj_t* dd = lv_dropdown_create(c);
         lv_dropdown_set_options(dd, f->value);
         lv_dropdown_set_selected(dd, g_sel[idx][i]);
-        lv_obj_set_width(dd, 124);
+        // Region holds long "City (IATA)" values; let it grow to fill the row after
+        // its label so the selection isn't clipped (and the open list, clamped to the
+        // button width, stays on-screen). Other enums keep the tidy fixed width.
+        if (strcmp(f->label, "Region") == 0) lv_obj_set_flex_grow(dd, 1);
+        else                                 lv_obj_set_width(dd, 124);
         lv_obj_set_style_bg_color(dd, lv_color_hex(0x18202c), 0);
         lv_obj_set_style_border_color(dd, lv_color_hex(g->color), 0);
         lv_obj_set_style_border_width(dd, 1, 0);

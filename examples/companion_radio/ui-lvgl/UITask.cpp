@@ -1130,7 +1130,14 @@ static const char* const MQTT_BROKERS[] = {
 // Region topic codes; index 0 ("+") means all regions. The order MUST match the
 // "Region" F_ENUM label list in lv_settings.c.
 static const char* const MQTT_REGIONS[] = {
-  "+", "YYZ", "YVR", "YUL", "YYC", "YEG", "YOW", "YHZ", "YWG",
+  "+",                                                        // All regions
+  "YYZ", "YVR", "YUL", "YYC", "YEG", "YOW", "YHZ", "YWG",     // Canada
+  "YQB", "YHM", "YXU", "YXE", "YYJ", "YGK", "YKF", "YKA",
+  "YCD", "YQT", "YQL", "YSJ", "YPA", "YQA", "YLK", "YTR",
+  "YTA", "YTF", "YJN", "YHU",
+  "ATW", "BCN", "CPT", "EWN", "FMO", "GEG", "GSO", "LCJ",     // International
+  "LIS", "LNZ", "MAN", "MKE", "PRG", "PTK", "RTM", "SEA",
+  "SFO", "SGU", "SLC", "SNA", "WAW",
 };
 #define MQTT_N_REGIONS ((int)(sizeof(MQTT_REGIONS) / sizeof(MQTT_REGIONS[0])))
 
