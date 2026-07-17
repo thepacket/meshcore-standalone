@@ -360,4 +360,8 @@ private:
   int8_t   _last_rx_rssi = 0;   // RSSI of the most recent raw RX (for the discovery list)
 };
 
+#if defined(ESP32)
+extern MyMesh& the_mesh;   // PSRAM-resident (placement-new'd in main.cpp); the reference keeps every call site unchanged
+#else
 extern MyMesh the_mesh;
+#endif

@@ -25,7 +25,9 @@
 #include <driver/gpio.h>      // pad holds for deep sleep (radio keeps listening)
 #include <esp_sleep.h>
 
-extern MyMesh the_mesh;   // global mesh instance (main.cpp)
+// the_mesh is declared by ../MyMesh.h (included above). Don't re-declare it here: on
+// ESP32 it is a REFERENCE to a PSRAM-resident object, and a local `extern MyMesh`
+// conflicts with that.
 
 // case-insensitive name compare for alphabetical sorting of lists
 static int ci_strcmp(const char* a, const char* b) {

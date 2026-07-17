@@ -93,11 +93,32 @@ static uint32_t _atoi(const char* sp) {
 
 StdRNG fast_rng;
 SimpleMeshTables tables;
+#if defined(ESP32)
+// the_mesh is ~121 KB on the T-Deck build — the MAX_CONTACTS=350 ContactInfo array
+// dominates it — and as a plain global it lands in .bss, i.e. the scarce INTERNAL DRAM
+// that Wi-Fi and TLS also allocate from. That single object was over half of all static
+// RAM and is why free heap ran down to ~19 KB. Construct it in PSRAM instead and bind a
+// reference, so every `the_mesh.foo()` call site is unchanged. The constructor still
+// runs HERE at static-init (PSRAM is mapped before C++ ctors run), so ordering and
+// behaviour are identical — only the address moves off internal DRAM. heap_caps falls
+// back to internal RAM if PSRAM is absent, i.e. exactly the old layout.
+static MyMesh& makeTheMesh() {
+  void* mem = heap_caps_malloc(sizeof(MyMesh), MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!mem) mem = malloc(sizeof(MyMesh));   // no-PSRAM fallback: behaves as before
+  return *new (mem) MyMesh(radio_driver, fast_rng, rtc_clock, tables, store
+   #ifdef DISPLAY_CLASS
+      , &ui_task
+   #endif
+  );
+}
+MyMesh& the_mesh = makeTheMesh();
+#else
 MyMesh the_mesh(radio_driver, fast_rng, rtc_clock, tables, store
    #ifdef DISPLAY_CLASS
       , &ui_task
    #endif
 );
+#endif
 
 /* END GLOBAL OBJECTS */
 
