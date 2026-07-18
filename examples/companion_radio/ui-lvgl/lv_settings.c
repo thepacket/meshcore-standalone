@@ -160,6 +160,9 @@ static const Field F_DATA[] = {
 static const Group GROUPS[] = {
   GRP("Public info", UI_GREEN,   ICON_CONTACTS,  F_PUBLIC),
   GRP("Radio",       UI_PURPLE,  ICON_REPEATERS, F_RADIO),
+  // MQTT sits right after Radio so it renders immediately after the injected
+  // "Scopes" row (which the list builder places after Radio).
+  GRP("MQTT",        UI_TEAL,    ICON_SIGNAL,    F_MQTT),
   GRP("Contacts",    UI_BLUE,    ICON_CONTACTS,  F_CONTACTS),
   GRP("Messaging",   UI_CYAN,    ICON_CHAT,      F_MSG),
   GRP("Position",    UI_ORANGE,  ICON_MAP,       F_POSITION),
@@ -168,7 +171,6 @@ static const Group GROUPS[] = {
   GRP("Security",    UI_TEAL,    ICON_SHIELD,    F_SECURITY),
   GRP("Time",        UI_AMBER,   ICON_CLOCK,     F_TIME),
   GRP("Wi-Fi",       UI_CYAN,    ICON_WIFI,      F_WIFI),
-  GRP("MQTT",        UI_TEAL,    ICON_SIGNAL,    F_MQTT),
   GRP("Remote screen", UI_PURPLE, ICON_SETTINGS, F_REMOTE),
   GRP("Device",      UI_INDIGO,  ICON_SETTINGS,  F_DEVICE),
   GRP("Channels",    UI_LIME,    ICON_CHAT,      F_CHANNELS),
@@ -176,7 +178,10 @@ static const Group GROUPS[] = {
 };
 #define N_GROUPS  ((int)(sizeof(GROUPS) / sizeof(GROUPS[0])))
 #define MAX_FIELDS 13
-static const char* SG_DEST[] = {"sg0","sg1","sg2","sg3","sg4","sg5","sg6","sg7","sg8","sg9","sg10","sg11","sg12","sg13"};
+// One nav destination per group ("sgN" -> lv_settings_group_create(N)); must be
+// >= N_GROUPS. Keep a little headroom so adding a group doesn't overflow this.
+static const char* SG_DEST[] = {"sg0","sg1","sg2","sg3","sg4","sg5","sg6","sg7",
+  "sg8","sg9","sg10","sg11","sg12","sg13","sg14","sg15","sg16","sg17"};
 
 // ---- mutable value overlay (prototype state; persists across navigation) ----
 // width fits the longest editable value (the ~90-char map tile URL); on the
