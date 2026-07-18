@@ -143,6 +143,9 @@ public:
   bool addDirectoryContact(const uint8_t* pubkey, const char* name, uint8_t type,
                            int32_t gps_lat, int32_t gps_lon);  // promote a global-directory node
   void clearAllContacts();   // wipe every radio contact and persist the empty list
+  // Region of the advert/message currently being handled: the MQTT topic region,
+  // or "Radio" for on-air traffic. Valid only during a packet handler.
+  const char* obsRegion() const { return _obs_region_valid ? _obs_region : "Radio"; }
 
   // ---- active node discovery (zero-hop NODE_DISCOVER_REQ; neighbours reply) ----
   struct DiscNode { uint8_t pub_key[PUB_KEY_SIZE]; uint8_t type; int8_t snr_q; int8_t rssi; uint32_t ts; };

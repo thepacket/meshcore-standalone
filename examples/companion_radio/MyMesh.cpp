@@ -501,11 +501,15 @@ void MyMesh::importObservedPacket(float snr, float rssi, const uint8_t* raw, int
     uint8_t* macAndData = &pkt.payload[i];
     mesh::GroupChannel channels[4];
     int num = searchChannelsByHash(&channel_hash, channels, 4);
+    // Tag this channel message with its region (MQTT topic region) for the whole
+    // dispatch, so ui_store_message can label the sender. Empty -> "Radio".
+    if (region && region[0]) { strncpy(_obs_region, region, sizeof(_obs_region) - 1); _obs_region[sizeof(_obs_region) - 1] = 0; _obs_region_valid = true; }
     for (int j = 0; j < num; j++) {
       uint8_t data[MAX_PACKET_PAYLOAD];
       int dlen = mesh::Utils::MACThenDecrypt(channels[j].secret, data, macAndData, pkt.payload_len - i);
       if (dlen > 0) { onGroupDataRecv(&pkt, ptype, channels[j], data, dlen); break; }  // no relay
     }
+    _obs_region_valid = false;
     return;
   }
 

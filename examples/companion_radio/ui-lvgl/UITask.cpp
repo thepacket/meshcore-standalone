@@ -3884,6 +3884,13 @@ void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who,
       who = split_who; text = c + 2;
     }
   }
+  // Channel messages: tag the sender with the region it was observed in (MQTT
+  // topic region, or "Radio" for on-air) -- baked into the name so it persists.
+  char who_reg[24];
+  if (is_ch && !out && who && who[0]) {
+    snprintf(who_reg, sizeof(who_reg), "%.15s (%s)", who, the_mesh.obsRegion());
+    who = who_reg;
+  }
   strncpy(m.who,  who  ? who  : "", sizeof(m.who)  - 1); m.who[sizeof(m.who)   - 1] = 0;
   strncpy(m.text, text ? text : "", sizeof(m.text) - 1); m.text[sizeof(m.text) - 1] = 0;
   m.ts = rtc_clock.getCurrentTime();
