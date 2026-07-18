@@ -136,6 +136,34 @@ static void tab_clicked(lv_event_t* e) {
   int tab = (int)(intptr_t)lv_event_get_user_data(e);
   if (tab != s_chat_tab) { s_chat_tab = tab; lv_async_call(chat_rebuild_cb, NULL); }
 }
+// long-press the Channels tab -> red "Clear all channels" confirm overlay
+static void chan_clear_close(lv_event_t* e) { lv_obj_del((lv_obj_t*)lv_event_get_user_data(e)); }
+static void chan_clear_confirm(lv_event_t* e) {
+  lvd_clear_channel_messages();
+  lv_obj_del((lv_obj_t*)lv_event_get_user_data(e));
+  lv_ui_toast("All channels cleared");
+  lv_async_call(chat_rebuild_cb, NULL);
+}
+static void show_clear_all_channels(void) {
+  lv_obj_t* m = lv_obj_create(lv_screen_active());             // dim overlay; tap = cancel
+  lv_obj_set_size(m, 320, 240); lv_obj_set_pos(m, 0, 0);
+  lv_obj_set_style_bg_color(m, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_bg_opa(m, 170, 0);
+  lv_obj_set_style_border_width(m, 0, 0);
+  lv_obj_add_flag(m, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(m, chan_clear_close, LV_EVENT_CLICKED, m);
+  lv_obj_t* btn = lv_button_create(m);
+  lv_obj_set_size(btn, 240, 48); lv_obj_center(btn);
+  lv_obj_set_style_bg_color(btn, lv_color_hex(UI_RED), 0);
+  lv_obj_set_style_radius(btn, 10, 0);
+  lv_obj_add_event_cb(btn, chan_clear_confirm, LV_EVENT_CLICKED, m);
+  lv_obj_t* l = lv_label_create(btn);
+  lv_label_set_text(l, "Clear all channels");
+  lv_obj_set_style_text_color(l, lv_color_hex(0xffffff), 0);
+  lv_obj_center(l);
+}
+static void chan_tab_longpress(lv_event_t* e) { (void)e; if (s_chat_tab == 0) show_clear_all_channels(); }
+
 static void seg_tab(lv_obj_t* parent, const char* txt, int tab) {
   bool active = (tab == s_chat_tab);
   lv_obj_t* t = lv_obj_create(parent);
@@ -149,6 +177,7 @@ static void seg_tab(lv_obj_t* parent, const char* txt, int tab) {
   lv_obj_set_style_pad_all(t, 0, 0);
   lv_obj_add_flag(t, LV_OBJ_FLAG_CLICKABLE);
   lv_obj_add_event_cb(t, tab_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)tab);
+  if (tab == 0) lv_obj_add_event_cb(t, chan_tab_longpress, LV_EVENT_LONG_PRESSED, NULL);   // hold Channels -> clear all
   lv_ui_press_fx(t);
   lv_obj_t* l = lv_label_create(t);
   lv_label_set_text(l, txt);

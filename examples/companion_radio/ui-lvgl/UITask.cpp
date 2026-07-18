@@ -3817,6 +3817,36 @@ static void chat_persist_clone_current_to(const char* slug) {
   free(buf);
 }
 
+// "Clear all channels": empty every group-channel thread in persistent storage
+// (drop the 'C' lines from chats.log) and reload the ring -- keeping DMs and the
+// channel definitions themselves.
+static void chat_clear_all_channels(void) {
+  char path[96]; chatlog_path(path, sizeof(path));
+  if (tdeck_sd_ok()) {
+    char* buf = (char*)big_alloc(CHATLOG_CAP + 2048);
+    if (buf) {
+      int n = tdeck_sd_read(path, (uint8_t*)buf, CHATLOG_CAP + 2047);
+      if (n > 0) {
+        int ol = 0, i = 0;                              // keep only non-channel ('D') lines
+        while (i < n) {
+          int ls = i;
+          while (i < n && buf[i] != '\n') i++;
+          if (i < n) i++;                               // include the newline
+          int t = ls; while (t < i && buf[t] != '\t') t++;      // first tab -> the type column
+          char type = (t + 1 < i) ? buf[t + 1] : 'D';
+          if (type != 'C') { if (ol != ls) memmove(buf + ol, buf + ls, i - ls); ol += i - ls; }
+        }
+        tdeck_sd_write(path, (const uint8_t*)buf, ol, false);   // truncate to the DM lines
+        s_chatlog_bytes = ol;
+      }
+      free(buf);
+    }
+  }
+  chat_ring_reset();      // drop the RAM ring...
+  chat_persist_load();    // ...and reload just the DMs left in the log
+}
+extern "C" void lvd_clear_channel_messages(void) { chat_clear_all_channels(); }
+
 void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who, const char* text, bool out, uint8_t path_len,
                       const uint8_t* author4) {
   if (!s_msg) return;

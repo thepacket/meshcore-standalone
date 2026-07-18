@@ -53,6 +53,7 @@ void        lvd_contact_set_type(int t);            // node-type filter: 0 all, 
 int         lvd_contact_type(void);
 int         lvd_contact_total(void);                // total contacts (ignores the filter)
 void        lvd_clear_radio_contacts(void);         // wipe all radio contacts (persisted)
+void        lvd_clear_channel_messages(void);       // empty all channel threads (persisted; keeps channels)
 // match a name against space-separated OR tokens ("sky hull" => sky OR hull)
 bool        lvd_name_match(const char* hay, const char* needle);
 
