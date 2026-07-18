@@ -1,3 +1,6 @@
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Ported and adapted from wadamesh (Kaj Schittecat and contributors),
+// GPL-3.0-or-later. See LICENSE and NOTICE at the repo root.
 #include "WebMirror.h"
 #include <Arduino.h>
 #include <esp_heap_caps.h>

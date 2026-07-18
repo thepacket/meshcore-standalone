@@ -176,7 +176,8 @@ Delivered alongside M3 to host the diagnostic tiles:
 ## Cross-cutting
 - Portability across boards (T-Deck/T-Deck Plus first; keep the UI abstraction clean).
 - Everything validated on real hardware before being called stable.
-- New deps must be MIT-compatible (e.g. QR encoder); no GPL code pulled in.
+- The project is **GPL-3.0-or-later** (since the remote-screen feature ported from
+  wadamesh). New deps must be GPL-3.0-compatible (MIT/Apache-2.0/BSD are fine).
 
 ## Done so far
 M1 settings; the MeshOS-style cyan-on-black icon-grid launcher home with status bars; all of

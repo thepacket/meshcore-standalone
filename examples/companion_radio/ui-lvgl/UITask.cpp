@@ -233,6 +233,9 @@ extern void radio_spi_claim();
 static volatile bool g_disp_drew = false;
 
 // ===== Web UI mirror: coalesced, rate-capped, backpressure-gated streaming =====
+// This block (band/RLE encoder + virtual indevs) is ported and adapted from
+// wadamesh (Kaj Schittecat and contributors), GPL-3.0-or-later — the reason
+// meshcore-standalone is now GPL-3.0-or-later. See LICENSE and NOTICE.
 // The flush hook copies each drawn band into a full-screen RGB565 shadow buffer and
 // grows a dirty bounding box (cheap, no network). webMirrorTick() then RLE-encodes
 // just the dirty box and queues it — but ONLY after the previous frame has fully

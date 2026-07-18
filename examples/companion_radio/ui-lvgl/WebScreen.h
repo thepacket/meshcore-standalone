@@ -1,4 +1,8 @@
 #pragma once
+// SPDX-License-Identifier: GPL-3.0-or-later
+// The mirror protocol, WebSocket handshake/frame code, and browser page are
+// ported and adapted from wadamesh (Kaj Schittecat and contributors),
+// GPL-3.0-or-later. See LICENSE and NOTICE at the repo root.
 // ============================================================================
 // WebScreen — a lightweight, self-contained WebSocket server that mirrors the
 // T-Deck's live LVGL screen to a browser <canvas> and injects the browser's

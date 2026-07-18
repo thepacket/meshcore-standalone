@@ -1,9 +1,18 @@
+MeshCore upstream — MIT License (retained)
+================================================================================
+
+meshcore-standalone as a whole is licensed under GPL-3.0-or-later (see LICENSE
+and NOTICE). It derives from MeshCore, which is MIT-licensed. Per the MIT
+license, that grant is preserved: the MeshCore-derived source files retain their
+MIT license notices, and the MIT terms below continue to apply to those
+upstream portions. GPL-3.0 is compatible with including MIT-licensed code.
+
+--------------------------------------------------------------------------------
+
 MIT License
 
 Copyright (c) 2025 Scott Powell / rippleradios.com (MeshCore: the mesh stack,
   companion firmware, and all upstream code this project is derived from)
-Copyright (c) 2026 Andre Paquette (@thepacket) (meshcore-standalone: only the
-  standalone on-device UI additions and the desktop simulator)
 
 Permission is hereby granted, free of charge, to any person obtaining a copy
 of this software and associated documentation files (the "Software"), to deal

@@ -1,4 +1,8 @@
 #pragma once
+// SPDX-License-Identifier: GPL-3.0-or-later
+// Ported and adapted from wadamesh (Kaj Schittecat and contributors),
+// GPL-3.0-or-later. meshcore-standalone is distributed under GPL-3.0-or-later;
+// see LICENSE and NOTICE at the repo root.
 // ============================================================================
 // Web UI mirror — lock-free bridge between the LVGL UI thread and the WebScreen
 // network task. The device streams its live framebuffer (every LVGL flush) to a

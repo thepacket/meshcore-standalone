@@ -1,0 +1,57 @@
+meshcore-standalone
+Copyright (c) 2026 Andre Paquette (@thepacket) and contributors
+
+This program is free software: you can redistribute it and/or modify it under
+the terms of the GNU General Public License as published by the Free Software
+Foundation, either version 3 of the License, or (at your option) any later
+version. See the LICENSE file for the full text.
+
+The project was previously distributed under the MIT License. It moved to
+GPL-3.0-or-later when it incorporated GPL-licensed code (see wadamesh below).
+MIT and Apache-2.0 are compatible with GPL-3.0; the combined work is
+distributed under GPL-3.0-or-later. Files derived from MIT-licensed upstreams
+retain their original MIT license notices, and those notices continue to apply
+to those portions.
+
+================================================================================
+Third-party components and their licenses
+================================================================================
+
+MeshCore
+    Copyright (c) 2025 Scott Powell / rippleradios.com
+    MIT License — https://github.com/meshcore-dev/MeshCore
+    meshcore-standalone derives its companion-radio application and core stack
+    from MeshCore. The MeshCore-derived source files retain their MIT license
+    notices; that MIT grant is preserved and is not revoked by this project's
+    move to GPL-3.0-or-later.
+
+wadamesh
+    Copyright (c) 2026 Kaj Schittecat and the wadamesh contributors
+    GNU General Public License v3.0 or later —
+    https://github.com/ (wadamesh)
+    The on-device "remote screen" feature — the WebMirror framebuffer/input
+    bridge (examples/companion_radio/ui-lvgl/WebMirror.{h,cpp}), the WebSocket
+    mirror server and browser page (WebScreen.{h,cpp}), and the flush-hook
+    band/RLE encoder and virtual indevs added to UITask.cpp — is ported and
+    adapted from wadamesh's WebMirror. Incorporating this GPL-3.0-or-later code
+    is why this project as a whole is now GPL-3.0-or-later.
+
+LVGL
+    Copyright (c) LVGL Kft and contributors
+    MIT License — https://lvgl.io
+
+FontAwesome Free (Solid) — baked icon subset in ui-lvgl/icons_fa.c
+    SIL Open Font License 1.1 — https://github.com/FortAwesome/Font-Awesome
+
+QR Code generator library
+    Copyright (c) Project Nayuki
+    MIT License — https://www.nayuki.io/page/qr-code-generator-library
+
+LovyanGFX (T-Deck display backend)
+    Copyright (c) lovyan03 — FreeBSD License — https://github.com/lovyan03/LovyanGFX
+
+RadioLib
+    Copyright (c) Jan Gromeš — MIT License — https://github.com/jgromes/RadioLib
+
+See THIRD_PARTY.md for the vendored-code manifest. This list is not exhaustive
+and is expanded as dependencies are vendored or added.

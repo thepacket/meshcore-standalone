@@ -18,7 +18,7 @@ devices and faithful to MeshCore's underlying protocol.
   too unreliable to be useful and is disabled.)
 - **Beautiful** — a modern, colourful, widget-rich interface (built on **LVGL**),
   not raw text on a panel.
-- **Open** — MIT licensed.
+- **Open** — GPL-3.0-or-later (see [License](#license)).
 
 ## Status
 
@@ -161,8 +161,17 @@ The upstream repository is tracked read-only so this fork can pull in future Mes
 
 ## License
 
-MIT — see [`license.txt`](license.txt). MeshCore's original copyright is retained;
-this project's copyright covers only the UI additions described above.
+**GPL-3.0-or-later** — see [`LICENSE`](LICENSE) and [`NOTICE`](NOTICE).
+
+This project was previously MIT. It moved to GPL-3.0-or-later when the on-device
+**remote screen** feature was added, which is ported from
+[wadamesh](https://github.com/) (GPL-3.0-or-later). MIT is GPL-compatible, so the
+combined work is distributed under GPL-3.0-or-later.
+
+MeshCore's upstream code remains **MIT-licensed** and its notice is retained —
+see [`LICENSE.MeshCore.MIT`](LICENSE.MeshCore.MIT); those MIT terms continue to
+apply to the MeshCore-derived portions. This relicensing applies only to this
+fork (`meshcore-standalone`), not to upstream MeshCore.
 
 ---
 
