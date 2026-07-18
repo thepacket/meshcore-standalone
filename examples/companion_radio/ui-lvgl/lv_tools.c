@@ -308,7 +308,8 @@ static void pkt_clicked(lv_event_t* e) {
   if (lv_nav_cb) lv_nav_cb("pktdetail");
 }
 
-static void pkt_row(lv_obj_t* list, int idx, const char* type, uint32_t tcol, const char* meta) {
+static void pkt_row(lv_obj_t* list, int idx, const char* type, uint32_t tcol,
+                    const char* meta, const char* region) {
   lv_obj_t* c = lv_ui_md_card(list);
   lv_obj_set_width(c, lv_pct(100)); lv_obj_set_height(c, 32);
   lv_obj_set_style_min_height(c, 0, 0); lv_obj_set_style_pad_hor(c, 8, 0); lv_obj_set_style_pad_ver(c, 0, 0);
@@ -323,6 +324,17 @@ static void pkt_row(lv_obj_t* list, int idx, const char* type, uint32_t tcol, co
   lv_label_set_text(m, meta);
   lv_obj_set_style_text_font(m, &lv_font_montserrat_14, 0);
   lv_obj_set_style_text_color(m, lv_color_hex(UI_MUTED), 0);
+  lv_obj_set_flex_grow(m, 1);   // fill the middle so the region tag sits at the right edge
+  // Region tag: RF packets carry the active scope, MQTT packets their broker region.
+  if (region && region[0]) {
+    lv_obj_t* rg = lv_label_create(c);
+    lv_label_set_text(rg, region);
+    lv_obj_set_width(rg, 78);
+    lv_label_set_long_mode(rg, LV_LABEL_LONG_DOT);
+    lv_obj_set_style_text_align(rg, LV_TEXT_ALIGN_RIGHT, 0);
+    lv_obj_set_style_text_font(rg, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(rg, lv_color_hex(UI_TEXT), 0);
+  }
 }
 
 // live packet-monitor list (valid only while the Packets tab is active)
@@ -341,7 +353,7 @@ static void packets_fill(lv_obj_t* list) {
   }
   lvd_packet_t p;
   for (int i = 0; i < n; i++)
-    if (lvd_packet_get(i, &p)) pkt_row(list, i, p.type, p.color, p.meta);
+    if (lvd_packet_get(i, &p)) pkt_row(list, i, p.type, p.color, p.meta, p.region);
 }
 
 static void pkt_open_search(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("pkt_search"); }

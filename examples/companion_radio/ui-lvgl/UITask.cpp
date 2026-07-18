@@ -1710,13 +1710,30 @@ static void region_cfg_path(const char* slug, char* o, int n) { snprintf(o, n, S
 static void region_app_path(const char* slug, char* o, int n) { snprintf(o, n, SD_REGIONS_DIR "/%s/appdata.txt", slug); }
 static void region_dir_path(const char* slug, char* o, int n) { snprintf(o, n, SD_REGIONS_DIR "/%s", slug); }
 
+// Cached active-scope name: the packet monitor tags every RF packet with the
+// active scope as its "region", and that runs in the RX hot path, so we must not
+// hit NVS per packet. Invalidated on any scope switch (region_set_active).
+static char s_scope_cache[16];
+static bool s_scope_cache_ok = false;
+
 static void region_get_active(char* out, int outlen) {
   Preferences p; p.begin("region", true);
   String s = p.getString("cur", "");
   p.end();
   strncpy(out, s.c_str(), outlen - 1); out[outlen - 1] = 0;
 }
+// The active scope name for RF-packet region tagging (cached; see above).
+static const char* active_scope_cached(void) {
+  if (!s_scope_cache_ok) {
+    char buf[64]; region_get_active(buf, sizeof(buf));
+    strncpy(s_scope_cache, buf, sizeof(s_scope_cache) - 1);
+    s_scope_cache[sizeof(s_scope_cache) - 1] = 0;
+    s_scope_cache_ok = true;
+  }
+  return s_scope_cache;
+}
 static void region_set_active(const char* slug) {
+  s_scope_cache_ok = false;   // scope changed -> refresh the RF region tag
   Preferences p; p.begin("region", false);
   p.putString("cur", slug);
   p.end();
@@ -2580,6 +2597,7 @@ struct PktRec { uint8_t header; int rssi; int snr_q; int len; uint32_t t;
                 uint32_t epoch;    // RTC time at RX (absolute timestamp)
                 uint32_t payhash;  // FNV-1a of type+payload (path excluded), for rebroadcast counting
                 int16_t  freq_err; // carrier offset of last RX, Hz/100 (INT16_MIN = unknown)
+                char     region[16]; // RF: active scope name; MQTT: broker topic region
                 uint8_t raw[PKT_RAW]; uint8_t rawlen; };
 static PktRec* s_pkt = NULL;   // PSRAM ring (7KB), allocated by ui_alloc_caches()
 static int s_pkt_head = 0, s_pkt_n = 0;
@@ -2597,7 +2615,8 @@ static int pkt_payload_off(const uint8_t* b, int rl) {
   return (off <= rl) ? off : -1;
 }
 
-static void ui_log_packet_impl(float snr, float rssi, const uint8_t* raw, int len, int16_t freq_err) {
+static void ui_log_packet_impl(float snr, float rssi, const uint8_t* raw, int len, int16_t freq_err,
+                               const char* region) {
   if (!s_pkt) return;
   PktRec& r = s_pkt[s_pkt_head];
   r.header = (len > 0) ? raw[0] : 0;
@@ -2607,6 +2626,8 @@ static void ui_log_packet_impl(float snr, float rssi, const uint8_t* raw, int le
   r.t = millis();
   r.epoch = rtc_clock.getCurrentTime();
   r.freq_err = freq_err;
+  strncpy(r.region, region ? region : "", sizeof(r.region) - 1);
+  r.region[sizeof(r.region) - 1] = 0;
   r.rawlen = (uint8_t)(len > PKT_RAW ? PKT_RAW : (len < 0 ? 0 : len));
   if (raw && r.rawlen) memcpy(r.raw, raw, r.rawlen);
   // FNV-1a over payload type + payload bytes; the path is excluded so flood
@@ -2624,20 +2645,21 @@ static void ui_log_packet_impl(float snr, float rssi, const uint8_t* raw, int le
 void ui_log_packet(float snr, float rssi, const uint8_t* raw, int len) {
   float scaled = radio_driver.getLastFreqError() / 100.0f;   // valid now (still the last-RX state)
   int16_t fe = (scaled > 32000.0f || scaled < -32000.0f) ? INT16_MIN : (int16_t)scaled;
-  ui_log_packet_impl(snr, rssi, raw, len, fe);
+  ui_log_packet_impl(snr, rssi, raw, len, fe, active_scope_cached());   // RF region = active scope
 }
 
 // Network-sourced (MQTT) packet: there was no radio RX, so the carrier offset
 // is unknown -- record it as such rather than reusing a stale RF measurement.
-void ui_log_packet_net(float snr, float rssi, const uint8_t* raw, int len) {
-  ui_log_packet_impl(snr, rssi, raw, len, INT16_MIN);
+// `region` is the broker topic's region segment (see MqttSource).
+void ui_log_packet_net(float snr, float rssi, const uint8_t* raw, int len, const char* region) {
+  ui_log_packet_impl(snr, rssi, raw, len, INT16_MIN, region);
 }
 
 // Single entry point for an MQTT-observed packet: merge it into the same views
 // the radio feeds -- the packet monitor ring AND the mesh's Heard list (adverts
 // only, never relayed). Called from the UI task via mqtt_src_drain().
-void ui_inject_net_packet(float snr, float rssi, const uint8_t* raw, int len) {
-  ui_log_packet_net(snr, rssi, raw, len);
+void ui_inject_net_packet(float snr, float rssi, const uint8_t* raw, int len, const char* region) {
+  ui_log_packet_net(snr, rssi, raw, len, region);
   the_mesh.importObservedPacket(snr, rssi, raw, len);
 }
 
@@ -2734,6 +2756,7 @@ extern "C" bool lvd_packet_get(int i, lvd_packet_t* out) {
     default:   ty = "?";   col = UI_MUTED;  break;
   }
   strncpy(out->type, ty, sizeof(out->type) - 1); out->type[sizeof(out->type) - 1] = 0;
+  strncpy(out->region, r.region, sizeof(out->region) - 1); out->region[sizeof(out->region) - 1] = 0;
   out->color = col;
 
   static const char* RT[4] = { "TFL", "FLD", "DIR", "TDR" };  // route type (header & 0x03)

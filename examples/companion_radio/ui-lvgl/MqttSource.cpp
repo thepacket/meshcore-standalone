@@ -20,7 +20,7 @@
 
 // Defined in UITask.cpp: merge a network-sourced packet into the monitor ring
 // and the mesh Heard list (adverts only, never relayed onto the radio).
-extern void ui_inject_net_packet(float snr, float rssi, const uint8_t* raw, int len);
+extern void ui_inject_net_packet(float snr, float rssi, const uint8_t* raw, int len, const char* region);
 
 static const char* TAG = "MqttSource";
 
@@ -71,6 +71,7 @@ struct MqPkt {
   float   rssi;
   uint8_t len;
   uint8_t raw[MQ_RAW_MAX];
+  char    region[16];   // region segment of the topic (meshcore/<region>/.../packets)
 };
 
 static esp_mqtt_client_handle_t s_client = nullptr;
@@ -121,10 +122,29 @@ static char*   s_asm = nullptr;      // PSRAM
 static int     s_asm_len = 0;
 static bool    s_asm_skip = false;   // set when a message overflows the buffer
 
+// The region (city/IATA) segment of the current message's topic:
+// meshcore/<region>/<node>/packets. Set on the first data fragment (esp-mqtt
+// only carries the topic there) and reused across any continuation fragments.
+static char s_msg_region[16] = "";
+
+// Copy the <region> segment of a (non-null-terminated) topic into out.
+static void topic_region(const char* topic, int topic_len, char* out, int outn) {
+  out[0] = 0;
+  if (!topic || topic_len <= 0) return;
+  const char* end = topic + topic_len;
+  const char* p = topic;
+  const char pref[] = "meshcore/";
+  const int  pl = (int)sizeof(pref) - 1;
+  if (topic_len >= pl && strncmp(topic, pref, pl) == 0) p += pl;   // skip the fixed prefix
+  int i = 0;
+  while (p < end && *p != '/' && i < outn - 1) out[i++] = *p++;
+  out[i] = 0;
+}
+
 // Parse one complete JSON message and enqueue the decoded packet. Mirrors the
 // Android parse(): the bytes are the hex `raw` field; SNR/RSSI are numeric
 // (often string-encoded); observer status events with raw:"" are skipped.
-static void parse_and_enqueue(const char* json, int len) {
+static void parse_and_enqueue(const char* json, int len, const char* region) {
   JsonDocument doc;
   if (deserializeJson(doc, json, len)) return;         // not valid JSON -> ignore
   const char* hex = doc["raw"] | "";
@@ -134,13 +154,17 @@ static void parse_and_enqueue(const char* json, int len) {
   pkt.len  = (uint8_t)n;
   pkt.snr  = doc["SNR"].as<float>();                   // coerces numeric strings
   pkt.rssi = doc["RSSI"].as<float>();
+  strncpy(pkt.region, region ? region : "", sizeof(pkt.region) - 1);
+  pkt.region[sizeof(pkt.region) - 1] = 0;
   if (s_queue) xQueueSend(s_queue, &pkt, 0);           // drop silently if full
 }
 
 static void on_data(esp_mqtt_event_handle_t e) {
+  if (e->current_data_offset == 0)                     // topic is only on the first fragment
+    topic_region(e->topic, e->topic_len, s_msg_region, sizeof(s_msg_region));
   // Single-fragment fast path: the whole payload arrived in one event.
   if (e->current_data_offset == 0 && e->data_len == e->total_data_len) {
-    parse_and_enqueue(e->data, e->data_len);
+    parse_and_enqueue(e->data, e->data_len, s_msg_region);
     return;
   }
   // Multi-fragment: accumulate, then parse once complete. If the PSRAM buffer
@@ -155,7 +179,7 @@ static void on_data(esp_mqtt_event_handle_t e) {
     s_asm_len += e->data_len;
   }
   if (e->current_data_offset + e->data_len >= e->total_data_len) {   // last
-    if (!s_asm_skip) parse_and_enqueue(s_asm, s_asm_len);
+    if (!s_asm_skip) parse_and_enqueue(s_asm, s_asm_len, s_msg_region);
     s_asm_len = 0; s_asm_skip = false;
   }
 }
@@ -292,7 +316,7 @@ void mqtt_src_drain(void) {
   MqPkt pkt;
   // Bound the work per call so a burst can't stall the UI task.
   for (int i = 0; i < MQ_QUEUE_LEN && xQueueReceive(s_queue, &pkt, 0) == pdTRUE; i++) {
-    ui_inject_net_packet(pkt.snr, pkt.rssi, pkt.raw, pkt.len);
+    ui_inject_net_packet(pkt.snr, pkt.rssi, pkt.raw, pkt.len, pkt.region);
     s_recv++;
   }
 }

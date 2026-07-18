@@ -175,6 +175,7 @@ unsigned lvd_free_flash_kb(void); // free filesystem storage (KB)
 typedef struct {
   char     type[6];   // payload type: "TXT","ADV","ACK","GRP","TRC",...
   char     meta[44];  // pre-formatted "<route>  len<n>  <rssi>dBm  <snr>  <age>"
+  char     region[16];// RF: active scope name; MQTT: broker topic region ("" if none)
   uint32_t color;     // pill colour for the type tag
 } lvd_packet_t;
 
