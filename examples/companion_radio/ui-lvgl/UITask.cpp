@@ -3886,9 +3886,12 @@ void ui_store_message(bool is_ch, int ch, const uint8_t* peer6, const char* who,
   }
   // Channel messages: tag the sender with the region it was observed in (MQTT
   // topic region, or "Radio" for on-air) -- baked into the name so it persists.
+  // Anonymous senders (no embedded name) still get the region as "Anon (region)".
   char who_reg[24];
-  if (is_ch && !out && who && who[0]) {
-    snprintf(who_reg, sizeof(who_reg), "%.15s (%s)", who, the_mesh.obsRegion());
+  if (is_ch && !out) {
+    const char* rgn = the_mesh.obsRegion();
+    if (who && who[0]) snprintf(who_reg, sizeof(who_reg), "%.15s (%s)", who, rgn);
+    else               snprintf(who_reg, sizeof(who_reg), "Anon (%s)", rgn);
     who = who_reg;
   }
   strncpy(m.who,  who  ? who  : "", sizeof(m.who)  - 1); m.who[sizeof(m.who)   - 1] = 0;
