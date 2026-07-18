@@ -122,6 +122,11 @@ static const Field F_MQTT[] = {
   {"Reconnect", F_ACTION, NULL, 0},          // force a fresh connection
   {"Status",    F_INFO,   "off", 0},         // connection state + packet count
 };
+static const Field F_REMOTE[] = {
+  {"Enabled",   F_BOOL,   NULL, 0},          // PIN-gated live screen mirror over Wi-Fi (browser control)
+  {"PIN",       F_INFO,   "----", 0},        // access code required in the browser URL
+  {"Status",    F_INFO,   "off", 0},         // http://ip:port + live viewer count
+};
 static const Field F_DEVICE[] = {
   {"On-screen keyboard", F_BOOL, NULL, 1},   // show the touch keyboard for text entry
   {"Buzzer quiet",    F_BOOL, NULL, 0},
@@ -164,6 +169,7 @@ static const Group GROUPS[] = {
   GRP("Time",        UI_AMBER,   ICON_CLOCK,     F_TIME),
   GRP("Wi-Fi",       UI_CYAN,    ICON_WIFI,      F_WIFI),
   GRP("MQTT",        UI_TEAL,    ICON_SIGNAL,    F_MQTT),
+  GRP("Remote screen", UI_PURPLE, ICON_SETTINGS, F_REMOTE),
   GRP("Device",      UI_INDIGO,  ICON_SETTINGS,  F_DEVICE),
   GRP("Channels",    UI_LIME,    ICON_CHAT,      F_CHANNELS),
   GRP("Data",        UI_EMERALD, ICON_TERMINAL,  F_DATA),

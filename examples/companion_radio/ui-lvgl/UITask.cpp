@@ -21,6 +21,9 @@
 #include <lgfx/utility/lgfx_tjpgd.h>   // JPEG decoder (Esri World Imagery serves JPEG tiles)
 #include <time.h>
 #include <ping/ping_sock.h>   // ESP-IDF async ICMP ping (Wi-Fi ping test)
+#include <esp_random.h>       // esp_random() for the remote-screen access PIN
+#include "WebMirror.h"        // lock-free bridge: framebuffer out / pointer+key in
+#include "WebScreen.h"        // lightweight WebSocket server (remote screen control)
 #include <lwip/ip_addr.h>
 #include <driver/gpio.h>      // pad holds for deep sleep (radio keeps listening)
 #include <esp_sleep.h>
@@ -229,6 +232,128 @@ extern void radio_spi_claim();
 // touch the bus until the_mesh.loop() runs, after the whole frame is flushed.
 static volatile bool g_disp_drew = false;
 
+// ===== Web UI mirror: coalesced, rate-capped, backpressure-gated streaming =====
+// The flush hook copies each drawn band into a full-screen RGB565 shadow buffer and
+// grows a dirty bounding box (cheap, no network). webMirrorTick() then RLE-encodes
+// just the dirty box and queues it — but ONLY after the previous frame has fully
+// drained (adaptive to the real Wi-Fi throughput) and no faster than a rate cap, so
+// the link never backs up while the browser still sees the current pixels. Ported
+// from wadamesh; the ring/transport is WebScreen. Costs one bool load when off.
+static uint8_t*  s_web_rle_buf  = nullptr;   // RLE output (<=32 KB band)
+static uint8_t*  s_web_band_buf = nullptr;   // contiguous band gathered from the shadow
+static uint16_t* s_web_fb       = nullptr;   // full-screen RGB565 shadow (PSRAM)
+static int  s_web_fb_w = 320, s_web_fb_h = 240;
+static bool s_web_dirty = false;
+static int  s_web_dx1 = 0, s_web_dy1 = 0, s_web_dx2 = 0, s_web_dy2 = 0;   // dirty bbox (inclusive)
+static uint32_t s_web_last_send_ms = 0;
+
+// RLE-encode RGB565 pixels as [count(1..255), lo, hi] runs. Returns bytes, or 0 if it
+// would not beat raw (bails at cap). Flat UI -> ~5-15x; noisy content bails to raw.
+static size_t webMirrorRle(const uint16_t* src, int n, uint8_t* out, size_t cap) {
+  size_t o = 0; int i = 0;
+  while (i < n) {
+    uint16_t v = src[i];
+    int run = 1;
+    while (i + run < n && src[i + run] == v && run < 255) run++;
+    if (o + 3 > cap) return 0;
+    out[o++] = (uint8_t)run;
+    out[o++] = (uint8_t)(v & 0xFF);
+    out[o++] = (uint8_t)(v >> 8);
+    i += run;
+  }
+  return o;
+}
+
+static bool webMirrorEnsureBufs() {
+  if (s_web_fb && s_web_band_buf && s_web_rle_buf) return true;
+  if (s_web_fb_w <= 0 || s_web_fb_h <= 0) return false;
+  if (!s_web_fb)
+    s_web_fb = (uint16_t*)heap_caps_malloc((size_t)s_web_fb_w * s_web_fb_h * 2, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!s_web_band_buf)
+    s_web_band_buf = (uint8_t*)heap_caps_malloc(33000, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  if (!s_web_rle_buf)
+    s_web_rle_buf = (uint8_t*)heap_caps_malloc(33000, MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT);
+  return s_web_fb && s_web_band_buf && s_web_rle_buf;
+}
+
+// Flush hook: copy a just-drawn band into the shadow buffer + grow the dirty bbox.
+static void webMirrorOnFlush(int x, int y, int w, int h, const uint16_t* px) {
+  if (w <= 0 || h <= 0 || !webMirrorEnsureBufs()) return;
+  for (int row = 0; row < h; row++) {
+    int dy = y + row;
+    if (dy < 0 || dy >= s_web_fb_h) continue;
+    int x0 = x, cw = w, sxoff = 0;
+    if (x0 < 0) { cw += x0; sxoff = -x0; x0 = 0; }
+    if (x0 + cw > s_web_fb_w) cw = s_web_fb_w - x0;
+    if (cw > 0)
+      memcpy(s_web_fb + (size_t)dy * s_web_fb_w + x0,
+             px + (size_t)row * w + sxoff, (size_t)cw * 2);
+  }
+  int bx1 = x < 0 ? 0 : x, by1 = y < 0 ? 0 : y;
+  int bx2 = x + w - 1, by2 = y + h - 1;
+  if (bx2 >= s_web_fb_w) bx2 = s_web_fb_w - 1;
+  if (by2 >= s_web_fb_h) by2 = s_web_fb_h - 1;
+  if (bx2 < bx1 || by2 < by1) return;
+  if (!s_web_dirty) { s_web_dx1 = bx1; s_web_dy1 = by1; s_web_dx2 = bx2; s_web_dy2 = by2; s_web_dirty = true; }
+  else {
+    if (bx1 < s_web_dx1) s_web_dx1 = bx1;
+    if (by1 < s_web_dy1) s_web_dy1 = by1;
+    if (bx2 > s_web_dx2) s_web_dx2 = bx2;
+    if (by2 > s_web_dy2) s_web_dy2 = by2;
+  }
+}
+
+// Encode + queue a rect from the shadow buffer, split into SMALL (<=4 KB) bands so
+// each WS frame fits the lwIP send buffer and flushes in ~one pass. Header (10 B) =
+// [0x01, flags(bit0=rle), x, y, w, h LE16]. RGB565 native little-endian.
+static void webMirrorQueueRegion(int rx, int ry, int rw, int rh) {
+  if (rw <= 0 || rh <= 0 || !s_web_fb || !s_web_band_buf) return;
+  int rows = 4096 / (rw * 2);
+  if (rows < 1) rows = 1;
+  uint16_t* band = (uint16_t*)s_web_band_buf;
+  for (int yy = 0; yy < rh; yy += rows) {
+    int bh = (yy + rows <= rh) ? rows : (rh - yy);
+    for (int r = 0; r < bh; r++)
+      memcpy(band + (size_t)r * rw,
+             s_web_fb + (size_t)(ry + yy + r) * s_web_fb_w + rx, (size_t)rw * 2);
+    const size_t raw_bytes = (size_t)rw * bh * 2;
+    uint8_t        flags    = 0;
+    const uint8_t* body     = s_web_band_buf;
+    size_t         body_len = raw_bytes;
+    if (s_web_rle_buf) {
+      size_t rl = webMirrorRle(band, rw * bh, s_web_rle_buf, raw_bytes);
+      if (rl > 0 && rl < raw_bytes) { flags = 0x01; body = s_web_rle_buf; body_len = rl; }
+    }
+    int by = ry + yy;
+    uint8_t hdr[10] = { 0x01, flags,
+      (uint8_t)(rx & 0xFF), (uint8_t)((rx >> 8) & 0xFF),
+      (uint8_t)(by & 0xFF), (uint8_t)((by >> 8) & 0xFF),
+      (uint8_t)(rw & 0xFF), (uint8_t)((rw >> 8) & 0xFF),
+      (uint8_t)(bh & 0xFF), (uint8_t)((bh >> 8) & 0xFF) };
+    g_web_mirror.pushFrame(hdr, 10, body, body_len);
+  }
+}
+
+// Rate-capped, backpressure-gated send of the accumulated dirty bbox. Called each UI
+// loop after lv_timer_handler; only sends once the previous frame fully drained, so
+// it self-paces to the link speed (no pileup, no wedged-client disconnects).
+static void webMirrorTick() {
+  if (!g_web_mirror.active()) return;
+  // A fresh viewer (or a dropped frame) asked for the whole screen: force LVGL to
+  // redraw everything, which repopulates the shadow + marks the full bbox dirty
+  // through webMirrorOnFlush on the next lv_timer_handler pass.
+  if (g_web_mirror.takeFullRepaint()) { lv_obj_t* s = lv_screen_active(); if (s) lv_obj_invalidate(s); }
+  if (!s_web_dirty || !s_web_fb) return;
+  if (!g_web_mirror.empty()) return;             // previous frame still draining -> adapt to link speed
+  uint32_t now = millis();
+  if (now - s_web_last_send_ms < 50) return;     // ~20 fps ceiling
+  int rx = s_web_dx1, ry = s_web_dy1;
+  int rw = s_web_dx2 - s_web_dx1 + 1, rh = s_web_dy2 - s_web_dy1 + 1;
+  s_web_dirty = false;
+  s_web_last_send_ms = now;
+  webMirrorQueueRegion(rx, ry, rw, rh);
+}
+
 static void flush_cb(lv_display_t* d, const lv_area_t* area, uint8_t* px_map) {
   if (g_gfx) {
     int w = area->x2 - area->x1 + 1;
@@ -237,6 +362,8 @@ static void flush_cb(lv_display_t* d, const lv_area_t* area, uint8_t* px_map) {
     g_gfx->pushImage(area->x1, area->y1, w, h, (lgfx::rgb565_t*)px_map);
     g_gfx->endWrite();
     g_disp_drew = true;
+    if (g_web_mirror.active())      // mirror this band to any web viewer (one bool when off)
+      webMirrorOnFlush(area->x1, area->y1, w, h, reinterpret_cast<const uint16_t*>(px_map));
   }
   lv_display_flush_ready(d);
 }
@@ -255,6 +382,53 @@ static void touch_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
   } else {
     swallow = false;
     data->state = LV_INDEV_STATE_RELEASED;
+  }
+}
+
+// Web-remote pointer indev: a virtual touchscreen fed by a browser's taps over the
+// WebScreen server (via g_web_mirror). Drives the SAME LVGL UI as the physical touch;
+// idle -> released so it never fights the real touchscreen.
+static void web_ptr_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
+  (void)indev;
+  int16_t x = 0, y = 0; bool pr = false;
+  if (g_web_mirror.active() && g_web_mirror.readPointer(&x, &y, &pr)) {
+    if (pr) { if (s_screen_off) ui_screen_wake(); s_last_input = millis(); }
+    data->point.x = x;
+    data->point.y = y;
+    data->state = pr ? LV_INDEV_STATE_PRESSED : LV_INDEV_STATE_RELEASED;
+  } else {
+    data->state = LV_INDEV_STATE_RELEASED;
+  }
+}
+
+// Web-remote keypad indev: browser keystrokes (codepoints) injected into the shared
+// focus group, exactly like the physical keyboard. Each key must be reported PRESSED
+// then RELEASED so LVGL registers it as a distinct keystroke — so we force one
+// RELEASED read between consecutive pops, otherwise two identical queued keys (fast
+// typing) collapse into a single held press and the second character is lost.
+static void web_kb_read_cb(lv_indev_t* indev, lv_indev_data_t* data) {
+  (void)indev;
+  static uint32_t held = 0;
+  static bool pressed_last = false;
+  if (pressed_last) {                       // release between presses so repeats count
+    pressed_last = false;
+    data->key = held; data->state = LV_INDEV_STATE_RELEASED;
+    return;
+  }
+  uint16_t cp;
+  if (g_web_mirror.popKey(&cp)) {
+    s_last_input = millis();
+    if (s_screen_off) ui_screen_wake();
+    switch (cp) {
+      case 8: case 127: held = LV_KEY_BACKSPACE; break;
+      case 10: case 13: held = LV_KEY_ENTER;     break;
+      case 27:          held = LV_KEY_ESC;        break;
+      default:          held = cp;                break;
+    }
+    pressed_last = true;
+    data->key = held; data->state = LV_INDEV_STATE_PRESSED;
+  } else {
+    data->key = held; data->state = LV_INDEV_STATE_RELEASED;
   }
 }
 
@@ -412,6 +586,20 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   lv_indev_set_group(kbd, lv_ui_kbd_group());
 #endif
 
+  // Web remote control: a virtual pointer + keypad driving the same UI, fed by a
+  // browser over the WebScreen server. The server task idles until the feature is
+  // enabled (Settings > Remote screen), so these cost nothing when off.
+  lv_indev_t* web_ptr = lv_indev_create();
+  lv_indev_set_type(web_ptr, LV_INDEV_TYPE_POINTER);
+  lv_indev_set_read_cb(web_ptr, web_ptr_read_cb);
+  lv_indev_set_scroll_limit(web_ptr, 4);   // small drag = scroll, not a stray tap (matches touch)
+  lv_indev_t* web_kbd = lv_indev_create();
+  lv_indev_set_type(web_kbd, LV_INDEV_TYPE_KEYPAD);
+  lv_indev_set_read_cb(web_kbd, web_kb_read_cb);
+  lv_indev_set_group(web_kbd, lv_ui_kbd_group());
+  g_web_mirror.setScreenSize(320, 240);
+  g_web_screen.begin(8080);   // spawns the (idle) network task
+
 #if defined(UI_HAS_TRACKBALL)
   // up/down only (scrolling); count every signal edge via CHANGE interrupts
   pinMode(PIN_TRACKBALL_UP, INPUT_PULLUP);
@@ -437,6 +625,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 
 void ui_wifi_poll(void);   // Wi-Fi manager, defined with the lvd_wifi_* bridge below
 void ui_mqtt_poll(void);   // MQTT feed (re)connect, defined with the lvd_mqtt_* bridge below
+void ui_webscreen_poll(void);   // remote-screen server enable/disable, defined with its bridge below
 void ui_sleep_enter(void); // radio-watch light sleep, defined with the cfg actions below
 void ui_map_fetch_poll(void);   // map-tile fetch queue drain, defined with the lvd_map_* bridge
 static bool screenshot_write(void);   // BMP to SD, defined with the cfg actions below
@@ -528,6 +717,7 @@ void UITask::loop() {
 #endif
 
   lv_timer_handler();
+  webMirrorTick();         // stream the accumulated dirty region to any web viewer
   if (g_disp_drew) {       // the frame is fully flushed: give the bus back once
     g_disp_drew = false;
     radio_spi_claim();
@@ -540,6 +730,7 @@ void UITask::loop() {
     s_last_wifi = lv_now;
     ui_wifi_poll();
     ui_mqtt_poll();   // (re)connect the MQTT feed while Wi-Fi is up
+    ui_webscreen_poll();   // enable/disable the remote-screen server with Wi-Fi
     bl_poll();
   }
   mqtt_src_drain();   // inject any MQTT packets received since the last loop
@@ -1033,6 +1224,58 @@ extern "C" int lvd_wifi_scan_state(void) {
   if (c == WIFI_SCAN_RUNNING) return 1;
   return c >= 0 ? 2 : 0;
 }
+// ============================ Remote screen (WebScreen) ============================
+// A PIN-gated WebSocket server (WebScreen.cpp) mirrors the live LVGL screen to a
+// browser and injects its taps/keys back. Settings live in NVS ("webscr"); enabled
+// on-demand and gated on Wi-Fi. The PIN is generated once and persisted so it is
+// stable across reboots (shown in Settings > Remote screen).
+static bool s_ws_loaded = false;
+static bool s_ws_on = false;
+static bool s_ws_applied = false;         // re-push enable/pin to the server on change
+static char s_ws_pin[8] = "";
+static void ws_gen_pin(void) { snprintf(s_ws_pin, sizeof(s_ws_pin), "%04u", (unsigned)(esp_random() % 10000)); }
+static void ws_load(void) {
+  if (s_ws_loaded) return;
+  Preferences p;
+  if (p.begin("webscr", true)) {
+    s_ws_on = p.getBool("on", false);
+    p.getString("pin", s_ws_pin, sizeof(s_ws_pin));
+    p.end();
+  }
+  if (!s_ws_pin[0]) { ws_gen_pin(); Preferences q; q.begin("webscr", false); q.putString("pin", s_ws_pin); q.end(); }
+  s_ws_loaded = true;
+}
+static void ws_save(void) {
+  Preferences p; p.begin("webscr", false);
+  p.putBool("on", s_ws_on);
+  p.putString("pin", s_ws_pin);
+  p.end();
+}
+// ~1/s from UITask::loop(): push the enable state + PIN to the server/mirror on change.
+// The server task connects/streams only while Wi-Fi is up (it checks that itself).
+void ui_webscreen_poll(void) {
+  ws_load();
+  if (s_ws_applied) return;
+  if (s_ws_on) g_web_mirror.begin();      // lazily allocate the PSRAM frame ring
+  g_web_mirror.setEnabled(s_ws_on);
+  g_web_screen.setPin(s_ws_pin);
+  g_web_screen.setEnabled(s_ws_on);
+  s_ws_applied = true;
+}
+static int  webscreen_enabled(void) { ws_load(); return s_ws_on ? 1 : 0; }
+static void webscreen_set_enabled(int on) { ws_load(); s_ws_on = (on != 0); ws_save(); s_ws_applied = false; }
+static void webscreen_pin(char* out, int len) { ws_load(); snprintf(out, len, "%s", s_ws_pin); }
+static void webscreen_status(char* out, int len) {
+  ws_load();
+  bool wifi_up = (s_wf_run == 2 && WiFi.status() == WL_CONNECTED);
+  if (!s_ws_on)       { snprintf(out, len, "off"); return; }
+  if (!wifi_up)       { snprintf(out, len, "waiting for Wi-Fi"); return; }
+  IPAddress ip = WiFi.localIP();
+  snprintf(out, len, "http://%u.%u.%u.%u:%u  (%d viewer%s)",
+           ip[0], ip[1], ip[2], ip[3], g_web_screen.port(),
+           g_web_screen.clients(), g_web_screen.clients() == 1 ? "" : "s");
+}
+
 extern "C" int lvd_wifi_scan_count(void) {
   int c = WiFi.scanComplete();
   return c > 0 ? c : 0;
@@ -2006,6 +2249,10 @@ extern "C" bool lvd_cfg_get(const char* group, const char* label, char* val, int
     if (eq(label, "Username")) { snprintf(val, len, "%s", lvd_mqtt_user()); return true; }
     if (eq(label, "Token"))    { snprintf(val, len, "%s", lvd_mqtt_pass()); return true; }
     if (eq(label, "Status"))   { lvd_mqtt_status(val, len); return true; }
+  } else if (eq(group, "Remote screen")) {
+    if (eq(label, "Enabled")) { *sel = webscreen_enabled(); return true; }
+    if (eq(label, "PIN"))     { webscreen_pin(val, len); return true; }
+    if (eq(label, "Status"))  { webscreen_status(val, len); return true; }
   } else if (eq(group, "Device")) {
     if (eq(label, "Contacts")) { snprintf(val, len, "%d / %d used", the_mesh.getNumContacts(), MAX_CONTACTS); return true; }
     if (eq(label, "Battery/storage")) {
@@ -2100,6 +2347,8 @@ extern "C" void lvd_cfg_set(const char* group, const char* label, const char* va
     if (eq(label, "Region"))          { lvd_mqtt_set_region(sel); return; }
     if (eq(label, "Username") && val) { lvd_mqtt_set_user(val); return; }
     if (eq(label, "Token") && val)    { lvd_mqtt_set_pass(val); return; }
+  } else if (eq(group, "Remote screen")) {
+    if (eq(label, "Enabled"))         { webscreen_set_enabled(sel); return; }
   } else if (eq(group, "Device")) {
     if (eq(label, "On-screen keyboard")) { lvd_osk_set(sel != 0); return; }
     if (eq(label, "Buzzer quiet"))       { the_mesh.setBuzzerQuiet(sel != 0); return; }
