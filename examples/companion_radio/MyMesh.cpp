@@ -763,6 +763,11 @@ bool MyMesh::addDirectoryContact(const uint8_t* pubkey, const char* name, uint8_
   return ok;
 }
 
+void MyMesh::clearAllContacts() {
+  resetContacts();   // drop every real contact (keeps the reserved anon slots)
+  saveContacts();    // persist the now-empty list
+}
+
 void MyMesh::onContactPathUpdated(const ContactInfo &contact) {
   out_frame[0] = PUSH_CODE_PATH_UPDATED;
   memcpy(&out_frame[1], contact.id.pub_key, PUB_KEY_SIZE);

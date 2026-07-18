@@ -262,6 +262,10 @@ void lv_map_create(lv_obj_t* scr) {
   if (lvd_map_take_focus(&flat, &flon)) {
     s_cx = flon; s_cy = flat;
     s_z = (s_zmax >= 15) ? 15 : s_zmax;
+  } else {
+    // viewing a specific remote region: centre on those contacts, not the T-Deck
+    double mlat, mlon;
+    if (lvd_map_marker_center(&mlat, &mlon)) { s_cx = mlon; s_cy = mlat; }
   }
   if (s_z < s_zmin) s_z = s_zmin;
   if (s_z > s_zmax) s_z = s_zmax;

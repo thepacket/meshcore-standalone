@@ -52,6 +52,7 @@ int         lvd_contact_fav_only(void);
 void        lvd_contact_set_type(int t);            // node-type filter: 0 all, 1 chats, 2 repeaters, 3 rooms
 int         lvd_contact_type(void);
 int         lvd_contact_total(void);                // total contacts (ignores the filter)
+void        lvd_clear_radio_contacts(void);         // wipe all radio contacts (persisted)
 // match a name against space-separated OR tokens ("sky hull" => sky OR hull)
 bool        lvd_name_match(const char* hay, const char* needle);
 
@@ -124,6 +125,8 @@ int  lvd_map_take_focus(double* lat, double* lon);   // 1 + clears if a focus is
 typedef struct { double lat, lon; char name[32]; int type; } lvd_marker_t;
 int  lvd_map_marker_count(void);
 bool lvd_map_marker_get(int i, lvd_marker_t* out);
+// centre for a specific remote-region directory selection (1 = use *lat/*lon)
+int  lvd_map_marker_center(double* lat, double* lon);
 // read one raw RGB565 tile into buf (needs TILE_PX*TILE_PX*2 bytes); 1 ok, 0 missing/no card
 int  lvd_map_tile(int z, int x, int y, unsigned char* buf, int maxbytes);
 // lowest/highest zoom level present on the card (scans /maps); both -1 if none

@@ -95,10 +95,10 @@ static const Field F_WIFI[] = {
 static const Field F_MQTT[] = {
   {"Enabled",   F_BOOL,   NULL, 0},          // observe-only live feed (needs Wi-Fi)
   {"Broker",    F_ENUM,   "Primary\nSecondary", 0},
-  // City (IATA) labels, sorted alphabetically by city; index-locked to
-  // MQTT_REGIONS[] in UITask.cpp. No "All regions" (its wildcard overwhelms the
-  // T-Deck). ASCII only (montserrat font has no accented glyphs).
+  // "All regions" then City (IATA) labels sorted alphabetically; index-locked to
+  // MQTT_REGIONS[] in UITask.cpp. ASCII only (montserrat font has no accents).
   {"Region",    F_ENUM,
+    "All regions\n"
     "Alma (YTF)\nAppleton (ATW)\nBarcelona (BCN)\nBarrie (YLK)\nCalgary (YYC)\n"
     "Cape Town (CPT)\nEdmonton (YEG)\nGreensboro (GSO)\nHalifax (YHZ)\nHamilton (YHM)\n"
     "Kamloops (YKA)\nKingston (YGK)\nKitchener (YKF)\nLethbridge (YQL)\nLinz (LNZ)\n"

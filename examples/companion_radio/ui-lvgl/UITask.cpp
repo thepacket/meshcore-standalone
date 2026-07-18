@@ -1027,6 +1027,7 @@ extern "C" int         lvd_contact_fav_only(void) { return g_fav_only ? 1 : 0; }
 extern "C" void        lvd_contact_set_type(int t) { g_type_filter = (t < 0 || t > 3) ? 0 : t; }  // 0 all,1 chats,2 repeaters,3 rooms
 extern "C" int         lvd_contact_type(void) { return g_type_filter; }
 extern "C" int         lvd_contact_total(void)  { return the_mesh.getNumContacts(); }
+extern "C" void        lvd_clear_radio_contacts(void) { the_mesh.clearAllContacts(); }
 
 extern "C" int lvd_contact_count(void) {
   build_contact_order();
@@ -1380,10 +1381,11 @@ static const char* const MQTT_BROKERS[] = {
 };
 #define MQTT_N_BROKERS ((int)(sizeof(MQTT_BROKERS) / sizeof(MQTT_BROKERS[0])))
 
-// Region topic codes, sorted by city name. NO "all regions" wildcard: subscribing
-// to every region floods the T-Deck. The order MUST match the "Region" F_ENUM
-// label list in lv_settings.c (verified index-locked).
+// Region topic codes. Index 0 ("+") is the all-regions wildcard; the rest are
+// sorted by city name. The order MUST match the "Region" F_ENUM label list in
+// lv_settings.c (verified index-locked).
 static const char* const MQTT_REGIONS[] = {
+  "+",                                                      // All regions
   "YTF", "ATW", "BCN", "YLK", "YYC", "CPT", "YEG", "GSO",   // Alma..Greensboro
   "YHZ", "YHM", "YKA", "YGK", "YKF", "YQL", "LNZ", "LIS",   // Halifax..Lisbon
   "LCJ", "YXU", "MAN", "MKE", "YUL", "FMO", "YQA", "YCD",   // Lodz..Nanaimo
@@ -2146,28 +2148,54 @@ extern "C" int lvd_map_here(double* lat, double* lon) {
 
 // markers = saved contacts with a non-zero GPS fix. Enumerated on demand; the
 // map screen caches the result for a redraw pass (contact count is small).
+// Map markers = the global-directory nodes that carry a GPS fix, filtered by the
+// Directory tab's current region + type selection (g_dorder from dir_build_order).
 extern "C" int lvd_map_marker_count(void) {
+  dir_build_order();
   int n = 0;
-  for (int i = MAX_ANON_CONTACTS, tot = the_mesh.getTotalContactSlots(); i < tot; i++) {
-    ContactInfo c;
-    if (the_mesh.getContactByIdx((uint32_t)i, c) && c.type != ADV_TYPE_NONE &&
-        (c.gps_lat != 0 || c.gps_lon != 0)) n++;
+  for (int i = 0; i < g_dorder_n; i++) {
+    const DirEntry& e = s_dir[g_dorder[i]];
+    if (e.gps_lat != 0 || e.gps_lon != 0) n++;
   }
   return n;
 }
 extern "C" bool lvd_map_marker_get(int idx, lvd_marker_t* out) {
+  dir_build_order();
   int n = 0;
-  for (int i = MAX_ANON_CONTACTS, tot = the_mesh.getTotalContactSlots(); i < tot; i++) {
-    ContactInfo c;
-    if (!the_mesh.getContactByIdx((uint32_t)i, c) || c.type == ADV_TYPE_NONE) continue;
-    if (c.gps_lat == 0 && c.gps_lon == 0) continue;
+  for (int i = 0; i < g_dorder_n; i++) {
+    const DirEntry& e = s_dir[g_dorder[i]];
+    if (e.gps_lat == 0 && e.gps_lon == 0) continue;
     if (n++ != idx) continue;
-    out->lat = c.gps_lat / 1e6; out->lon = c.gps_lon / 1e6;
-    out->type = c.type;
-    strncpy(out->name, c.name, sizeof(out->name) - 1); out->name[sizeof(out->name) - 1] = 0;
+    out->lat = e.gps_lat / 1e6; out->lon = e.gps_lon / 1e6;
+    out->type = e.type;
+    strncpy(out->name, e.name, sizeof(out->name) - 1); out->name[sizeof(out->name) - 1] = 0;
     return true;
   }
   return false;
+}
+
+// Where to centre the map for the current directory selection. Returns 1 (with the
+// bounding-box centre of the shown markers) only when viewing a SPECIFIC remote
+// region -- i.e. NOT "Radio"/local and not "All regions" -- since the T-Deck's own
+// position is irrelevant then. Otherwise 0 -> the caller keeps the local GPS centre.
+extern "C" int lvd_map_marker_center(double* lat, double* lon) {
+  if (!g_dir_region_filter[0] || strcmp(g_dir_region_filter, "Radio") == 0) return 0;
+  dir_build_order();
+  bool any = false;
+  int32_t lo_la = 0, hi_la = 0, lo_lo = 0, hi_lo = 0;
+  for (int i = 0; i < g_dorder_n; i++) {
+    const DirEntry& e = s_dir[g_dorder[i]];
+    if (e.gps_lat == 0 && e.gps_lon == 0) continue;
+    if (!any) { lo_la = hi_la = e.gps_lat; lo_lo = hi_lo = e.gps_lon; any = true; }
+    else {
+      if (e.gps_lat < lo_la) lo_la = e.gps_lat;  if (e.gps_lat > hi_la) hi_la = e.gps_lat;
+      if (e.gps_lon < lo_lo) lo_lo = e.gps_lon;  if (e.gps_lon > hi_lo) hi_lo = e.gps_lon;
+    }
+  }
+  if (!any) return 0;
+  *lat = ((double)lo_la + hi_la) / 2.0 / 1e6;
+  *lon = ((double)lo_lo + hi_lo) / 2.0 / 1e6;
+  return 1;
 }
 
 extern "C" int lvd_map_tile(int z, int x, int y, unsigned char* buf, int maxbytes) {

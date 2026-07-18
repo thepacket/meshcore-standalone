@@ -230,6 +230,37 @@ static void cview_seg_cb(lv_event_t* e) {
   int v = (int)(intptr_t)lv_event_get_user_data(e);
   if (v != s_cview) { s_cview = v; lv_async_call(contacts_rebuild, NULL); }
 }
+
+// long-press the Radio tab -> red "Delete all radio contacts" confirm overlay
+static void del_close(lv_event_t* e) { lv_obj_del((lv_obj_t*)lv_event_get_user_data(e)); }
+static void del_confirm(lv_event_t* e) {
+  lvd_clear_radio_contacts();
+  lv_obj_del((lv_obj_t*)lv_event_get_user_data(e));         // close overlay
+  lv_ui_toast("All radio contacts deleted");
+  if (s_list) { lv_obj_clean(s_list); contacts_fill(s_list); }   // we're on the Radio tab
+}
+static void show_delete_all_contacts(void) {
+  lv_obj_t* m = lv_obj_create(lv_screen_active());           // dim overlay; tap = cancel
+  lv_obj_set_size(m, 320, 240); lv_obj_set_pos(m, 0, 0);
+  lv_obj_set_style_bg_color(m, lv_color_hex(0x000000), 0);
+  lv_obj_set_style_bg_opa(m, 170, 0);
+  lv_obj_set_style_border_width(m, 0, 0);
+  lv_obj_add_flag(m, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(m, del_close, LV_EVENT_CLICKED, m);
+  lv_obj_t* btn = lv_button_create(m);
+  lv_obj_set_size(btn, 250, 48); lv_obj_center(btn);
+  lv_obj_set_style_bg_color(btn, lv_color_hex(UI_RED), 0);
+  lv_obj_set_style_radius(btn, 10, 0);
+  lv_obj_add_event_cb(btn, del_confirm, LV_EVENT_CLICKED, m);
+  lv_obj_t* l = lv_label_create(btn);
+  lv_label_set_text(l, "Delete all radio contacts");
+  lv_obj_set_style_text_color(l, lv_color_hex(0xffffff), 0);
+  lv_obj_center(l);
+}
+static void radio_seg_longpress(lv_event_t* e) {
+  (void)e;
+  if (s_cview == 0) show_delete_all_contacts();   // only meaningful on the Radio tab
+}
 static void cview_toggle(lv_obj_t* scr) {
   lv_obj_t* seg = lv_ui_card(scr, 4, 38, 320 - 8, 28);
   lv_obj_set_style_pad_all(seg, 3, 0);
@@ -245,6 +276,7 @@ static void cview_toggle(lv_obj_t* scr) {
     lv_obj_set_style_bg_opa(b, sel ? 220 : 120, 0);
     lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
     lv_obj_add_event_cb(b, cview_seg_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+    if (i == 0) lv_obj_add_event_cb(b, radio_seg_longpress, LV_EVENT_LONG_PRESSED, NULL);   // hold Radio -> delete all
     lv_ui_press_fx(b);
     lv_obj_t* l = lv_label_create(b); lv_label_set_text(l, names[i]);
     lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
