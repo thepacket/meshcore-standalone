@@ -126,6 +126,7 @@ int  lvd_map_take_focus(double* lat, double* lon);   // 1 + clears if a focus is
 typedef struct { double lat, lon; char name[32]; int type; } lvd_marker_t;
 int  lvd_map_marker_count(void);
 bool lvd_map_marker_get(int i, lvd_marker_t* out);
+bool lvd_heard_show_on_map(int i);   // set the map focus to Heard row i's node (0 = no position)
 // centre for a specific remote-region directory selection (1 = use *lat/*lon)
 int  lvd_map_marker_center(double* lat, double* lon);
 // read one raw RGB565 tile into buf (needs TILE_PX*TILE_PX*2 bytes); 1 ok, 0 missing/no card

@@ -904,6 +904,16 @@ extern "C" int lvd_heard_count(void) {
   if (g_heard_sort == 1) qsort(g_heard, g_heard_n, sizeof(g_heard[0]), cmp_heard_signal);
   return g_heard_n;
 }
+extern "C" void lvd_map_focus(double lat, double lon);   // set a one-shot map centre (defined below)
+// Tapping a Heard row shows that node on the map: set the focus target, or return
+// false if the advert carried no position (caller shows a toast instead).
+extern "C" bool lvd_heard_show_on_map(int i) {
+  if (i < 0 || i >= g_heard_n) return false;
+  AdvertPath& a = g_heard[i];
+  if (a.gps_lat == 0 && a.gps_lon == 0) return false;
+  lvd_map_focus(a.gps_lat / 1e6, a.gps_lon / 1e6);
+  return true;
+}
 extern "C" bool lvd_heard_get(int i, lvd_heard_t* out) {
   if (i < 0 || i >= g_heard_n) return false;
   AdvertPath& a = g_heard[i];

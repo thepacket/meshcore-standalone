@@ -6,10 +6,10 @@
 
 void lv_chat_set_peer(const char* name);  // peer-details target (lv_chat.c)
 
-static void heard_clicked(lv_event_t* e) {
+static void heard_clicked(lv_event_t* e) {   // tap a Heard row -> show that node on the map
   int i = (int)(intptr_t)lv_event_get_user_data(e);
-  lvd_heard_t s;
-  if (lvd_heard_get(i, &s)) { lv_chat_set_peer(s.name); if (lv_nav_cb) lv_nav_cb("peer"); }
+  if (lvd_heard_show_on_map(i)) { if (lv_nav_cb) lv_nav_cb("map"); }
+  else lv_ui_toast("No position for this node");
 }
 
 static lv_obj_t* full_list(lv_obj_t* scr) {
