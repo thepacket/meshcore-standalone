@@ -31,9 +31,9 @@ entirely from its screen — no phone or web app — over touch or the built-in 
 Built for an Android-app-quality look (black theme, per-feature colour-coded icon
 chips, charts/gauges, real widgets). Live on-device:
 
-- **Home** — colour icon-grid launcher; live status bar (RX/RE/TX/CT counters,
-  **Wi-Fi indicator**, clock, battery); live RF signal scope + free-RAM/flash
-  hero cards; unread badge on the Chat tile
+- **Home** — colour icon-grid launcher; live status bar (RX/RE/TX counters + **CT
+  radio-contacts/directory-size**, **Wi-Fi indicator**, clock, battery); live RF
+  signal scope + free-RAM/flash hero cards; unread badge on the Chat tile
 - **Chat** — Public channel **and** direct messages (send + live receive), speech
   bubbles with **timestamps**, per-message **delivery status** (sent → delivered
   → failed), per-conversation **unread badges**, and an incoming **hop tag**
@@ -41,12 +41,20 @@ chips, charts/gauges, real widgets). Live on-device:
   **emergency position share** (confirm-guarded) to a channel. **Room servers**
   are first-class: posts show their **original author**, and opening a room
   thread **auto-logs-in and pulls the posts you missed**
-- **Contacts** — live contact list with name search (space-separated OR tokens),
-  a **node-type filter** (All / Chats / Repeaters / Rooms), favourites filter,
-  type pills
+- **Contacts** — a **two-tier** model with a Radio | Directory toggle:
+  - **Radio** = the on-device chat contacts (the ~350-slot MeshCore store),
+    alphabetical. These are **manual-only** — pushed from the Directory on demand,
+    never auto-added from adverts. Long-press the Radio tab to **clear all**.
+  - **Directory** = a large, persistent, **region-tagged** store of *every* node
+    heard (RF adverts + the MQTT feed), thousands of entries on SD. Filter by
+    **region** (incl. "Radio" for on-air) and **type**; **long-press a row to
+    push** it into the radio contacts.
 - **Channels** — manage group channels: list, view/share a channel's key as a QR,
   and add (join or create) by name + key — including **hashtag channels**
-  (`#name` derives the key from `sha256`, matching the phone clients)
+  (`#name` derives the key from `sha256`, matching the phone clients). Channel
+  message senders are **tagged with their region** (`Alice (YYZ)`, `Anon (YYZ)`,
+  or `(Radio)` on-air). Long-press the Channels tab to **clear all channel
+  messages** (keeps the channels themselves)
 - **Scopes** — named **radio + contacts + channels profiles** on the SD card, for
   running several MeshCore networks (e.g. different region presets, or Home vs
   Travel) from one device. Create a scope from your current setup, then switch
@@ -56,20 +64,25 @@ chips, charts/gauges, real widgets). Live on-device:
   live store is touched. Under **Settings › Scopes**
 - **Heard** — recently-heard stations with SNR/RSSI, age, **distance + bearing**,
   **direct-vs-routed + hop count**, node-type colour, a saved-contact tick, and a
-  Recent/Signal sort toggle; tap a row for its peer card
+  Recent/Signal sort toggle; **tap a row to show that node on the map**
 - **Discover** — active node discovery (paced zero-hop `NODE_DISCOVER_REQ`, auto
   every 60s + **Scan now**) with a live countdown + neighbour summary; rows show
   signal dot, age, RSSI, distance/bearing and a "new this scan" flag, and tap
-  through to the peer card. Auto-add of responders is a Settings toggle.
+  through to the peer card. (Adverts are never auto-added to radio contacts — they
+  populate the Directory; add nodes to radio contacts manually.)
 - **Stats** — rolling noise-floor **and battery-trend** charts, last RSSI/SNR,
   packet counters + **loss rate** + decoded **radio-error flags**, **memory**
   (RAM/flash) and **mesh inventory** (contacts/channels), battery/uptime, and a
   **Reset counters** button
-- **Packet monitor** — live decoded RX feed with a deep per-packet breakdown:
-  advert name/type/**position/clock-skew**, trace per-hop SNRs, dest/src and
-  channel-name resolution, **plaintext decrypt for channels you hold**, airtime,
-  link margin, sender frequency error, rebroadcast counting and "ACK for our
-  message"; raw hex, path search, and **capture export to USB serial**
+- **Packet monitor** — live decoded RX feed (up to 500 packets, RF + MQTT) with a
+  **Direct | Floods** toggle: Direct hides flood-routed packets; Floods groups the
+  ring by payload hash (xN rebroadcasts) and **drills down** into a flood's
+  individual copies. Each row is **region-tagged** (RF = active scope, MQTT =
+  broker region) and path-searchable. Deep per-packet breakdown: advert
+  name/type/**position/clock-skew**, trace per-hop SNRs, dest/src and channel-name
+  resolution, **plaintext decrypt for channels you hold**, airtime, link margin,
+  sender frequency error, rebroadcast counting and "ACK for our message"; raw hex,
+  and **capture export to USB serial**
 - **Signal** — per-repeater coverage: RSSI bar + SNR + **link margin**,
   direct-vs-routed, distance/bearing, an **RSSI trend arrow** for walk-testing,
   and a Signal/Distance/Name sort toggle; tap a row for its peer card
@@ -87,16 +100,26 @@ chips, charts/gauges, real widgets). Live on-device:
   8.8.8.8), and **NTP clock sync** that sets the mesh RTC on connect. The 2.4 GHz
   radio stays fully off while disabled, so LoRa battery life is unaffected;
   independent of the companion transport
+- **MQTT live feed** — an **observe-only** subscriber to the meshcore.ca
+  live-packet feed (WebSocket+TLS), mirroring the phone app. Pick a **region**
+  (49 cities by IATA, or **All regions**); observed packets, adverts and channel
+  messages merge with RF into the packet monitor, Heard list, node **directory**
+  and chat — nothing is ever retransmitted onto the radio. Under **Settings › MQTT**
+- **Remote screen** — a **PIN-gated** in-browser remote control: the device
+  streams its live screen to a `<canvas>` over a lightweight WebSocket server and
+  the browser sends taps + keystrokes back. Enable in **Settings › Remote screen**,
+  then open `http://<device-ip>:8080` on the same Wi-Fi
 - **Files** — a **microSD browser** (read + write): navigate folders, see sizes
   and card usage, delete files, and **format the card as FAT32**. The card also
   backs the SD backup/restore in Settings and the offline-map tile cache. Shares
   the radio's SPI bus, re-claiming it after each access so RX/TX is undisturbed
 - **Map** — a full-screen **offline slippy map** with touch pan, zoom, a GPS
-  **you-are-here** marker, and **tappable node dots** (contacts with a position →
-  their peer card). Tiles **download themselves over Wi-Fi** on demand (no PC
-  toolchain) and **cache to the SD card**, so a browsed area works offline
-  afterward. Defaults to key-free **Esri World Imagery** (satellite); the tile
-  source is editable in Settings (any `{z}/{x}/{y}` provider, PNG or JPEG)
+  **you-are-here** marker, and node dots for the **directory** nodes matching the
+  current region + type selection (colour-coded by type). Viewing a specific
+  **remote region** centres the map on those nodes instead of the T-Deck. Tiles
+  **download themselves over Wi-Fi** on demand (no PC toolchain) and **cache to
+  the SD card**, so a browsed area works offline afterward. Defaults to key-free
+  **Esri World Imagery** (satellite); the tile source is editable in Settings
 - **Trace** — build a path through chosen repeaters **or trace a saved contact
   over its learned path**; result shows a summary (hops · **RTT** · weakest link),
   per-hop SNR bars, a bottleneck flag, and a **Repeat** button; live elapsed timer

@@ -168,8 +168,19 @@ Delivered alongside M3 to host the diagnostic tiles:
   (SNTP → mesh RTC, once per connection).
 - ✅ **Map-tile fetch** — the offline map (M4) downloads `{z}/{x}/{y}` tiles over
   this Wi-Fi base and caches them to SD (Esri/OSM/Topo/custom providers).
+- ✅ **MQTT live feed** — observe-only subscriber to the meshcore.ca live-packet
+  feed (WebSocket+TLS); region-selectable (49 cities by IATA, or All regions).
+  Observed packets/adverts/channel messages merge with RF into the packet monitor,
+  Heard list, node **directory** and chat. Never retransmitted to the radio.
+- ✅ **Global node directory** — a large (2000-entry), persistent, region-tagged
+  store of every node observed (RF + MQTT), SD-backed, distinct from the ~350
+  radio contacts (which are now pushed from the directory on demand, never
+  auto-added). Region + type filters; feeds the map.
+- ✅ **Remote screen** — PIN-gated in-browser remote control (framebuffer mirror +
+  tap/keyboard over a lightweight on-device WebSocket server, port 8080). Ported
+  from wadamesh (the reason this project is GPL-3.0-or-later).
 - ⏳ More internet consumers on the Wi-Fi base: e.g. firmware OTA, MQTT gateway
-  reporting.
+  reporting (publishing this node's RF traffic *up* to MQTT).
 - ⏳ **Unified transport image** (BLE + USB + Wi-Fi in one build) and optional **AirLink**
   bridging (relay a phone into the mesh without tethering). Largest/most speculative.
 
