@@ -103,20 +103,21 @@ static const Field F_WIFI[] = {
 static const Field F_MQTT[] = {
   {"Enabled",   F_BOOL,   NULL, 0},          // observe-only live feed (needs Wi-Fi)
   {"Broker",    F_ENUM,   "Primary\nSecondary", 0},
-  // City (IATA) labels; order is index-locked to MQTT_REGIONS[] in UITask.cpp.
-  // ASCII only (montserrat font has no accented glyphs). Mirrors meshcore-android MqttPrefs.REGIONS.
-  {"Region",    F_ENUM,   "All regions\n"
-    "Toronto (YYZ)\nVancouver (YVR)\nMontreal (YUL)\nCalgary (YYC)\nEdmonton (YEG)\n"
-    "Ottawa (YOW)\nHalifax (YHZ)\nWinnipeg (YWG)\nQuebec City (YQB)\nHamilton (YHM)\n"
-    "London (YXU)\nSaskatoon (YXE)\nVictoria (YYJ)\nKingston (YGK)\nKitchener (YKF)\n"
-    "Kamloops (YKA)\nNanaimo (YCD)\nThunder Bay (YQT)\nLethbridge (YQL)\nSaint John (YSJ)\n"
-    "Prince Albert (YPA)\nMuskoka (YQA)\nBarrie (YLK)\nTrenton (YTR)\nPembroke (YTA)\n"
-    "Alma (YTF)\nSt-Jean (YJN)\nSt-Hubert (YHU)\n"
-    "Appleton (ATW)\nBarcelona (BCN)\nCape Town (CPT)\nNew Bern (EWN)\nMunster (FMO)\n"
-    "Spokane (GEG)\nGreensboro (GSO)\nLodz (LCJ)\nLisbon (LIS)\nLinz (LNZ)\n"
-    "Manchester (MAN)\nMilwaukee (MKE)\nPrague (PRG)\nPontiac (PTK)\nRotterdam (RTM)\n"
-    "Seattle (SEA)\nSan Francisco (SFO)\nSt. George (SGU)\nSalt Lake City (SLC)\n"
-    "Orange County (SNA)\nWarsaw (WAW)", 0},
+  // City (IATA) labels, sorted alphabetically by city; index-locked to
+  // MQTT_REGIONS[] in UITask.cpp. No "All regions" (its wildcard overwhelms the
+  // T-Deck). ASCII only (montserrat font has no accented glyphs).
+  {"Region",    F_ENUM,
+    "Alma (YTF)\nAppleton (ATW)\nBarcelona (BCN)\nBarrie (YLK)\nCalgary (YYC)\n"
+    "Cape Town (CPT)\nEdmonton (YEG)\nGreensboro (GSO)\nHalifax (YHZ)\nHamilton (YHM)\n"
+    "Kamloops (YKA)\nKingston (YGK)\nKitchener (YKF)\nLethbridge (YQL)\nLinz (LNZ)\n"
+    "Lisbon (LIS)\nLodz (LCJ)\nLondon (YXU)\nManchester (MAN)\nMilwaukee (MKE)\n"
+    "Montreal (YUL)\nMunster (FMO)\nMuskoka (YQA)\nNanaimo (YCD)\nNew Bern (EWN)\n"
+    "Orange County (SNA)\nOttawa (YOW)\nPembroke (YTA)\nPontiac (PTK)\nPrague (PRG)\n"
+    "Prince Albert (YPA)\nQuebec City (YQB)\nRotterdam (RTM)\nSaint John (YSJ)\n"
+    "Salt Lake City (SLC)\nSan Francisco (SFO)\nSaskatoon (YXE)\nSeattle (SEA)\n"
+    "Spokane (GEG)\nSt-Hubert (YHU)\nSt-Jean (YJN)\nSt. George (SGU)\nThunder Bay (YQT)\n"
+    "Toronto (YYZ)\nTrenton (YTR)\nVancouver (YVR)\nVictoria (YYJ)\nWarsaw (WAW)\n"
+    "Winnipeg (YWG)", 0},
   {"Username",  F_VAL,    "", 0},            // required (brokers are JWT-gated)
   {"Token",     F_VAL,    "", 0},            // password / JWT token
   {"Reconnect", F_ACTION, NULL, 0},          // force a fresh connection

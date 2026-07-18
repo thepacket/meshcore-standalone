@@ -204,6 +204,12 @@ typedef struct {
 int  lvd_flood_count(void);
 bool lvd_flood_get(int i, lvd_flood_t* out);      // sorted most-rebroadcast first
 int  lvd_flood_hophist(int* bins, int maxbins);   // bins[h] = # packets with h hops; returns bins used
+// flood drill-down: tap flood i to snapshot its member packets, then list them
+// (each is a normal lvd_packet_t and can be opened in the packet-detail view).
+void lvd_flood_select(int i);
+int  lvd_floodmem_count(void);
+bool lvd_floodmem_get(int j, lvd_packet_t* out);
+void lvd_floodmem_select(int j);                  // snapshot member j for lvd_packet_detail()
 
 // ---- discover (direct neighbours that answered our discovery request) ------
 typedef struct {

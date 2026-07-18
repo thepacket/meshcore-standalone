@@ -82,6 +82,7 @@ extern "C" {
   void lv_terminal_create(lv_obj_t* scr);
   void lv_terminal_set_tab(int t);
   void lv_pkt_detail_create(lv_obj_t* scr);
+  void lv_flood_detail_create(lv_obj_t* scr);   // individual packets of a tapped flood
   void lv_pkt_search_create(lv_obj_t* scr);
   void lv_stats_create(lv_obj_t* scr);
   void lv_discover_create(lv_obj_t* scr);
@@ -139,6 +140,7 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "terminal")) lv_terminal_create(s);
   else if (!strcmp(name, "packets")) lv_terminal_create(s);
   else if (!strcmp(name, "pktdetail")) lv_pkt_detail_create(s);
+  else if (!strcmp(name, "flooddetail")) lv_flood_detail_create(s);
   else if (!strcmp(name, "pkt_search")) lv_pkt_search_create(s);
   else if (!strcmp(name, "stats")) lv_stats_create(s);
   else if (!strcmp(name, "discover")) lv_discover_create(s);
@@ -1373,17 +1375,17 @@ static const char* const MQTT_BROKERS[] = {
 };
 #define MQTT_N_BROKERS ((int)(sizeof(MQTT_BROKERS) / sizeof(MQTT_BROKERS[0])))
 
-// Region topic codes; index 0 ("+") means all regions. The order MUST match the
-// "Region" F_ENUM label list in lv_settings.c.
+// Region topic codes, sorted by city name. NO "all regions" wildcard: subscribing
+// to every region floods the T-Deck. The order MUST match the "Region" F_ENUM
+// label list in lv_settings.c (verified index-locked).
 static const char* const MQTT_REGIONS[] = {
-  "+",                                                        // All regions
-  "YYZ", "YVR", "YUL", "YYC", "YEG", "YOW", "YHZ", "YWG",     // Canada
-  "YQB", "YHM", "YXU", "YXE", "YYJ", "YGK", "YKF", "YKA",
-  "YCD", "YQT", "YQL", "YSJ", "YPA", "YQA", "YLK", "YTR",
-  "YTA", "YTF", "YJN", "YHU",
-  "ATW", "BCN", "CPT", "EWN", "FMO", "GEG", "GSO", "LCJ",     // International
-  "LIS", "LNZ", "MAN", "MKE", "PRG", "PTK", "RTM", "SEA",
-  "SFO", "SGU", "SLC", "SNA", "WAW",
+  "YTF", "ATW", "BCN", "YLK", "YYC", "CPT", "YEG", "GSO",   // Alma..Greensboro
+  "YHZ", "YHM", "YKA", "YGK", "YKF", "YQL", "LNZ", "LIS",   // Halifax..Lisbon
+  "LCJ", "YXU", "MAN", "MKE", "YUL", "FMO", "YQA", "YCD",   // Lodz..Nanaimo
+  "EWN", "SNA", "YOW", "YTA", "PTK", "PRG", "YPA", "YQB",   // New Bern..Quebec City
+  "RTM", "YSJ", "SLC", "SFO", "YXE", "SEA", "GEG", "YHU",   // Rotterdam..St-Hubert
+  "YJN", "SGU", "YQT", "YYZ", "YTR", "YVR", "YYJ", "WAW",   // St-Jean..Warsaw
+  "YWG",                                                    // Winnipeg
 };
 #define MQTT_N_REGIONS ((int)(sizeof(MQTT_REGIONS) / sizeof(MQTT_REGIONS[0])))
 
@@ -2587,7 +2589,9 @@ extern "C" unsigned lvd_free_flash_kb(void) {
 }
 
 // ---- packet monitor --------------------------------------------------------
-#define PKT_LOG 32
+#define PKT_LOG 500   // packet ring capacity; may grow further for busy MQTT feeds.
+                      // The ring and all PKT_LOG-sized arrays live in PSRAM (see
+                      // ui_alloc_caches), so this scales without touching internal DRAM.
 #define PKT_RAW 192   // bytes of each packet kept for the hex/breakdown view
 // recent expected-ack CRCs of our outbound DMs, so the analyzer can flag "ACK for our message"
 #define OUR_ACKS 8
@@ -2713,13 +2717,16 @@ static void packet_path_str(const PktRec& p, char* v, int vlen) {
 
 // path text filter for the monitor list
 static char g_pkt_filter[24] = "";
-static int  g_pktidx[PKT_LOG];   // ring indices passing the filter, newest first
+static int* g_pktidx = NULL;     // ring indices passing the filter, newest first (PSRAM)
 static int  g_pktidx_n = 0;
 
 static void pkt_build_filter(void) {
   g_pktidx_n = 0;
+  if (!g_pktidx) return;
   for (int i = 0; i < s_pkt_n; i++) {
     int idx = (s_pkt_head - 1 - i + PKT_LOG * 2) % PKT_LOG;   // newest first
+    int rt = s_pkt[idx].header & 0x03;   // route type: 0=TFL, 1=FLD (both flood), 2=DIR, 3=TDR
+    if (rt == 0 || rt == 1) continue;    // flood packets belong to the Floods tab, not this list
     if (g_pkt_filter[0]) {
       char path[96]; packet_path_str(s_pkt[idx], path, sizeof(path));
       if (!lvd_name_match(path, g_pkt_filter)) continue;
@@ -2735,11 +2742,9 @@ extern "C" const char* lvd_packet_path_filter(void) { return g_pkt_filter; }
 extern "C" int      lvd_packet_count(void) { pkt_build_filter(); return g_pktidx_n; }
 extern "C" unsigned lvd_packet_total(void) { return s_pkt_total; }
 
-extern "C" bool lvd_packet_get(int i, lvd_packet_t* out) {
-  if (i < 0 || i >= g_pktidx_n) return false;
-  int idx = g_pktidx[i];
-  const PktRec& r = s_pkt[idx];
-
+// Format one ring packet into the display struct (shared by the chronological
+// packet list and the per-flood member list).
+static void pkt_fill_display(const PktRec& r, lvd_packet_t* out) {
   uint8_t pt = (r.header >> 2) & 0x0F;   // PH_TYPE_SHIFT / PH_TYPE_MASK
   const char* ty; uint32_t col;
   switch (pt) {
@@ -2769,6 +2774,11 @@ extern "C" bool lvd_packet_get(int i, lvd_packet_t* out) {
   else          snprintf(agebuf, sizeof(agebuf), "%um", (unsigned)(age / 60));
   snprintf(out->meta, sizeof(out->meta), "%s  len%d  %ddBm  %s%d.%d  %s",
            rt, r.len, r.rssi, snr10 < 0 ? "-" : "", sa / 10, sa % 10, agebuf);
+}
+
+extern "C" bool lvd_packet_get(int i, lvd_packet_t* out) {
+  if (i < 0 || i >= g_pktidx_n) return false;
+  pkt_fill_display(s_pkt[g_pktidx[i]], out);
   return true;
 }
 
@@ -2801,17 +2811,28 @@ static int pkt_hop_count(const uint8_t* b, int rl) {   // low 6 bits of the path
 // identifies a flood; grouping by it shows the mesh's redundancy and hop spread.
 struct FloodRec { uint32_t payhash; const char* type; uint32_t color;
                   int copies, hop_min, hop_max, best_rssi, best_snr_q, rep_idx; };
-static FloodRec g_flood[PKT_LOG];
+static FloodRec* g_flood = NULL;   // PSRAM; PKT_LOG entries (allocated in ui_alloc_caches)
 static int      g_flood_n = 0;
 static unsigned g_flood_built = 0xFFFFFFFFu;
 
 static void flood_build(void) {
-  if (g_flood_built == s_pkt_total) return;   // cached until a new packet arrives
+  if (!g_flood) { g_flood_n = 0; return; }
+  // Rebuild on a new packet OR when the path-search filter changes. The floods
+  // view honours the SAME path search as the Direct tab (but keeps flood-routed
+  // packets -- that is the whole point of this view).
+  static char last_filter[24] = "\x01";   // sentinel != any real filter
+  bool filter_changed = strcmp(last_filter, g_pkt_filter) != 0;
+  if (g_flood_built == s_pkt_total && !filter_changed) return;
+  strncpy(last_filter, g_pkt_filter, sizeof(last_filter) - 1); last_filter[sizeof(last_filter) - 1] = 0;
   g_flood_built = s_pkt_total;
   g_flood_n = 0;
   for (int k = 0; k < s_pkt_n; k++) {
     int idx = (s_pkt_head - 1 - k + PKT_LOG * 2) % PKT_LOG;   // newest first
     const PktRec& r = s_pkt[idx];
+    if (g_pkt_filter[0]) {
+      char path[96]; packet_path_str(r, path, sizeof(path));
+      if (!lvd_name_match(path, g_pkt_filter)) continue;
+    }
     int hc = pkt_hop_count(r.raw, r.rawlen); if (hc < 0) hc = 0;
     int f = -1;
     for (int j = 0; j < g_flood_n; j++) if (g_flood[j].payhash == r.payhash) { f = j; break; }
@@ -2869,6 +2890,35 @@ static bool   s_psel_valid = false;
 extern "C" void lvd_packet_select(int i) {
   if (i < 0 || i >= g_pktidx_n) { s_psel_valid = false; return; }
   s_psel = s_pkt[g_pktidx[i]];
+  s_psel_valid = true;
+}
+
+// ---- flood drill-down: the individual packets (ring copies) of one flood -----
+// lvd_flood_select(i) snapshots the ring indices sharing flood i's payhash
+// (newest first); the flood-detail screen then lists them and can open any one
+// in the normal packet-detail view.
+static int* g_floodmem_idx = NULL;   // PSRAM; PKT_LOG entries (allocated in ui_alloc_caches)
+static int g_floodmem_n = 0;
+
+extern "C" void lvd_flood_select(int i) {
+  flood_build();
+  g_floodmem_n = 0;
+  if (!g_floodmem_idx || i < 0 || i >= g_flood_n) return;
+  uint32_t hash = g_flood[i].payhash;
+  for (int k = 0; k < s_pkt_n; k++) {
+    int idx = (s_pkt_head - 1 - k + PKT_LOG * 2) % PKT_LOG;   // newest first
+    if (s_pkt[idx].payhash == hash) g_floodmem_idx[g_floodmem_n++] = idx;
+  }
+}
+extern "C" int  lvd_floodmem_count(void) { return g_floodmem_n; }
+extern "C" bool lvd_floodmem_get(int j, lvd_packet_t* out) {
+  if (j < 0 || j >= g_floodmem_n) return false;
+  pkt_fill_display(s_pkt[g_floodmem_idx[j]], out);
+  return true;
+}
+extern "C" void lvd_floodmem_select(int j) {   // snapshot member j for the packet-detail view
+  if (j < 0 || j >= g_floodmem_n) { s_psel_valid = false; return; }
+  s_psel = s_pkt[g_floodmem_idx[j]];
   s_psel_valid = true;
 }
 
@@ -3315,6 +3365,11 @@ static void* big_alloc(size_t n) {
 void ui_alloc_caches(void) {
   if (!s_pkt) { s_pkt = (PktRec*)big_alloc(sizeof(PktRec) * PKT_LOG); if (s_pkt) memset(s_pkt, 0, sizeof(PktRec) * PKT_LOG); }
   if (!s_msg) { s_msg = (MsgRec*)big_alloc(sizeof(MsgRec) * MSG_LOG); if (s_msg) memset(s_msg, 0, sizeof(MsgRec) * MSG_LOG); }
+  // Packet-monitor working arrays scale with PKT_LOG; keep them in PSRAM so a
+  // large ring never eats internal DRAM (which Wi-Fi/TLS need).
+  if (!g_pktidx)      g_pktidx      = (int*)big_alloc(sizeof(int) * PKT_LOG);
+  if (!g_flood)       g_flood       = (FloodRec*)big_alloc(sizeof(FloodRec) * PKT_LOG);
+  if (!g_floodmem_idx) g_floodmem_idx = (int*)big_alloc(sizeof(int) * PKT_LOG);
 }
 #define ACK_TIMEOUT_MS 30000
 

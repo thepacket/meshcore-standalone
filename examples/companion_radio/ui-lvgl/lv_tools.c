@@ -309,14 +309,14 @@ static void pkt_clicked(lv_event_t* e) {
 }
 
 static void pkt_row(lv_obj_t* list, int idx, const char* type, uint32_t tcol,
-                    const char* meta, const char* region) {
+                    const char* meta, const char* region, lv_event_cb_t click) {
   lv_obj_t* c = lv_ui_md_card(list);
   lv_obj_set_width(c, lv_pct(100)); lv_obj_set_height(c, 32);
   lv_obj_set_style_min_height(c, 0, 0); lv_obj_set_style_pad_hor(c, 8, 0); lv_obj_set_style_pad_ver(c, 0, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(c, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(c, pkt_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
+  lv_obj_add_event_cb(c, click, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
   lv_ui_press_fx(c);
   lv_obj_t* tag = lv_ui_pill(c, type, tcol);
   lv_obj_set_style_margin_right(tag, 8, 0);
@@ -353,13 +353,14 @@ static void packets_fill(lv_obj_t* list) {
   }
   lvd_packet_t p;
   for (int i = 0; i < n; i++)
-    if (lvd_packet_get(i, &p)) pkt_row(list, i, p.type, p.color, p.meta, p.region);
+    if (lvd_packet_get(i, &p)) pkt_row(list, i, p.type, p.color, p.meta, p.region, pkt_clicked);
 }
 
+static void term_rebuild(void* p);   // rebuilds the whole monitor screen (below)
 static void pkt_open_search(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("pkt_search"); }
 static void pkt_clear_search_cb(void* p) {
   (void)p; lvd_packet_set_path_filter("");
-  if (s_pkt_list) { lv_obj_clean(s_pkt_list); packets_fill(s_pkt_list); }
+  term_rebuild(NULL);   // rebuild so the search clears in whichever tab is showing
 }
 static void pkt_clear_search(lv_event_t* e) { (void)e; lv_async_call(pkt_clear_search_cb, NULL); }
 
@@ -377,7 +378,7 @@ static void view_toggle(lv_obj_t* scr) {
   lv_obj_t* seg = lv_ui_card(scr, 4, 40, 320 - 8, 30);
   lv_obj_set_style_pad_all(seg, 3, 0);
   lv_obj_set_flex_flow(seg, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(seg, 4, 0);
-  static const char* names[2] = { "Packets", "Floods" };
+  static const char* names[2] = { "Direct", "Floods" };
   for (int i = 0; i < 2; i++) {
     lv_obj_t* b = lv_obj_create(seg);
     lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLLABLE);
@@ -396,12 +397,28 @@ static void view_toggle(lv_obj_t* scr) {
   }
 }
 
+// Tapping a flood opens its member packets (the individual ring copies).
+static void flood_clicked(lv_event_t* e) {
+  int i = (int)(intptr_t)lv_event_get_user_data(e);
+  lvd_flood_select(i);
+  if (lv_nav_cb) lv_nav_cb("flooddetail");
+}
+// one member packet inside the flood-detail screen -> normal packet breakdown
+static void floodmem_clicked(lv_event_t* e) {
+  int j = (int)(intptr_t)lv_event_get_user_data(e);
+  lvd_floodmem_select(j);
+  if (lv_nav_cb) lv_nav_cb("pktdetail");
+}
+
 // ---- floods list (ring grouped by payhash) ---------------------------------
-static void flood_row(lv_obj_t* list, const lvd_flood_t* f) {
+static void flood_row(lv_obj_t* list, int idx, const lvd_flood_t* f) {
   lv_obj_t* c = lv_ui_md_card(list);
   lv_obj_set_width(c, lv_pct(100)); lv_obj_set_height(c, LV_SIZE_CONTENT);
   lv_obj_set_style_min_height(c, 0, 0); lv_obj_set_style_pad_hor(c, 8, 0); lv_obj_set_style_pad_ver(c, 5, 0);
   lv_obj_set_flex_flow(c, LV_FLEX_FLOW_COLUMN); lv_obj_set_style_pad_row(c, 2, 0);
+  lv_obj_add_flag(c, LV_OBJ_FLAG_CLICKABLE);                  // tap -> flood member list
+  lv_obj_add_event_cb(c, flood_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)idx);
+  lv_ui_press_fx(c);
   lv_obj_t* top = lv_obj_create(c);
   lv_obj_remove_flag(top, LV_OBJ_FLAG_SCROLLABLE | LV_OBJ_FLAG_CLICKABLE);
   lv_obj_set_style_bg_opa(top, 0, 0); lv_obj_set_style_border_width(top, 0, 0); lv_obj_set_style_pad_all(top, 0, 0);
@@ -421,23 +438,31 @@ static void floods_fill(lv_obj_t* list) {
   s_pkt_last = lvd_packet_total();
   int n = lvd_flood_count();
   if (n <= 0) {
+    const char* flt = lvd_packet_path_filter();
     lv_obj_t* h = lv_label_create(list);
-    lv_label_set_text(h, "No packets yet");
+    lv_label_set_text(h, (flt && flt[0]) ? "No floods match that path" : "No packets yet");
     lv_obj_set_style_text_color(h, lv_color_hex(MD_MUTED), 0);
     return;
   }
-  int bins[8]; int used = lvd_flood_hophist(bins, 8);
-  char hs[80]; int k = snprintf(hs, sizeof(hs), "Hop spread   ");
-  for (int h = 0; h < used && k < (int)sizeof(hs) - 12; h++) {
-    if (!bins[h]) continue;
-    if (h == 0) k += snprintf(hs + k, sizeof(hs) - k, "direct:%d   ", bins[h]);
-    else        k += snprintf(hs + k, sizeof(hs) - k, "%dh:%d   ", h, bins[h]);
-  }
-  lv_obj_t* hh = lv_label_create(list); lv_label_set_text(hh, hs);
-  lv_obj_set_style_text_font(hh, &lv_font_montserrat_12, 0);
-  lv_obj_set_style_text_color(hh, lv_color_hex(MD_MUTED), 0);
   lvd_flood_t f;
-  for (int i = 0; i < n; i++) if (lvd_flood_get(i, &f)) flood_row(list, &f);
+  for (int i = 0; i < n; i++) if (lvd_flood_get(i, &f)) flood_row(list, i, &f);
+}
+
+// flood detail: the individual packets (ring copies) of one tapped flood
+void lv_flood_detail_create(lv_obj_t* scr) {
+  lv_ui_screen_bg(scr);
+  lv_ui_md_topbar(scr, "Flood packets");
+  lv_obj_t* list = full_list(scr, 42);
+  int n = lvd_floodmem_count();
+  if (n <= 0) {
+    lv_obj_t* h = lv_label_create(list);
+    lv_label_set_text(h, "No packets");
+    lv_obj_set_style_text_color(h, lv_color_hex(MD_MUTED), 0);
+    return;
+  }
+  lvd_packet_t p;
+  for (int j = 0; j < n; j++)
+    if (lvd_floodmem_get(j, &p)) pkt_row(list, j, p.type, p.color, p.meta, p.region, floodmem_clicked);
 }
 static void monitor_tick(void) {
   if (!s_pkt_list || lvd_packet_total() == s_pkt_last) return;
@@ -445,19 +470,8 @@ static void monitor_tick(void) {
   if (s_pkt_view == 0) packets_fill(s_pkt_list); else floods_fill(s_pkt_list);
 }
 
-void lv_terminal_create(lv_obj_t* scr) {
-  lv_ui_screen_bg(scr);
-  lv_ui_md_topbar(scr, "Packet monitor");
-  view_toggle(scr);
-
-  if (s_pkt_view != 0) {   // floods view: grouped list, no path search
-    s_pkt_list = full_list(scr, 74);
-    floods_fill(s_pkt_list);
-    lv_ui_set_refresh(monitor_tick);
-    return;
-  }
-
-  // search-by-path field (packets view)
+// search-by-path field, shared by the Direct and Floods tabs (both filter by path)
+static void pkt_search_field(lv_obj_t* scr) {
   const char* f = lvd_packet_path_filter();
   bool active = f && f[0];
   lv_obj_t* sf = lv_ui_card(scr, 4, 74, 320 - 8, 30);
@@ -485,9 +499,16 @@ void lv_terminal_create(lv_obj_t* scr) {
     lv_obj_add_event_cb(cl, pkt_clear_search, LV_EVENT_CLICKED, NULL);
     lv_ui_press_fx(cl);
   }
+}
 
+void lv_terminal_create(lv_obj_t* scr) {
+  lv_ui_screen_bg(scr);
+  lv_ui_md_topbar(scr, "Packet monitor");
+  view_toggle(scr);
+  pkt_search_field(scr);              // path search in both Direct and Floods tabs
   s_pkt_list = full_list(scr, 108);
-  packets_fill(s_pkt_list);
+  if (s_pkt_view != 0) floods_fill(s_pkt_list);
+  else                 packets_fill(s_pkt_list);
   lv_ui_set_refresh(monitor_tick);
 }
 

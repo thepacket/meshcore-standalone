@@ -20,3 +20,7 @@ platformio.local.ini
 
 # Built firmware artifacts for distribution to testers
 dist/
+
+# Python bytecode (tools/)
+__pycache__/
+*.pyc
