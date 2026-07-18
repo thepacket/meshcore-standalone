@@ -28,7 +28,7 @@ MeshCore
 wadamesh
     Copyright (c) 2026 Kaj Schittecat and the wadamesh contributors
     GNU General Public License v3.0 or later —
-    https://github.com/ (wadamesh)
+    https://github.com/thepacket/wadamesh
     The on-device "remote screen" feature — the WebMirror framebuffer/input
     bridge (examples/companion_radio/ui-lvgl/WebMirror.{h,cpp}), the WebSocket
     mirror server and browser page (WebScreen.{h,cpp}), and the flush-hook

@@ -165,7 +165,7 @@ The upstream repository is tracked read-only so this fork can pull in future Mes
 
 This project was previously MIT. It moved to GPL-3.0-or-later when the on-device
 **remote screen** feature was added, which is ported from
-[wadamesh](https://github.com/) (GPL-3.0-or-later). MIT is GPL-compatible, so the
+[wadamesh](https://github.com/thepacket/wadamesh) (GPL-3.0-or-later). MIT is GPL-compatible, so the
 combined work is distributed under GPL-3.0-or-later.
 
 MeshCore's upstream code remains **MIT-licensed** and its notice is retained —
