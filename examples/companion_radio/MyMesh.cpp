@@ -375,8 +375,21 @@ void MyMesh::maybeAdoptContactTime(const ContactInfo& contact) {
   }
 }
 
+// Global directory hook: every observed advert (RF + MQTT) is offered to the
+// UI's persistent, region-tagged node directory. Weak no-op default so non-LVGL
+// builds (which have no directory) still link; the LVGL UITask defines the real
+// one. `region` empty => on-air advert; the UI tags it with the active scope.
+extern "C" void __attribute__((weak))
+ui_directory_observe(const uint8_t* pubkey, const char* name, uint8_t type,
+                     int32_t gps_lat, int32_t gps_lon, const char* region) {
+  (void)pubkey; (void)name; (void)type; (void)gps_lat; (void)gps_lon; (void)region;
+}
+
 void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) {
   maybeAdoptContactTime(contact);
+  ui_directory_observe(contact.id.pub_key, contact.name, contact.type,
+                       contact.gps_lat, contact.gps_lon,
+                       _obs_region_valid ? _obs_region : "");
 
   if (_serial->isConnected()) {
     if (is_new) {
@@ -451,7 +464,7 @@ int MyMesh::getRecentlyHeard(AdvertPath dest[], int max_num) {
   return max_num;
 }
 
-void MyMesh::importObservedPacket(float snr, float rssi, const uint8_t* raw, int len) {
+void MyMesh::importObservedPacket(float snr, float rssi, const uint8_t* raw, int len, const char* region) {
   mesh::Packet pkt;
   if (!pkt.readFrom(raw, len)) return;
   uint8_t ptype = pkt.getPayloadType();
@@ -507,8 +520,10 @@ void MyMesh::importObservedPacket(float snr, float rssi, const uint8_t* raw, int
   _obs_signal_valid = true;
   _obs_snr_q = (int8_t)(snr * 4);
   _obs_rssi  = (int8_t)rssi;
+  if (region && region[0]) { strncpy(_obs_region, region, sizeof(_obs_region) - 1); _obs_region[sizeof(_obs_region) - 1] = 0; _obs_region_valid = true; }
   onAdvertRecv(&pkt, id, timestamp, app_data, app_data_len);
   _obs_signal_valid = false;
+  _obs_region_valid = false;
 }
 
 bool MyMesh::sendTrace(const ContactInfo& contact, uint32_t& tag) {
@@ -706,6 +721,26 @@ bool MyMesh::addHeardContact(const uint8_t* pubkey6) {
     }
   }
   return false;
+}
+
+// Promote a global-directory entry (pubkey + name + type + position) to a saved
+// radio contact. No path is known here (flood-routed until one is learned), which
+// is fine for MQTT-sourced nodes. Idempotent if already a contact.
+bool MyMesh::addDirectoryContact(const uint8_t* pubkey, const char* name, uint8_t type,
+                                 int32_t gps_lat, int32_t gps_lon) {
+  if (lookupContactByPubKey(pubkey, PUB_KEY_SIZE) != NULL) return true;   // already saved
+  ContactInfo ci;
+  memset(&ci, 0, sizeof(ci));
+  memcpy(ci.id.pub_key, pubkey, PUB_KEY_SIZE);
+  strncpy(ci.name, name ? name : "", sizeof(ci.name) - 1); ci.name[sizeof(ci.name) - 1] = 0;
+  ci.type = type;
+  ci.out_path_len = OUT_PATH_UNKNOWN;
+  ci.lastmod = getRTCClock()->getCurrentTime();
+  ci.gps_lat = gps_lat;
+  ci.gps_lon = gps_lon;
+  bool ok = addContact(ci);
+  if (ok) saveContacts();
+  return ok;
 }
 
 void MyMesh::onContactPathUpdated(const ContactInfo &contact) {

@@ -63,126 +63,6 @@ static int       s_last = -1;
 
 static void contacts_fill(lv_obj_t* list);   // fwd
 
-static lv_obj_t* s_fav_pill = NULL;          // the FAV toggle pill (restyled on tap)
-
-// paint the FAV pill for the current filter state: filled blue + white outline/text
-// when active, faint blue + gray text when off
-static void fav_pill_apply(bool on) {
-  if (!s_fav_pill) return;
-  lv_obj_set_style_bg_opa(s_fav_pill, on ? 230 : 30, 0);
-  lv_obj_set_style_border_color(s_fav_pill, lv_color_hex(on ? 0xffffff : UI_BLUE), 0);
-  lv_obj_set_style_border_opa(s_fav_pill, on ? 255 : 180, 0);
-  lv_obj_set_style_border_width(s_fav_pill, on ? 2 : 1, 0);
-  lv_obj_t* l = lv_obj_get_child(s_fav_pill, 0);          // the pill's label
-  if (l) lv_obj_set_style_text_color(l, lv_color_hex(on ? 0xffffff : UI_MUTED), 0);
-}
-
-// favourites-only toggle: flip the filter, restyle the pill, refill the list
-static void do_fav_toggle_cb(void* p) {
-  (void)p;
-  bool on = !lvd_contact_fav_only();
-  lvd_contact_set_fav_only(on);
-  fav_pill_apply(on);
-  if (s_list) { lv_obj_clean(s_list); contacts_fill(s_list); }
-}
-static void fav_toggle_clicked(lv_event_t* e) { (void)e; lv_async_call(do_fav_toggle_cb, NULL); }
-
-// favourites-only toggle on the search row: a proper blue pill, filled when active
-static void fav_toggle(lv_obj_t* scr) {
-  s_fav_pill = lv_ui_pill(scr, "FAV", UI_BLUE);
-  lv_obj_set_size(s_fav_pill, 46, 28);
-  lv_obj_set_pos(s_fav_pill, 320 - 8 - 46, 38 + (34 - 28) / 2);   // right edge, vertically centered on the search line
-  lv_obj_add_flag(s_fav_pill, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(s_fav_pill, fav_toggle_clicked, LV_EVENT_CLICKED, NULL);
-  lv_ui_press_fx(s_fav_pill);
-  fav_pill_apply(lvd_contact_fav_only());
-}
-
-// ---- node-type filter chips: All / Chats / Repeaters / Rooms ----------------
-static lv_obj_t* s_type_chips[4];
-static const char* const TYPE_LABELS[4] = { "All", "Chats", "Repeaters", "Rooms" };
-
-static void type_chips_apply(void) {
-  int sel = lvd_contact_type();
-  for (int i = 0; i < 4; i++) {
-    lv_obj_t* p = s_type_chips[i];
-    if (!p) continue;
-    bool on = (i == sel);
-    lv_obj_set_style_bg_opa(p, on ? 230 : 30, 0);
-    lv_obj_set_style_border_color(p, lv_color_hex(on ? 0xffffff : UI_BLUE), 0);
-    lv_obj_set_style_border_opa(p, on ? 255 : 160, 0);
-    lv_obj_t* l = lv_obj_get_child(p, 0);
-    if (l) lv_obj_set_style_text_color(l, lv_color_hex(on ? 0xffffff : UI_TEXT), 0);
-  }
-}
-static void do_type_cb(void* p) {
-  lvd_contact_set_type((int)(intptr_t)p);
-  type_chips_apply();
-  if (s_list) { lv_obj_clean(s_list); contacts_fill(s_list); }
-}
-static void type_chip_clicked(lv_event_t* e) {
-  lv_async_call(do_type_cb, lv_event_get_user_data(e));
-}
-static void type_filter_bar(lv_obj_t* scr) {
-  lv_obj_t* bar = lv_obj_create(scr);
-  lv_obj_remove_flag(bar, LV_OBJ_FLAG_SCROLLABLE);
-  lv_obj_set_pos(bar, 8, 74); lv_obj_set_size(bar, 320 - 16, 28);
-  lv_obj_set_style_bg_opa(bar, 0, 0); lv_obj_set_style_border_width(bar, 0, 0);
-  lv_obj_set_style_pad_all(bar, 0, 0);
-  lv_obj_set_flex_flow(bar, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(bar, LV_FLEX_ALIGN_SPACE_BETWEEN, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  for (int i = 0; i < 4; i++) {
-    lv_obj_t* p = lv_ui_pill(bar, TYPE_LABELS[i], UI_BLUE);
-    lv_obj_set_height(p, 26); lv_obj_set_style_min_height(p, 0, 0);
-    lv_obj_add_flag(p, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_add_event_cb(p, type_chip_clicked, LV_EVENT_CLICKED, (void*)(intptr_t)i);
-    lv_ui_press_fx(p);
-    s_type_chips[i] = p;
-  }
-  type_chips_apply();
-}
-
-static void open_search(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("contact_search"); }
-static void do_clear_cb(void* p) { (void)p; lvd_contact_set_filter(""); if (s_list) { lv_obj_clean(s_list); contacts_fill(s_list); } }
-static void clear_search(lv_event_t* e) { (void)e; lv_async_call(do_clear_cb, NULL); }
-
-// a tappable search field row (magnifier + filter text / placeholder + clear),
-// fixed on the screen above the list so it does not scroll away
-static void search_field(lv_obj_t* scr) {
-  const char* f = lvd_contact_filter();
-  bool active = f && f[0];
-  lv_obj_t* sf = lv_ui_md_card(scr);
-  lv_obj_set_size(sf, 320 - 16 - 54, 34);       // leave room for the favourites toggle on the right
-  lv_obj_set_pos(sf, 8, 38);                    // fixed, just below the topbar
-  lv_obj_set_flex_flow(sf, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(sf, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_add_flag(sf, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(sf, open_search, LV_EVENT_CLICKED, NULL);
-  lv_ui_press_fx(sf);
-
-  lv_obj_t* ic = lv_label_create(sf);
-  lv_label_set_text(ic, ICON_FINDER);
-  lv_obj_set_style_text_font(ic, &icons_fa, 0);
-  lv_obj_set_style_text_color(ic, lv_color_hex(MD_MUTED), 0);
-  lv_obj_set_style_margin_right(ic, 12, 0);
-
-  lv_obj_t* st = lv_label_create(sf);
-  lv_label_set_text(st, active ? f : "Search contacts");
-  lv_obj_set_style_text_font(st, &lv_font_montserrat_16, 0);
-  lv_obj_set_style_text_color(st, lv_color_hex(active ? MD_ON : MD_MUTED), 0);
-  lv_obj_set_flex_grow(st, 1);
-
-  if (active) {   // a tappable clear (×) -- its own click target, so it won't open search
-    lv_obj_t* cl = lv_label_create(sf);
-    lv_label_set_text(cl, LV_SYMBOL_CLOSE);
-    lv_obj_set_style_text_color(cl, lv_color_hex(MD_MUTED), 0);
-    lv_obj_add_flag(cl, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_ext_click_area(cl, 10);
-    lv_obj_add_event_cb(cl, clear_search, LV_EVENT_CLICKED, NULL);
-    lv_ui_press_fx(cl);
-  }
-}
-
 static void contacts_fill(lv_obj_t* list) {
   int n = lvd_contact_count();
   s_last = n;
@@ -233,6 +113,228 @@ void lv_contact_search_create(lv_obj_t* scr) {
   }
 }
 
+// ============================ Global directory view =========================
+// Second tier: the region-tagged directory of ALL observed nodes. Long-press a
+// row to push it into the radio contacts (chat nodes). Region dropdown + search
+// narrow the (thousands-strong) list; only DIR_RENDER_MAX rows are drawn.
+static int s_cview = 0;   // 0 = Radio contacts, 1 = Directory
+
+static void dir_push_cb(void* p) {
+  int i = (int)(intptr_t)p;
+  lvd_dir_t d;
+  if (!lvd_dir_get(i, &d)) return;
+  lv_ui_toast(lvd_dir_push(i) ? "Added to contacts" : "Already a contact");
+}
+static void dir_row_pressed(lv_event_t* e) { lv_async_call(dir_push_cb, lv_event_get_user_data(e)); }
+
+static void dir_row(lv_obj_t* list, const lvd_dir_t* d, int idx) {
+  lv_obj_t* row = lv_ui_md_card(list);
+  lv_obj_set_layout(row, LV_LAYOUT_NONE);
+  lv_obj_set_size(row, lv_pct(100), 42);
+  lv_obj_set_pos(row, 0, 4 + idx * 46);
+  lv_obj_set_style_pad_all(row, 8, 0);
+  lv_obj_set_style_radius(row, 0, 0);
+  lv_obj_add_flag(row, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(row, dir_row_pressed, LV_EVENT_LONG_PRESSED, (void*)(intptr_t)idx);  // hold to add
+  lv_obj_t* pill = lv_ui_pill(row, type_tag(d->type), type_color(d->type));
+  lv_obj_align(pill, LV_ALIGN_LEFT_MID, 0, -8);
+  lv_obj_t* nm = lv_label_create(row);
+  lv_label_set_text(nm, d->name);
+  lv_obj_set_style_text_font(nm, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_color(nm, lv_color_hex(MD_ON), 0);
+  lv_obj_align(nm, LV_ALIGN_LEFT_MID, 60, -8);
+  lv_obj_t* sub = lv_label_create(row);
+  lv_label_set_text(sub, d->subtitle);
+  lv_obj_set_style_text_font(sub, &lv_font_montserrat_12, 0);
+  lv_obj_set_style_text_color(sub, lv_color_hex(MD_MUTED), 0);
+  lv_obj_align(sub, LV_ALIGN_LEFT_MID, 60, 9);
+  lv_obj_t* add = lv_label_create(row);      // affordance hint (long-press adds)
+  lv_label_set_text(add, LV_SYMBOL_PLUS);
+  lv_obj_set_style_text_color(add, lv_color_hex(UI_GREEN), 0);
+  lv_obj_align(add, LV_ALIGN_RIGHT_MID, 0, 0);
+}
+
+static void dir_fill(lv_obj_t* list) {
+  int n = lvd_dir_count();
+  if (n <= 0) {
+    lv_obj_t* h = lv_label_create(list);
+    lv_label_set_text(h, lvd_dir_size() == 0 ? "No nodes seen yet" : "No nodes match");
+    lv_obj_set_style_text_color(h, lv_color_hex(MD_MUTED), 0);
+    return;
+  }
+  lvd_dir_t d;
+  for (int i = 0; i < n; i++) if (lvd_dir_get(i, &d)) dir_row(list, &d, i);
+  int match = lvd_dir_match();
+  if (match > n) {   // more matches than we render: nudge to refine
+    lv_obj_t* more = lv_ui_md_card(list);
+    lv_obj_set_layout(more, LV_LAYOUT_NONE);
+    lv_obj_set_size(more, lv_pct(100), 26); lv_obj_set_pos(more, 0, 4 + n * 46);
+    lv_obj_set_style_bg_opa(more, 0, 0);
+    lv_obj_t* l = lv_label_create(more);
+    static char mb[48]; snprintf(mb, sizeof(mb), "%d of %d shown - search to narrow", n, match);
+    lv_label_set_text(l, mb);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_12, 0);
+    lv_obj_set_style_text_color(l, lv_color_hex(MD_MUTED), 0);
+    lv_obj_align(l, LV_ALIGN_LEFT_MID, 4, 0);
+  }
+}
+
+// directory region filter: a dropdown of the distinct regions present
+static void dir_region_changed(lv_event_t* e) {
+  lv_obj_t* dd = lv_event_get_target(e);
+  int sel = lv_dropdown_get_selected(dd);
+  if (sel == 0) lvd_dir_set_region_filter("");
+  else { char r[16]; if (lvd_dir_region_list_get(sel - 1, r, sizeof(r))) lvd_dir_set_region_filter(r); }
+  if (s_list) { lv_obj_clean(s_list); dir_fill(s_list); }
+}
+static void dir_region_dropdown(lv_obj_t* scr) {
+  static char opts[64 * 17];
+  int k = snprintf(opts, sizeof(opts), "All regions");
+  int nr = lvd_dir_region_list_count();
+  for (int i = 0; i < nr && k < (int)sizeof(opts) - 18; i++) {
+    char r[16]; if (lvd_dir_region_list_get(i, r, sizeof(r))) k += snprintf(opts + k, sizeof(opts) - k, "\n%s", r);
+  }
+  lv_obj_t* dd = lv_dropdown_create(scr);
+  lv_dropdown_set_options(dd, opts);
+  const char* cur = lvd_dir_region_filter();
+  int selidx = 0;
+  if (cur[0]) for (int i = 0; i < nr; i++) { char r[16]; if (lvd_dir_region_list_get(i, r, sizeof(r)) && !strcmp(r, cur)) { selidx = i + 1; break; } }
+  lv_dropdown_set_selected(dd, selidx);
+  lv_obj_set_pos(dd, 8, 106); lv_obj_set_size(dd, 150, 28);   // left half
+  lv_obj_set_style_bg_color(dd, lv_color_hex(0x18202c), 0);
+  lv_obj_set_style_text_color(dd, lv_color_hex(UI_TEXT), 0);
+  lv_obj_set_style_text_font(dd, &lv_font_montserrat_14, 0);
+  lv_obj_add_event_cb(dd, dir_region_changed, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+// directory type filter (right half): All / Chat / Repeater / Room / Sensor
+static void dir_type_changed(lv_event_t* e) {
+  lvd_dir_set_type(lv_dropdown_get_selected(lv_event_get_target(e)));   // 0 all, else ADV_TYPE_*
+  if (s_list) { lv_obj_clean(s_list); dir_fill(s_list); }
+}
+static void dir_type_dropdown(lv_obj_t* scr) {
+  lv_obj_t* dd = lv_dropdown_create(scr);
+  lv_dropdown_set_options(dd, "All types\nChat\nRepeater\nRoom\nSensor");
+  lv_dropdown_set_selected(dd, lvd_dir_type());
+  lv_obj_set_pos(dd, 162, 106); lv_obj_set_size(dd, 320 - 162 - 8, 28);   // right half
+  lv_obj_set_style_bg_color(dd, lv_color_hex(0x18202c), 0);
+  lv_obj_set_style_text_color(dd, lv_color_hex(UI_TEXT), 0);
+  lv_obj_set_style_text_font(dd, &lv_font_montserrat_14, 0);
+  lv_obj_add_event_cb(dd, dir_type_changed, LV_EVENT_VALUE_CHANGED, NULL);
+}
+
+// directory search field (fixed above the list), opens the dir_search keyboard
+static void dir_open_search(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("dir_search"); }
+static void dir_clear_cb(void* p) { (void)p; lvd_dir_set_filter(""); if (s_list) { lv_obj_clean(s_list); dir_fill(s_list); } }
+static void dir_clear_search(lv_event_t* e) { (void)e; lv_async_call(dir_clear_cb, NULL); }
+static void dir_search_field(lv_obj_t* scr) {
+  const char* f = lvd_dir_filter();
+  bool active = f && f[0];
+  lv_obj_t* sf = lv_ui_md_card(scr);
+  lv_obj_set_size(sf, 320 - 16, 34);
+  lv_obj_set_pos(sf, 8, 70);
+  lv_obj_set_flex_flow(sf, LV_FLEX_FLOW_ROW);
+  lv_obj_set_flex_align(sf, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
+  lv_obj_add_flag(sf, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(sf, dir_open_search, LV_EVENT_CLICKED, NULL);
+  lv_ui_press_fx(sf);
+  lv_obj_t* ic = lv_label_create(sf);
+  lv_label_set_text(ic, ICON_FINDER);
+  lv_obj_set_style_text_font(ic, &icons_fa, 0);
+  lv_obj_set_style_text_color(ic, lv_color_hex(MD_MUTED), 0);
+  lv_obj_set_style_margin_right(ic, 12, 0);
+  lv_obj_t* st = lv_label_create(sf);
+  lv_label_set_text(st, active ? f : "Search directory");
+  lv_obj_set_style_text_font(st, &lv_font_montserrat_16, 0);
+  lv_obj_set_style_text_color(st, lv_color_hex(active ? MD_ON : MD_MUTED), 0);
+  lv_obj_set_flex_grow(st, 1);
+  if (active) {
+    lv_obj_t* cl = lv_label_create(sf);
+    lv_label_set_text(cl, LV_SYMBOL_CLOSE);
+    lv_obj_set_style_text_color(cl, lv_color_hex(MD_MUTED), 0);
+    lv_obj_add_flag(cl, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_set_ext_click_area(cl, 10);
+    lv_obj_add_event_cb(cl, dir_clear_search, LV_EVENT_CLICKED, NULL);
+    lv_ui_press_fx(cl);
+  }
+}
+
+// directory search keyboard screen (nav target "dir_search")
+static lv_obj_t* s_dir_search_ta = NULL;
+static void dir_search_ready(lv_event_t* e) {
+  (void)e;
+  if (s_dir_search_ta) lvd_dir_set_filter(lv_textarea_get_text(s_dir_search_ta));
+  if (lv_nav_cb) lv_nav_cb("back");
+}
+static void dir_search_cancel(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("back"); }
+void lv_dir_search_create(lv_obj_t* scr) {
+  lv_ui_screen_bg(scr);
+  lv_ui_md_topbar(scr, "Search directory");
+  lv_obj_t* ta = lv_textarea_create(scr);
+  lv_textarea_set_one_line(ta, true);
+  lv_textarea_set_text(ta, lvd_dir_filter());
+  lv_textarea_set_placeholder_text(ta, "Name");
+  lv_obj_set_pos(ta, 8, 38); lv_obj_set_size(ta, 320 - 16, 34);
+  lv_obj_set_style_bg_color(ta, lv_color_hex(0x18202c), 0);
+  lv_obj_set_style_border_color(ta, lv_color_hex(MD_PRIMARY), 0);
+  lv_obj_set_style_border_width(ta, 1, 0);
+  lv_obj_set_style_text_color(ta, lv_color_hex(UI_TEXT), 0);
+  s_dir_search_ta = ta;
+  lv_ui_kbd_focus(ta);
+  lv_obj_add_event_cb(ta, dir_search_ready, LV_EVENT_READY, NULL);
+  if (lvd_osk_enabled()) {
+    lv_obj_t* kb = lv_keyboard_create(scr);
+    lv_keyboard_set_mode(kb, LV_KEYBOARD_MODE_TEXT_LOWER);
+    lv_keyboard_set_textarea(kb, ta);
+    lv_obj_set_size(kb, 320, 150);
+    lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
+    lv_obj_add_event_cb(kb, dir_search_ready, LV_EVENT_READY, NULL);
+    lv_obj_add_event_cb(kb, dir_search_cancel, LV_EVENT_CANCEL, NULL);
+  }
+}
+
+// ---- Radio | Directory segmented toggle ------------------------------------
+void lv_contacts_create(lv_obj_t* scr);   // rebuilt in place on view switch
+static void contacts_rebuild(void* p) { (void)p; lv_obj_t* s = lv_screen_active(); lv_obj_clean(s); lv_contacts_create(s); }
+static void cview_seg_cb(lv_event_t* e) {
+  int v = (int)(intptr_t)lv_event_get_user_data(e);
+  if (v != s_cview) { s_cview = v; lv_async_call(contacts_rebuild, NULL); }
+}
+static void cview_toggle(lv_obj_t* scr) {
+  lv_obj_t* seg = lv_ui_card(scr, 4, 38, 320 - 8, 28);
+  lv_obj_set_style_pad_all(seg, 3, 0);
+  lv_obj_set_flex_flow(seg, LV_FLEX_FLOW_ROW); lv_obj_set_style_pad_column(seg, 4, 0);
+  static const char* names[2] = { "Radio", "Directory" };
+  for (int i = 0; i < 2; i++) {
+    lv_obj_t* b = lv_obj_create(seg);
+    lv_obj_remove_flag(b, LV_OBJ_FLAG_SCROLLABLE);
+    lv_obj_set_flex_grow(b, 1); lv_obj_set_height(b, lv_pct(100));
+    lv_obj_set_style_radius(b, 6, 0); lv_obj_set_style_pad_all(b, 0, 0); lv_obj_set_style_border_width(b, 0, 0);
+    bool sel = (s_cview == i);
+    lv_obj_set_style_bg_color(b, lv_color_hex(sel ? MD_PRIMARY : 0x1a2230), 0);
+    lv_obj_set_style_bg_opa(b, sel ? 220 : 120, 0);
+    lv_obj_add_flag(b, LV_OBJ_FLAG_CLICKABLE);
+    lv_obj_add_event_cb(b, cview_seg_cb, LV_EVENT_CLICKED, (void*)(intptr_t)i);
+    lv_ui_press_fx(b);
+    lv_obj_t* l = lv_label_create(b); lv_label_set_text(l, names[i]);
+    lv_obj_set_style_text_font(l, &lv_font_montserrat_14, 0);
+    lv_obj_set_style_text_color(l, lv_color_hex(sel ? 0xffffff : MD_MUTED), 0);
+    lv_obj_center(l);
+  }
+}
+
+static lv_obj_t* make_scroll_list(lv_obj_t* scr, int top) {
+  lv_obj_t* list = lv_obj_create(scr);
+  lv_obj_set_pos(list, 0, top);
+  lv_obj_set_size(list, 320, 240 - top);
+  lv_obj_set_style_bg_opa(list, 0, 0);
+  lv_obj_set_style_border_width(list, 0, 0);
+  lv_obj_set_style_pad_hor(list, 12, 0);
+  lv_obj_set_style_pad_ver(list, 2, 0);
+  lv_obj_set_layout(list, LV_LAYOUT_NONE);    // manual row positioning -> no flex relayout on scroll
+  return list;
+}
+
 // The contact list is a SNAPSHOT taken on screen entry -- we deliberately do not
 // re-read contacts or rebuild the list while the user is browsing (that re-ran the
 // whole sort/build and reset the scroll position when discovery added a node). A
@@ -241,18 +343,19 @@ void lv_contact_search_create(lv_obj_t* scr) {
 void lv_contacts_create(lv_obj_t* scr) {
   lv_ui_screen_bg(scr);
   lv_ui_md_topbar(scr, "Contacts");
-  search_field(scr);                            // fixed above the list (does not scroll)
-  fav_toggle(scr);                              // favourites-only toggle, same line as search
-  type_filter_bar(scr);                         // node-type filter chips (All/Chats/Repeaters/Rooms)
-
-  s_list = lv_obj_create(scr);                  // scrollable list below the search + filter row
-  lv_obj_set_pos(s_list, 0, 104);
-  lv_obj_set_size(s_list, 320, 240 - 104);
-  lv_obj_set_style_bg_opa(s_list, 0, 0);
-  lv_obj_set_style_border_width(s_list, 0, 0);
-  lv_obj_set_style_pad_hor(s_list, 12, 0);
-  lv_obj_set_style_pad_ver(s_list, 2, 0);
-  lv_obj_set_layout(s_list, LV_LAYOUT_NONE);    // manual row positioning -> no flex relayout on scroll
+  cview_toggle(scr);                            // Radio | Directory (y38)
+  if (s_cview == 1) {                           // ---- global directory ----
+    dir_search_field(scr);                      // y70
+    dir_region_dropdown(scr);                   // y106 left  (region, incl. "Radio")
+    dir_type_dropdown(scr);                     // y106 right (type)
+    s_list = make_scroll_list(scr, 136);
+    dir_fill(s_list);
+    return;
+  }
+  // ---- radio contacts: selected chat nodes, alphabetical, no search/filters ----
+  lvd_contact_set_type(1);                      // chats only
+  lvd_contact_set_fav_only(0);                  // no favourites filter here
+  s_list = make_scroll_list(scr, 70);           // list right below the toggle
   contacts_fill(s_list);                        // drag to scroll
   // no refresh hook: the list is a snapshot, not re-read while browsing
 }

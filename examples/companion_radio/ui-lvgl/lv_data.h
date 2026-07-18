@@ -55,6 +55,30 @@ int         lvd_contact_total(void);                // total contacts (ignores t
 // match a name against space-separated OR tokens ("sky hull" => sky OR hull)
 bool        lvd_name_match(const char* hay, const char* needle);
 
+// ---- global node directory (Contacts > Directory) --------------------------
+// Every node observed (RF adverts + MQTT feed), region-tagged, thousands of
+// entries. Distinct from radio contacts, which are pushed from here on demand.
+typedef struct {
+  char name[32];
+  char subtitle[40];   // "Repeater  ·  YYZ  ·  3m"
+  char region[16];     // region of origin
+  int  type;           // ADV_TYPE_*
+} lvd_dir_t;
+int         lvd_dir_count(void);                    // rows to render (capped)
+int         lvd_dir_match(void);                    // total entries matching the filter
+int         lvd_dir_size(void);                     // whole directory size
+unsigned    lvd_dir_total(void);                    // monotonic upsert count (refresh detection)
+bool        lvd_dir_get(int i, lvd_dir_t* out);
+bool        lvd_dir_push(int i);                    // promote row i to a radio contact
+void        lvd_dir_set_filter(const char* s);      // name search ("" = all)
+const char* lvd_dir_filter(void);
+void        lvd_dir_set_region_filter(const char* s); // region filter ("" = all regions)
+const char* lvd_dir_region_filter(void);
+void        lvd_dir_set_type(int t);                // type filter: 0 all, 1 chat, 2 repeater, 3 room, 4 sensor
+int         lvd_dir_type(void);
+int         lvd_dir_region_list_count(void);        // distinct regions present
+bool        lvd_dir_region_list_get(int i, char* out, int max);
+
 // ---- settings / device config (Settings screens) ---------------------------
 // Bound fields are keyed by (group title, field label). lvd_cfg_get fills the
 // live value (val for VAL/INFO, *sel for ENUM/BOOL) and returns true; an unbound

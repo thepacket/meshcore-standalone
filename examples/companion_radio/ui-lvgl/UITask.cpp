@@ -90,6 +90,7 @@ extern "C" {
   void lv_files_create(lv_obj_t* scr);
   void lv_contacts_create(lv_obj_t* scr);
   void lv_contact_search_create(lv_obj_t* scr);
+  void lv_dir_search_create(lv_obj_t* scr);   // global directory name search
   void lv_wifi_scan_create(lv_obj_t* scr);
   void lv_regions_create(lv_obj_t* scr);
   void lv_region_detail_create(lv_obj_t* scr);
@@ -115,6 +116,7 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "compose")) lv_chat_compose_create(s);
   else if (!strcmp(name, "contacts")) lv_contacts_create(s);
   else if (!strcmp(name, "contact_search")) lv_contact_search_create(s);
+  else if (!strcmp(name, "dir_search")) lv_dir_search_create(s);
   else if (!strcmp(name, "settings")) lv_settings_create(s);
   else if (!strcmp(name, "edit")) lv_settings_edit_create(s);
   else if (name[0] == 's' && name[1] == 'g') lv_settings_group_create(s, atoi(name + 2));
@@ -1741,6 +1743,178 @@ static void region_set_active(const char* slug) {
   p.end();
 }
 
+// ============================ Global node directory ============================
+// A large, persistent, region-tagged directory of EVERY node observed (RF adverts
+// + the MQTT live feed) -- distinct from the ~350 radio contacts. Radio contacts
+// are chat nodes pushed FROM this directory on demand (addDirectoryContact). The
+// directory index lives in PSRAM (see ui_alloc_caches); SD persistence is layered
+// on separately. Fed by MyMesh::onDiscoveredContact via the ui_directory_observe
+// weak hook, tagged with the advert's region (MQTT topic region, or -- for on-air
+// adverts -- the active scope).
+#define DIR_MAX        2000     // capacity; FIFO-evicted when full
+#define DIR_RENDER_MAX 50       // max rows rendered (search/region-filter to narrow)
+#define DIR_HASH       4096     // pubkey -> slot index buckets (power of two)
+struct DirEntry {
+  uint8_t  pubkey[32];
+  char     name[32];
+  uint8_t  type;                // ADV_TYPE_*
+  char     region[16];          // region of origin
+  uint32_t last_heard;          // our clock (epoch); display + sort
+  int32_t  gps_lat, gps_lon;
+};
+static DirEntry* s_dir = NULL;          // PSRAM (ui_alloc_caches)
+static int       s_dir_n = 0;
+static unsigned  s_dir_total = 0;       // monotonic upsert count (UI refresh detection)
+// O(1) pubkey lookup so ingestion stays cheap under intense MQTT advert traffic:
+// a chained hash (bucket head + per-slot next), and a FIFO write cursor for
+// eviction when full. Both live in PSRAM.
+static int32_t*  s_dir_bucket = NULL;   // [DIR_HASH] chain heads, -1 = empty
+static int32_t*  s_dir_next   = NULL;   // [DIR_MAX]  chain links, -1 = end
+static int       s_dir_wcur   = 0;      // FIFO eviction cursor
+
+static inline uint32_t dir_hash(const uint8_t* pk) { uint32_t h; memcpy(&h, pk, 4); return h & (DIR_HASH - 1); }
+static int dir_find(const uint8_t* pk) {
+  if (!s_dir_bucket) return -1;
+  for (int s = s_dir_bucket[dir_hash(pk)]; s >= 0; s = s_dir_next[s])
+    if (memcmp(s_dir[s].pubkey, pk, 32) == 0) return s;
+  return -1;
+}
+static void dir_link(int slot) {
+  uint32_t b = dir_hash(s_dir[slot].pubkey);
+  s_dir_next[slot] = s_dir_bucket[b]; s_dir_bucket[b] = slot;
+}
+static void dir_unlink(int slot) {   // remove slot's OLD pubkey from its chain (before reuse)
+  uint32_t b = dir_hash(s_dir[slot].pubkey);
+  int prev = -1;
+  for (int s = s_dir_bucket[b]; s >= 0; prev = s, s = s_dir_next[s])
+    if (s == slot) { if (prev < 0) s_dir_bucket[b] = s_dir_next[s]; else s_dir_next[prev] = s_dir_next[s]; s_dir_next[slot] = -1; return; }
+}
+
+extern "C" void ui_directory_observe(const uint8_t* pubkey, const char* name, uint8_t type,
+                                     int32_t gps_lat, int32_t gps_lon, const char* region) {
+  if (!s_dir || !s_dir_bucket || !pubkey || !name || !name[0]) return;
+  const char* rgn = (region && region[0]) ? region : "Radio";   // on-air adverts -> "Radio"
+  uint32_t now = rtc_clock.getCurrentTime();
+  if (!now) now = millis() / 1000;   // clock not yet set: monotonic-ish fallback
+  int slot = dir_find(pubkey);       // O(1)
+  if (slot < 0) {
+    if (s_dir_n < DIR_MAX) slot = s_dir_n++;
+    else { slot = s_dir_wcur; s_dir_wcur = (s_dir_wcur + 1) % DIR_MAX; dir_unlink(slot); }  // FIFO evict
+    memcpy(s_dir[slot].pubkey, pubkey, 32);
+    dir_link(slot);
+  }
+  DirEntry& e = s_dir[slot];
+  strncpy(e.name, name, sizeof(e.name) - 1); e.name[sizeof(e.name) - 1] = 0;
+  e.type = type;
+  strncpy(e.region, rgn, sizeof(e.region) - 1); e.region[sizeof(e.region) - 1] = 0;
+  e.gps_lat = gps_lat; e.gps_lon = gps_lon;
+  e.last_heard = now;
+  s_dir_total++;
+}
+
+// ---- directory browse bridge (filtered, recency-sorted, render-capped) -------
+static int*     g_dorder = NULL;        // PSRAM; matching indices, DIR_MAX capacity
+static int      g_dorder_n = 0;
+static unsigned g_dorder_built = 0xFFFFFFFFu;
+static char     g_dir_region_filter[16] = "";
+static char     g_dir_search[24] = "";
+static int      g_dir_type_filter = 0;  // 0 all, else ADV_TYPE_* (1 chat, 2 repeater, 3 room, 4 sensor)
+static char     g_dorder_key[56] = "\x01";
+
+static int dir_cmp_name(const void* a, const void* b) {   // alphabetical (case-insensitive)
+  return ci_strcmp(s_dir[*(const int*)a].name, s_dir[*(const int*)b].name);
+}
+static void dir_build_order(void) {
+  if (!s_dir || !g_dorder) { g_dorder_n = 0; return; }
+  char key[56]; snprintf(key, sizeof(key), "%d|%s|%s", g_dir_type_filter, g_dir_region_filter, g_dir_search);
+  if (g_dorder_built == s_dir_total && strcmp(g_dorder_key, key) == 0) return;
+  g_dorder_built = s_dir_total;
+  strncpy(g_dorder_key, key, sizeof(g_dorder_key) - 1); g_dorder_key[sizeof(g_dorder_key) - 1] = 0;
+  g_dorder_n = 0;
+  for (int i = 0; i < s_dir_n; i++) {
+    const DirEntry& e = s_dir[i];
+    if (!e.name[0]) continue;
+    if (g_dir_type_filter && e.type != g_dir_type_filter) continue;
+    if (g_dir_region_filter[0] && strcmp(e.region, g_dir_region_filter) != 0) continue;
+    if (g_dir_search[0] && !lvd_name_match(e.name, g_dir_search)) continue;
+    g_dorder[g_dorder_n++] = i;
+  }
+  qsort(g_dorder, g_dorder_n, sizeof(int), dir_cmp_name);
+}
+
+extern "C" void        lvd_dir_set_filter(const char* s) {
+  strncpy(g_dir_search, s ? s : "", sizeof(g_dir_search) - 1); g_dir_search[sizeof(g_dir_search) - 1] = 0;
+}
+extern "C" const char* lvd_dir_filter(void) { return g_dir_search; }
+extern "C" void        lvd_dir_set_region_filter(const char* s) {
+  strncpy(g_dir_region_filter, s ? s : "", sizeof(g_dir_region_filter) - 1); g_dir_region_filter[sizeof(g_dir_region_filter) - 1] = 0;
+}
+extern "C" const char* lvd_dir_region_filter(void) { return g_dir_region_filter; }
+extern "C" void        lvd_dir_set_type(int t) { g_dir_type_filter = t; }
+extern "C" int         lvd_dir_type(void) { return g_dir_type_filter; }
+extern "C" unsigned lvd_dir_total(void) { return s_dir_total; }          // for refresh detection
+extern "C" int      lvd_dir_size(void)  { return s_dir_n; }              // whole directory size
+extern "C" int      lvd_dir_match(void) { dir_build_order(); return g_dorder_n; }   // matching the filter
+extern "C" int      lvd_dir_count(void) {                               // rendered rows (capped)
+  dir_build_order();
+  return g_dorder_n < DIR_RENDER_MAX ? g_dorder_n : DIR_RENDER_MAX;
+}
+
+static const char* dir_type_name(uint8_t t) {
+  switch (t) { case 1: return "Chat"; case 2: return "Repeater"; case 3: return "Room";
+               case 4: return "Sensor"; default: return "Node"; }
+}
+extern "C" bool lvd_dir_get(int i, lvd_dir_t* out) {
+  dir_build_order();
+  if (i < 0 || i >= g_dorder_n || i >= DIR_RENDER_MAX) return false;
+  const DirEntry& e = s_dir[g_dorder[i]];
+  strncpy(out->name, e.name, sizeof(out->name) - 1); out->name[sizeof(out->name) - 1] = 0;
+  strncpy(out->region, e.region, sizeof(out->region) - 1); out->region[sizeof(out->region) - 1] = 0;
+  out->type = e.type;
+  uint32_t now = rtc_clock.getCurrentTime();
+  uint32_t age = (now > e.last_heard) ? (now - e.last_heard) : 0;
+  char agebuf[12];
+  if (!now || !e.last_heard) snprintf(agebuf, sizeof(agebuf), "");
+  else if (age < 90)      snprintf(agebuf, sizeof(agebuf), "  %us", (unsigned)age);
+  else if (age < 5400)    snprintf(agebuf, sizeof(agebuf), "  %um", (unsigned)(age / 60));
+  else                    snprintf(agebuf, sizeof(agebuf), "  %uh", (unsigned)(age / 3600));
+  snprintf(out->subtitle, sizeof(out->subtitle), "%s  \xC2\xB7  %s%s",
+           dir_type_name(e.type), e.region[0] ? e.region : "?", agebuf);
+  return true;
+}
+// Promote directory row i to a saved radio (chat) contact.
+extern "C" bool lvd_dir_push(int i) {
+  dir_build_order();
+  if (i < 0 || i >= g_dorder_n || i >= DIR_RENDER_MAX) return false;
+  const DirEntry& e = s_dir[g_dorder[i]];
+  return the_mesh.addDirectoryContact(e.pubkey, e.name, e.type, e.gps_lat, e.gps_lon);
+}
+
+// ---- distinct region list (for the directory's region filter chips) ----------
+static char     g_dir_regions[64][16];
+static int      g_dir_regions_n = 0;
+static unsigned g_dir_regions_built = 0xFFFFFFFFu;
+static void dir_regions_build(void) {
+  if (g_dir_regions_built == s_dir_total) return;
+  g_dir_regions_built = s_dir_total;
+  g_dir_regions_n = 0;
+  for (int i = 0; i < s_dir_n && g_dir_regions_n < 64; i++) {
+    const char* r = s_dir[i].region;
+    if (!r[0]) continue;
+    bool found = false;
+    for (int j = 0; j < g_dir_regions_n; j++) if (!strcmp(g_dir_regions[j], r)) { found = true; break; }
+    if (!found) { strncpy(g_dir_regions[g_dir_regions_n], r, 15); g_dir_regions[g_dir_regions_n][15] = 0; g_dir_regions_n++; }
+  }
+  qsort(g_dir_regions, g_dir_regions_n, 16, (int (*)(const void*, const void*))strcmp);
+}
+extern "C" int  lvd_dir_region_list_count(void) { dir_regions_build(); return g_dir_regions_n; }
+extern "C" bool lvd_dir_region_list_get(int i, char* out, int max) {
+  dir_regions_build();
+  if (i < 0 || i >= g_dir_regions_n) return false;
+  strncpy(out, g_dir_regions[i], max - 1); out[max - 1] = 0;
+  return true;
+}
+
 // write the current live state (radio config + contacts + channels) into a
 // region's folder, creating the folders as needed.
 static bool region_save_current_to(const char* slug) {
@@ -2664,7 +2838,7 @@ void ui_log_packet_net(float snr, float rssi, const uint8_t* raw, int len, const
 // only, never relayed). Called from the UI task via mqtt_src_drain().
 void ui_inject_net_packet(float snr, float rssi, const uint8_t* raw, int len, const char* region) {
   ui_log_packet_net(snr, rssi, raw, len, region);
-  the_mesh.importObservedPacket(snr, rssi, raw, len);
+  the_mesh.importObservedPacket(snr, rssi, raw, len, region);   // region -> directory tag
 }
 
 // dump the capture ring (newest-first) to USB serial as CSV+hex, for offline
@@ -3370,6 +3544,12 @@ void ui_alloc_caches(void) {
   if (!g_pktidx)      g_pktidx      = (int*)big_alloc(sizeof(int) * PKT_LOG);
   if (!g_flood)       g_flood       = (FloodRec*)big_alloc(sizeof(FloodRec) * PKT_LOG);
   if (!g_floodmem_idx) g_floodmem_idx = (int*)big_alloc(sizeof(int) * PKT_LOG);
+  // Global node directory (region-tagged, up to DIR_MAX) + its filtered-order index
+  // + an O(1) pubkey hash (bucket heads / chain links, initialised to -1).
+  if (!s_dir)    { s_dir = (DirEntry*)big_alloc(sizeof(DirEntry) * DIR_MAX); if (s_dir) memset(s_dir, 0, sizeof(DirEntry) * DIR_MAX); }
+  if (!g_dorder) g_dorder = (int*)big_alloc(sizeof(int) * DIR_MAX);
+  if (!s_dir_bucket) { s_dir_bucket = (int32_t*)big_alloc(sizeof(int32_t) * DIR_HASH); if (s_dir_bucket) memset(s_dir_bucket, 0xFF, sizeof(int32_t) * DIR_HASH); }
+  if (!s_dir_next)   { s_dir_next   = (int32_t*)big_alloc(sizeof(int32_t) * DIR_MAX);  if (s_dir_next)   memset(s_dir_next,   0xFF, sizeof(int32_t) * DIR_MAX); }
 }
 #define ACK_TIMEOUT_MS 30000
 

@@ -110,7 +110,7 @@ public:
   // processing only: an ADVERT updates the Heard list / contacts exactly like an
   // over-the-air advert, merging the two sources, but the packet is NEVER relayed
   // onto the radio. snr/rssi are the values the observing gateway reported.
-  void importObservedPacket(float snr, float rssi, const uint8_t* raw, int len);
+  void importObservedPacket(float snr, float rssi, const uint8_t* raw, int len, const char* region = nullptr);
 
   // Start a trace-route to a contact over its known direct path. Generates a
   // random tag (returned via `tag`) used to match the later onTraceResult().
@@ -140,6 +140,8 @@ public:
   // Recently-heard nodes NOT yet saved as contacts (for the scanner). Returns count.
   int  getHeardCandidates(ContactInfo dest[], int max_num);
   bool addHeardContact(const uint8_t* pubkey6);  // promote a heard candidate to a saved contact
+  bool addDirectoryContact(const uint8_t* pubkey, const char* name, uint8_t type,
+                           int32_t gps_lat, int32_t gps_lon);  // promote a global-directory node
 
   // ---- active node discovery (zero-hop NODE_DISCOVER_REQ; neighbours reply) ----
   struct DiscNode { uint8_t pub_key[PUB_KEY_SIZE]; uint8_t type; int8_t snr_q; int8_t rssi; uint32_t ts; };
@@ -347,6 +349,10 @@ private:
   // uses these instead of the (stale) radio SNR/RSSI while an import is in flight.
   bool   _obs_signal_valid = false;
   int8_t _obs_snr_q = 0, _obs_rssi = 0;
+  // region of origin of an advert imported via importObservedPacket() (MQTT topic
+  // region). Empty for on-air adverts -- the UI fills those with the active scope.
+  char   _obs_region[16] = "";
+  bool   _obs_region_valid = false;
 
   // recently-heard but NOT-yet-saved nodes, for the on-device scanner (full identity)
   #define HEARD_CACHE_SIZE 8
