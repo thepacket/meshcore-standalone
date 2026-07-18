@@ -45,16 +45,8 @@ static const Field F_RADIO[] = {
   {"RX boosted gain", F_BOOL, NULL, 1},
   {"Channel activity detection", F_BOOL, NULL, 1},
 };
-static const Field F_CONTACTS[] = {
-  {"Manual add",          F_BOOL, NULL, 0},
-  {"Auto-add users",      F_BOOL, NULL, 1},
-  {"Auto-add repeaters",  F_BOOL, NULL, 1},
-  {"Auto-add rooms",      F_BOOL, NULL, 1},
-  {"Auto-add sensors",    F_BOOL, NULL, 1},
-  {"Overwrite oldest",    F_BOOL, NULL, 0},
-  {"Auto-add max hops",   F_VAL,  "3", 0},
-  {"Auto-add discovered", F_BOOL, NULL, 1},   // save Discover responders as contacts
-};
+// (Contacts settings removed: radio contacts are manual-only in the two-tier
+//  model, so the auto-add options no longer apply.)
 static const Field F_MSG[] = {
   {"Multi-acks",     F_VAL,  "1", 0},
   {"Path hash mode", F_ENUM, "Off\nMode 1\nMode 2", 0},
@@ -164,7 +156,6 @@ static const Group GROUPS[] = {
   // MQTT sits right after Radio so it renders immediately after the injected
   // "Scopes" row (which the list builder places after Radio).
   GRP("MQTT",        UI_TEAL,    ICON_SIGNAL,    F_MQTT),
-  GRP("Contacts",    UI_BLUE,    ICON_CONTACTS,  F_CONTACTS),
   GRP("Messaging",   UI_CYAN,    ICON_CHAT,      F_MSG),
   GRP("Position",    UI_ORANGE,  ICON_MAP,       F_POSITION),
   GRP("Telemetry",   UI_RED,     ICON_NOISE,     F_TELEM),

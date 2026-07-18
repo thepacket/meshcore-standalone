@@ -100,7 +100,7 @@ static void home_tick(void) {
   if (s_clock) { char t[8]; lvd_clock_hhmm(t, sizeof(t)); lv_label_set_text(s_clock, t); }
   if (s_batt)  apply_batt(s_batt, lvd_batt_pct());
   if (s_wifi)  apply_wifi(s_wifi);
-  if (s_rxtx)  { char b[48]; snprintf(b, sizeof(b), "RX %u  RE %u  TX %u  CT %d", lvd_pkt_recv() + lvd_mqtt_rx(), lvd_pkt_recv_err(), lvd_pkt_sent(), lvd_contact_total()); lv_label_set_text(s_rxtx, b); }
+  if (s_rxtx)  { char b[64]; snprintf(b, sizeof(b), "RX %u RE %u TX %u CT %d/%d", lvd_pkt_recv() + lvd_mqtt_rx(), lvd_pkt_recv_err(), lvd_pkt_sent(), lvd_contact_total(), lvd_dir_size()); lv_label_set_text(s_rxtx, b); }   // CT radio/directory
   if (s_mem_ram)   { char b[28]; snprintf(b, sizeof(b), "RAM %u KB left",   lvd_free_ram_kb());   lv_label_set_text(s_mem_ram, b); }
   if (s_mem_flash) { char b[28]; snprintf(b, sizeof(b), "Flash %u KB left", lvd_free_flash_kb()); lv_label_set_text(s_mem_flash, b); }
   if (s_latest) {
@@ -131,7 +131,7 @@ static void make_statusbar(lv_obj_t* scr) {
 
   // live packet counters (left of the status bar)
   lv_obj_t* rxtx = lv_label_create(bar);
-  lv_label_set_text(rxtx, "RX 0  RE 0  TX 0  CT 0");
+  lv_label_set_text(rxtx, "RX 0 RE 0 TX 0 CT 0/0");
   lv_obj_set_style_text_font(rxtx, &lv_font_montserrat_12, 0);
   lv_obj_set_style_text_color(rxtx, lv_color_hex(0xffffff), 0);
   lv_obj_align(rxtx, LV_ALIGN_LEFT_MID, 8, 0);

@@ -200,7 +200,7 @@ static void dir_region_dropdown(lv_obj_t* scr) {
   int selidx = 0;
   if (cur[0]) for (int i = 0; i < nr; i++) { char r[16]; if (lvd_dir_region_list_get(i, r, sizeof(r)) && !strcmp(r, cur)) { selidx = i + 1; break; } }
   lv_dropdown_set_selected(dd, selidx);
-  lv_obj_set_pos(dd, 8, 106); lv_obj_set_size(dd, 150, 28);   // left half
+  lv_obj_set_pos(dd, 8, 70); lv_obj_set_size(dd, 150, 28);   // left half, below the toggle
   lv_obj_set_style_bg_color(dd, lv_color_hex(0x18202c), 0);
   lv_obj_set_style_text_color(dd, lv_color_hex(UI_TEXT), 0);
   lv_obj_set_style_text_font(dd, &lv_font_montserrat_14, 0);
@@ -216,81 +216,11 @@ static void dir_type_dropdown(lv_obj_t* scr) {
   lv_obj_t* dd = lv_dropdown_create(scr);
   lv_dropdown_set_options(dd, "All types\nChat\nRepeater\nRoom\nSensor");
   lv_dropdown_set_selected(dd, lvd_dir_type());
-  lv_obj_set_pos(dd, 162, 106); lv_obj_set_size(dd, 320 - 162 - 8, 28);   // right half
+  lv_obj_set_pos(dd, 162, 70); lv_obj_set_size(dd, 320 - 162 - 8, 28);   // right half, below the toggle
   lv_obj_set_style_bg_color(dd, lv_color_hex(0x18202c), 0);
   lv_obj_set_style_text_color(dd, lv_color_hex(UI_TEXT), 0);
   lv_obj_set_style_text_font(dd, &lv_font_montserrat_14, 0);
   lv_obj_add_event_cb(dd, dir_type_changed, LV_EVENT_VALUE_CHANGED, NULL);
-}
-
-// directory search field (fixed above the list), opens the dir_search keyboard
-static void dir_open_search(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("dir_search"); }
-static void dir_clear_cb(void* p) { (void)p; lvd_dir_set_filter(""); if (s_list) { lv_obj_clean(s_list); dir_fill(s_list); } }
-static void dir_clear_search(lv_event_t* e) { (void)e; lv_async_call(dir_clear_cb, NULL); }
-static void dir_search_field(lv_obj_t* scr) {
-  const char* f = lvd_dir_filter();
-  bool active = f && f[0];
-  lv_obj_t* sf = lv_ui_md_card(scr);
-  lv_obj_set_size(sf, 320 - 16, 34);
-  lv_obj_set_pos(sf, 8, 70);
-  lv_obj_set_flex_flow(sf, LV_FLEX_FLOW_ROW);
-  lv_obj_set_flex_align(sf, LV_FLEX_ALIGN_START, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
-  lv_obj_add_flag(sf, LV_OBJ_FLAG_CLICKABLE);
-  lv_obj_add_event_cb(sf, dir_open_search, LV_EVENT_CLICKED, NULL);
-  lv_ui_press_fx(sf);
-  lv_obj_t* ic = lv_label_create(sf);
-  lv_label_set_text(ic, ICON_FINDER);
-  lv_obj_set_style_text_font(ic, &icons_fa, 0);
-  lv_obj_set_style_text_color(ic, lv_color_hex(MD_MUTED), 0);
-  lv_obj_set_style_margin_right(ic, 12, 0);
-  lv_obj_t* st = lv_label_create(sf);
-  lv_label_set_text(st, active ? f : "Search directory");
-  lv_obj_set_style_text_font(st, &lv_font_montserrat_16, 0);
-  lv_obj_set_style_text_color(st, lv_color_hex(active ? MD_ON : MD_MUTED), 0);
-  lv_obj_set_flex_grow(st, 1);
-  if (active) {
-    lv_obj_t* cl = lv_label_create(sf);
-    lv_label_set_text(cl, LV_SYMBOL_CLOSE);
-    lv_obj_set_style_text_color(cl, lv_color_hex(MD_MUTED), 0);
-    lv_obj_add_flag(cl, LV_OBJ_FLAG_CLICKABLE);
-    lv_obj_set_ext_click_area(cl, 10);
-    lv_obj_add_event_cb(cl, dir_clear_search, LV_EVENT_CLICKED, NULL);
-    lv_ui_press_fx(cl);
-  }
-}
-
-// directory search keyboard screen (nav target "dir_search")
-static lv_obj_t* s_dir_search_ta = NULL;
-static void dir_search_ready(lv_event_t* e) {
-  (void)e;
-  if (s_dir_search_ta) lvd_dir_set_filter(lv_textarea_get_text(s_dir_search_ta));
-  if (lv_nav_cb) lv_nav_cb("back");
-}
-static void dir_search_cancel(lv_event_t* e) { (void)e; if (lv_nav_cb) lv_nav_cb("back"); }
-void lv_dir_search_create(lv_obj_t* scr) {
-  lv_ui_screen_bg(scr);
-  lv_ui_md_topbar(scr, "Search directory");
-  lv_obj_t* ta = lv_textarea_create(scr);
-  lv_textarea_set_one_line(ta, true);
-  lv_textarea_set_text(ta, lvd_dir_filter());
-  lv_textarea_set_placeholder_text(ta, "Name");
-  lv_obj_set_pos(ta, 8, 38); lv_obj_set_size(ta, 320 - 16, 34);
-  lv_obj_set_style_bg_color(ta, lv_color_hex(0x18202c), 0);
-  lv_obj_set_style_border_color(ta, lv_color_hex(MD_PRIMARY), 0);
-  lv_obj_set_style_border_width(ta, 1, 0);
-  lv_obj_set_style_text_color(ta, lv_color_hex(UI_TEXT), 0);
-  s_dir_search_ta = ta;
-  lv_ui_kbd_focus(ta);
-  lv_obj_add_event_cb(ta, dir_search_ready, LV_EVENT_READY, NULL);
-  if (lvd_osk_enabled()) {
-    lv_obj_t* kb = lv_keyboard_create(scr);
-    lv_keyboard_set_mode(kb, LV_KEYBOARD_MODE_TEXT_LOWER);
-    lv_keyboard_set_textarea(kb, ta);
-    lv_obj_set_size(kb, 320, 150);
-    lv_obj_align(kb, LV_ALIGN_BOTTOM_MID, 0, 0);
-    lv_obj_add_event_cb(kb, dir_search_ready, LV_EVENT_READY, NULL);
-    lv_obj_add_event_cb(kb, dir_search_cancel, LV_EVENT_CANCEL, NULL);
-  }
 }
 
 // ---- Radio | Directory segmented toggle ------------------------------------
@@ -345,10 +275,9 @@ void lv_contacts_create(lv_obj_t* scr) {
   lv_ui_md_topbar(scr, "Contacts");
   cview_toggle(scr);                            // Radio | Directory (y38)
   if (s_cview == 1) {                           // ---- global directory ----
-    dir_search_field(scr);                      // y70
-    dir_region_dropdown(scr);                   // y106 left  (region, incl. "Radio")
-    dir_type_dropdown(scr);                     // y106 right (type)
-    s_list = make_scroll_list(scr, 136);
+    dir_region_dropdown(scr);                   // y70 left  (region, incl. "Radio")
+    dir_type_dropdown(scr);                     // y70 right (type)
+    s_list = make_scroll_list(scr, 104);
     dir_fill(s_list);
     return;
   }

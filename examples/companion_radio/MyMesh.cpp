@@ -305,6 +305,13 @@ bool MyMesh::isAutoAddEnabled() const {
 }
 
 bool MyMesh::shouldAutoAddContactType(uint8_t contact_type) const {
+#if defined(TDECK_LVGL_UI)
+  // Two-tier contacts (standalone LVGL UI): every advert populates the global
+  // node directory (via onDiscoveredContact), NEVER the radio contacts. Radio
+  // contacts are pushed manually from the directory. So never auto-add here.
+  (void)contact_type;
+  return false;
+#else
   if ((_prefs.manual_add_contacts & 1) == 0) {
     return true;
   }
@@ -328,6 +335,7 @@ bool MyMesh::shouldAutoAddContactType(uint8_t contact_type) const {
   }
 
   return (_prefs.autoadd_config & type_bit) != 0;
+#endif
 }
 
 bool MyMesh::shouldOverwriteWhenFull() const {
@@ -385,11 +393,23 @@ ui_directory_observe(const uint8_t* pubkey, const char* name, uint8_t type,
   (void)pubkey; (void)name; (void)type; (void)gps_lat; (void)gps_lon; (void)region;
 }
 
+// Every valid advert (RF + MQTT) is recorded in the global node directory here,
+// BEFORE the base class's contact/replay handling -- so a re-advert from a node
+// that happens to be a saved contact (which the replay guard would otherwise drop)
+// still updates the directory. Region: the MQTT topic region, else "" -> "Radio".
+void MyMesh::onAdvertRecv(mesh::Packet* packet, const mesh::Identity& id, uint32_t timestamp, const uint8_t* app_data, size_t app_data_len) {
+  AdvertDataParser parser(app_data, app_data_len);
+  if (parser.isValid() && parser.hasName()) {
+    int32_t lat = 0, lon = 0;
+    if (parser.hasLatLon()) { lat = parser.getIntLat(); lon = parser.getIntLon(); }
+    ui_directory_observe(id.pub_key, parser.getName(), parser.getType(), lat, lon,
+                         _obs_region_valid ? _obs_region : "");
+  }
+  BaseChatMesh::onAdvertRecv(packet, id, timestamp, app_data, app_data_len);
+}
+
 void MyMesh::onDiscoveredContact(ContactInfo &contact, bool is_new, uint8_t path_len, const uint8_t* path) {
   maybeAdoptContactTime(contact);
-  ui_directory_observe(contact.id.pub_key, contact.name, contact.type,
-                       contact.gps_lat, contact.gps_lon,
-                       _obs_region_valid ? _obs_region : "");
 
   if (_serial->isConnected()) {
     if (is_new) {
@@ -1172,8 +1192,10 @@ void MyMesh::onControlDataRecv(mesh::Packet *packet) {
     disc_nodes[slot].snr_q = snr_q;
     disc_nodes[slot].rssi  = _last_rx_rssi;   // RSSI we heard this response at
     disc_nodes[slot].ts    = getRTCClock()->getCurrentTime();
+#if !defined(TDECK_LVGL_UI)
     // auto-add the responder as a contact (placeholder hex name until its advert
     // arrives and onAdvertRecv() fills in the real name) -- unless disabled.
+    // Not on the LVGL build: radio contacts are manual-only (two-tier model).
     if (_prefs.disc_autoadd && lookupContactByPubKey(pk, PUB_KEY_SIZE) == NULL) {
       ContactInfo c; memset(&c, 0, sizeof(c));
       memcpy(c.id.pub_key, pk, PUB_KEY_SIZE);
@@ -1183,6 +1205,7 @@ void MyMesh::onControlDataRecv(mesh::Packet *packet) {
       c.lastmod = getRTCClock()->getCurrentTime();
       addContact(c);
     }
+#endif
   }
   int i = 0;
   out_frame[i++] = PUSH_CODE_CONTROL_DATA;

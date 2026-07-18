@@ -90,7 +90,6 @@ extern "C" {
   void lv_files_create(lv_obj_t* scr);
   void lv_contacts_create(lv_obj_t* scr);
   void lv_contact_search_create(lv_obj_t* scr);
-  void lv_dir_search_create(lv_obj_t* scr);   // global directory name search
   void lv_wifi_scan_create(lv_obj_t* scr);
   void lv_regions_create(lv_obj_t* scr);
   void lv_region_detail_create(lv_obj_t* scr);
@@ -116,7 +115,6 @@ static void build_screen(const char* name) {
   else if (!strcmp(name, "compose")) lv_chat_compose_create(s);
   else if (!strcmp(name, "contacts")) lv_contacts_create(s);
   else if (!strcmp(name, "contact_search")) lv_contact_search_create(s);
-  else if (!strcmp(name, "dir_search")) lv_dir_search_create(s);
   else if (!strcmp(name, "settings")) lv_settings_create(s);
   else if (!strcmp(name, "edit")) lv_settings_edit_create(s);
   else if (name[0] == 's' && name[1] == 'g') lv_settings_group_create(s, atoi(name + 2));
@@ -556,6 +554,7 @@ static void refresh_timer_cb(lv_timer_t*) {
 }
 
 void ui_alloc_caches(void);   // PSRAM rings (chat + packet log), defined with them below
+void ui_directory_load(void); // restore the node directory from SD (used in begin, defined below)
 static void chat_persist_load(void);   // replay persisted chat history from SD, defined below
 static void chat_ring_reset(void);     // clear the message ring (on scope switch)
 static void chat_persist_clone_current_to(const char* slug);   // fork chat log into a new scope
@@ -567,6 +566,7 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
   g_ui = this;
   ui_alloc_caches();   // before the mesh loop can deliver packets/messages
   chat_persist_load();   // restore recent conversations (channels loaded by now)
+  ui_directory_load();   // restore the global node directory from SD
 
   g_disp = display;
   g_gfx  = static_cast<LGFXDisplay*>(display)->gfxDevice();
@@ -633,6 +633,8 @@ void UITask::begin(DisplayDriver* display, SensorManager* sensors, NodePrefs* no
 void ui_wifi_poll(void);   // Wi-Fi manager, defined with the lvd_wifi_* bridge below
 void ui_mqtt_poll(void);   // MQTT feed (re)connect, defined with the lvd_mqtt_* bridge below
 void ui_webscreen_poll(void);   // remote-screen server enable/disable, defined with its bridge below
+void ui_directory_poll(void);   // lazy SD flush of the node directory (defined with it below)
+void ui_directory_load(void);   // load the node directory from SD (once, at begin)
 void ui_sleep_enter(void); // radio-watch light sleep, defined with the cfg actions below
 void ui_map_fetch_poll(void);   // map-tile fetch queue drain, defined with the lvd_map_* bridge
 static bool screenshot_write(void);   // BMP to SD, defined with the cfg actions below
@@ -738,6 +740,7 @@ void UITask::loop() {
     ui_wifi_poll();
     ui_mqtt_poll();   // (re)connect the MQTT feed while Wi-Fi is up
     ui_webscreen_poll();   // enable/disable the remote-screen server with Wi-Fi
+    ui_directory_poll();   // lazy SD flush of the node directory
     bl_poll();
   }
   mqtt_src_drain();   // inject any MQTT packets received since the last loop
@@ -1762,6 +1765,7 @@ struct DirEntry {
   uint32_t last_heard;          // our clock (epoch); display + sort
   int32_t  gps_lat, gps_lon;
 };
+static void* big_alloc(size_t n);       // PSRAM allocator (defined with ui_alloc_caches)
 static DirEntry* s_dir = NULL;          // PSRAM (ui_alloc_caches)
 static int       s_dir_n = 0;
 static unsigned  s_dir_total = 0;       // monotonic upsert count (UI refresh detection)
@@ -1771,6 +1775,7 @@ static unsigned  s_dir_total = 0;       // monotonic upsert count (UI refresh de
 static int32_t*  s_dir_bucket = NULL;   // [DIR_HASH] chain heads, -1 = empty
 static int32_t*  s_dir_next   = NULL;   // [DIR_MAX]  chain links, -1 = end
 static int       s_dir_wcur   = 0;      // FIFO eviction cursor
+static bool      s_dir_dirty  = false;  // structural change pending an SD flush
 
 static inline uint32_t dir_hash(const uint8_t* pk) { uint32_t h; memcpy(&h, pk, 4); return h & (DIR_HASH - 1); }
 static int dir_find(const uint8_t* pk) {
@@ -1797,19 +1802,25 @@ extern "C" void ui_directory_observe(const uint8_t* pubkey, const char* name, ui
   uint32_t now = rtc_clock.getCurrentTime();
   if (!now) now = millis() / 1000;   // clock not yet set: monotonic-ish fallback
   int slot = dir_find(pubkey);       // O(1)
+  bool structural = false;
   if (slot < 0) {
     if (s_dir_n < DIR_MAX) slot = s_dir_n++;
     else { slot = s_dir_wcur; s_dir_wcur = (s_dir_wcur + 1) % DIR_MAX; dir_unlink(slot); }  // FIFO evict
     memcpy(s_dir[slot].pubkey, pubkey, 32);
     dir_link(slot);
+    structural = true;
   }
   DirEntry& e = s_dir[slot];
+  // Only a new node or a changed name/type/region needs persisting; a plain
+  // re-advert (last_heard bump) does not, so stable traffic stops rewriting SD.
+  if (!structural && (strcmp(e.name, name) != 0 || e.type != type || strcmp(e.region, rgn) != 0)) structural = true;
   strncpy(e.name, name, sizeof(e.name) - 1); e.name[sizeof(e.name) - 1] = 0;
   e.type = type;
   strncpy(e.region, rgn, sizeof(e.region) - 1); e.region[sizeof(e.region) - 1] = 0;
   e.gps_lat = gps_lat; e.gps_lon = gps_lon;
   e.last_heard = now;
   s_dir_total++;
+  if (structural) s_dir_dirty = true;
 }
 
 // ---- directory browse bridge (filtered, recency-sorted, render-capped) -------
@@ -1913,6 +1924,66 @@ extern "C" bool lvd_dir_region_list_get(int i, char* out, int max) {
   if (i < 0 || i >= g_dir_regions_n) return false;
   strncpy(out, g_dir_regions[i], max - 1); out[max - 1] = 0;
   return true;
+}
+
+// ---- SD persistence: one binary file, header + DirEntry records --------------
+// Loaded once at boot; flushed lazily (>=60 s apart, only on structural change),
+// so the hot ingestion path never touches SD.
+#define DIR_FILE  "/meshcore/directory.dat"
+#define DIR_MAGIC 0x44495231u   // "DIR1"
+struct DirFileHdr { uint32_t magic; uint16_t ver; uint16_t esz; uint32_t count; };
+
+static void dir_rehash(void) {   // rebuild the pubkey hash from s_dir[0..s_dir_n)
+  if (!s_dir_bucket || !s_dir_next) return;
+  for (int i = 0; i < DIR_HASH; i++) s_dir_bucket[i] = -1;
+  for (int i = 0; i < s_dir_n; i++) { s_dir_next[i] = -1; dir_link(i); }
+}
+
+static bool dir_save(void) {
+  if (!s_dir || !tdeck_sd_ok()) return false;
+  tdeck_sd_mkdir("/meshcore");
+  DirFileHdr h = { DIR_MAGIC, 1, (uint16_t)sizeof(DirEntry), (uint32_t)s_dir_n };
+  if (!tdeck_sd_write(DIR_FILE, (const uint8_t*)&h, sizeof(h), false)) return false;   // truncate + header
+  if (s_dir_n > 0 && !tdeck_sd_write(DIR_FILE, (const uint8_t*)s_dir, (size_t)s_dir_n * sizeof(DirEntry), true))
+    return false;
+  return true;
+}
+
+static bool dir_load(void) {
+  if (!s_dir || !s_dir_bucket || !tdeck_sd_ok()) return false;
+  size_t cap = sizeof(DirFileHdr) + (size_t)DIR_MAX * sizeof(DirEntry);
+  uint8_t* buf = (uint8_t*)big_alloc(cap);
+  if (!buf) return false;
+  int n = tdeck_sd_read(DIR_FILE, buf, (int)cap);
+  bool ok = false;
+  if (n >= (int)sizeof(DirFileHdr)) {
+    DirFileHdr h; memcpy(&h, buf, sizeof(h));
+    if (h.magic == DIR_MAGIC && h.esz == sizeof(DirEntry)) {
+      int avail = (n - (int)sizeof(DirFileHdr)) / (int)sizeof(DirEntry);
+      int count = (int)h.count; if (count > avail) count = avail; if (count > DIR_MAX) count = DIR_MAX;
+      if (count > 0) memcpy(s_dir, buf + sizeof(DirFileHdr), (size_t)count * sizeof(DirEntry));
+      s_dir_n = count; s_dir_wcur = 0;
+      dir_rehash();
+      s_dir_total++;   // force UI + region-list rebuild
+      ok = true;
+    }
+  }
+  free(buf);
+  return ok;
+}
+
+void ui_directory_load(void) { dir_load(); }   // called once from UITask::begin
+
+// ~1/s from the loop: flush at most once a minute, only when a structural change
+// is pending. The whole-file write (<=~180 KB) briefly holds the shared SD/radio
+// bus; the lazy cadence keeps that hitch rare.
+void ui_directory_poll(void) {
+  static uint32_t last_flush = 0;
+  if (!s_dir || !s_dir_dirty) return;
+  uint32_t now = millis();
+  if (last_flush && now - last_flush < 60000) return;
+  last_flush = now;
+  if (dir_save()) s_dir_dirty = false;   // keep dirty (retry next window) if the write failed
 }
 
 // write the current live state (radio config + contacts + channels) into a
