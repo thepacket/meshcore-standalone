@@ -1,5 +1,7 @@
 # meshcore-standalone
 
+## This project is presently parked. For a t-deck firmware visit the repository thepacket/wadamesh. ##
+
 A standalone, **on-device UI** for [MeshCore](https://github.com/meshcore-dev/MeshCore)
 devices — starting with the **LilyGo T-Deck Plus** — so the radio can be
 operated directly on the device, **without a phone or web app**.
